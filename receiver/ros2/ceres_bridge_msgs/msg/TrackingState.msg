@@ -1,0 +1,11 @@
+std_msgs/Header header
+uint32 connection_epoch
+uint32 reference_space_epoch
+bool head_tracked
+bool left_tracked
+bool right_tracked
+uint32 left_validity_mask
+uint32 right_validity_mask
+bool clock_synchronised
+float64 clock_uncertainty_us
+string connection_state

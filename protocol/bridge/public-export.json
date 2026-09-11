@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "packageVersion": "1.0.0",
+  "protocolVersion": 1,
+  "targetRepository": "hcltech-robotics/ceres",
+  "targetBranch": "main",
+  "include": [
+    "receiver/",
+    "protocol/bridge/",
+    "shared/bridge-protocol.ts",
+    "shared/xr-hand-joints.ts"
+  ],
+  "copies": {
+    "receiver/public-gitignore": ".gitignore",
+    "receiver/public-readme.md": "README.md",
+    "receiver/LICENCE.md": "LICENCE.md"
+  }
+}

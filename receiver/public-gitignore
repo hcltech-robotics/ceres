@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.venv/
+receiver/ros2/install/
+receiver/ros2/log/
+receiver.json
+*.pending
+.env
+*.key
+*.pem

@@ -1,0 +1,385 @@
+{
+  "version": 1,
+  "configById": {
+    "Image!camera": {
+      "title": "Outward camera",
+      "imageMode": {
+        "imageTopic": "/ceres/camera/video"
+      },
+      "synchronize": false
+    },
+    "3D!tracking": {
+      "title": "Head and hands",
+      "fixedFrame": "ceres_origin",
+      "followTf": "ceres_origin",
+      "followMode": "follow-none",
+      "cameraState": {
+        "distance": 2.4,
+        "perspective": true,
+        "target": [
+          0.25,
+          0,
+          1.25
+        ],
+        "targetOffset": [
+          0,
+          0,
+          0
+        ],
+        "targetOrientation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "thetaOffset": 45,
+        "phi": 65,
+        "fovy": 45,
+        "near": 0.01,
+        "far": 100
+      },
+      "scene": {
+        "enableStats": true,
+        "backgroundColor": "#11161e"
+      },
+      "topics": {
+        "/ceres/scene": {
+          "visible": true
+        },
+        "/ceres/camera/calibration": {
+          "visible": true,
+          "distance": 0.36
+        },
+        "/ceres/camera/projection": {
+          "visible": true,
+          "cameraInfoTopic": "/ceres/camera/calibration",
+          "distance": 0.36,
+          "planarProjectionFactor": 1,
+          "color": "#ffffff80"
+        }
+      },
+      "transforms": {},
+      "layers": {}
+    },
+    "Plot!rates": {
+      "title": "Received frame rates",
+      "paths": [
+        {
+          "value": "/ceres/diagnostics.video_fps",
+          "label": "Video",
+          "color": "#b4d67e",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "showLine": true
+        },
+        {
+          "value": "/ceres/diagnostics.motion_fps",
+          "label": "Head",
+          "color": "#cbd5e1",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "showLine": true
+        },
+        {
+          "value": "/ceres/diagnostics.left_fps",
+          "label": "Left",
+          "color": "#26bfff",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "showLine": true
+        },
+        {
+          "value": "/ceres/diagnostics.right_fps",
+          "label": "Right",
+          "color": "#ff8c26",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "showLine": true
+        }
+      ],
+      "xAxisVal": "timestamp",
+      "showLegend": true,
+      "legendDisplay": "top",
+      "showPlotValuesInLegend": true,
+      "isSynced": true,
+      "timeWindowMode": "sliding",
+      "followingViewWidth": 15,
+      "minYValue": 0,
+      "yAxisLabel": "Frames/s",
+      "showXAxisLabels": true,
+      "showYAxisLabels": true
+    },
+    "Plot!age": {
+      "title": "Pose age and clock uncertainty",
+      "paths": [
+        {
+          "value": "/ceres/diagnostics.head_age_ms",
+          "label": "Head age",
+          "color": "#cbd5e1",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "showLine": true
+        },
+        {
+          "value": "/ceres/diagnostics.left_age_ms",
+          "label": "Left age",
+          "color": "#26bfff",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "showLine": true
+        },
+        {
+          "value": "/ceres/diagnostics.right_age_ms",
+          "label": "Right age",
+          "color": "#ff8c26",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "showLine": true
+        },
+        {
+          "value": "/ceres/diagnostics.clock_uncertainty_ms",
+          "label": "Clock uncertainty",
+          "color": "#d9a6ff",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "showLine": true
+        }
+      ],
+      "xAxisVal": "timestamp",
+      "showLegend": true,
+      "legendDisplay": "top",
+      "showPlotValuesInLegend": true,
+      "isSynced": true,
+      "timeWindowMode": "sliding",
+      "followingViewWidth": 15,
+      "minYValue": 0,
+      "yAxisLabel": "Milliseconds",
+      "showXAxisLabels": true,
+      "showYAxisLabels": true
+    },
+    "Plot!pinch": {
+      "title": "Thumb to index distance",
+      "paths": [
+        {
+          "value": "/ceres/diagnostics.left_pinch_m",
+          "label": "Left",
+          "color": "#26bfff",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "showLine": true
+        },
+        {
+          "value": "/ceres/diagnostics.right_pinch_m",
+          "label": "Right",
+          "color": "#ff8c26",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "showLine": true
+        }
+      ],
+      "xAxisVal": "timestamp",
+      "showLegend": true,
+      "legendDisplay": "top",
+      "showPlotValuesInLegend": true,
+      "isSynced": true,
+      "timeWindowMode": "sliding",
+      "followingViewWidth": 15,
+      "minYValue": 0,
+      "yAxisLabel": "Metres",
+      "showXAxisLabels": true,
+      "showYAxisLabels": true,
+      "maxYValue": 0.15
+    },
+    "RawMessages!details": {
+      "title": "Stream diagnostics",
+      "topicPath": "/ceres/diagnostics",
+      "defaultExpanded": true
+    },
+    "RawMessages!left": {
+      "title": "All 25 left joints",
+      "topicPath": "/ceres/left/joints",
+      "defaultExpanded": true
+    },
+    "RawMessages!right": {
+      "title": "All 25 right joints",
+      "topicPath": "/ceres/right/joints",
+      "defaultExpanded": true
+    },
+    "Plot!position": {
+      "title": "Head position",
+      "paths": [
+        {
+          "value": "/ceres/head/pose.pose.position.x",
+          "label": "X",
+          "color": "#f87171",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "showLine": true
+        },
+        {
+          "value": "/ceres/head/pose.pose.position.y",
+          "label": "Y",
+          "color": "#4ade80",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "showLine": true
+        },
+        {
+          "value": "/ceres/head/pose.pose.position.z",
+          "label": "Z",
+          "color": "#60a5fa",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "showLine": true
+        }
+      ],
+      "xAxisVal": "timestamp",
+      "showLegend": true,
+      "legendDisplay": "top",
+      "showPlotValuesInLegend": true,
+      "isSynced": true,
+      "timeWindowMode": "sliding",
+      "followingViewWidth": 15,
+      "yAxisLabel": "Metres",
+      "showXAxisLabels": true,
+      "showYAxisLabels": true
+    },
+    "Indicator!connection": {
+      "title": "Connected",
+      "path": "/ceres/diagnostics.connection",
+      "style": "background",
+      "fontSize": 20,
+      "fallbackColor": "#7f1d1d",
+      "fallbackLabel": "Disconnected",
+      "rules": [
+        {
+          "operator": "=",
+          "rawValue": "connected",
+          "color": "#14532d",
+          "label": "Connected"
+        }
+      ]
+    },
+    "Indicator!head": {
+      "title": "Head tracked",
+      "path": "/ceres/diagnostics.head_tracked",
+      "style": "background",
+      "fontSize": 20,
+      "fallbackColor": "#7f1d1d",
+      "fallbackLabel": "Not tracked",
+      "rules": [
+        {
+          "operator": "=",
+          "rawValue": "true",
+          "color": "#14532d",
+          "label": "Head tracked"
+        }
+      ]
+    },
+    "Indicator!left": {
+      "title": "Left tracked",
+      "path": "/ceres/diagnostics.left_tracked",
+      "style": "background",
+      "fontSize": 20,
+      "fallbackColor": "#7f1d1d",
+      "fallbackLabel": "Not tracked",
+      "rules": [
+        {
+          "operator": "=",
+          "rawValue": "true",
+          "color": "#14532d",
+          "label": "Left tracked"
+        }
+      ]
+    },
+    "Indicator!right": {
+      "title": "Right tracked",
+      "path": "/ceres/diagnostics.right_tracked",
+      "style": "background",
+      "fontSize": 20,
+      "fallbackColor": "#7f1d1d",
+      "fallbackLabel": "Not tracked",
+      "rules": [
+        {
+          "operator": "=",
+          "rawValue": "true",
+          "color": "#14532d",
+          "label": "Right tracked"
+        }
+      ]
+    },
+    "Tab!analysis": {
+      "activeTabIdx": 0,
+      "tabs": [
+        {
+          "title": "Rates, age and pinch",
+          "layout": {
+            "direction": "row",
+            "first": "Plot!rates",
+            "second": {
+              "direction": "row",
+              "first": "Plot!age",
+              "second": "Plot!pinch",
+              "splitPercentage": 50
+            },
+            "splitPercentage": 34
+          }
+        },
+        {
+          "title": "Head position and diagnostics",
+          "layout": {
+            "direction": "row",
+            "first": "Plot!position",
+            "second": "RawMessages!details",
+            "splitPercentage": 50
+          }
+        },
+        {
+          "title": "Joint poses and validity",
+          "layout": {
+            "direction": "row",
+            "first": "RawMessages!left",
+            "second": "RawMessages!right",
+            "splitPercentage": 50
+          }
+        }
+      ]
+    }
+  },
+  "globalVariables": {},
+  "userNodes": {},
+  "playbackConfig": {
+    "speed": 1
+  },
+  "layout": {
+    "direction": "column",
+    "first": {
+      "direction": "row",
+      "first": {
+        "direction": "row",
+        "first": "Indicator!connection",
+        "second": "Indicator!head",
+        "splitPercentage": 50
+      },
+      "second": {
+        "direction": "row",
+        "first": "Indicator!left",
+        "second": "Indicator!right",
+        "splitPercentage": 50
+      },
+      "splitPercentage": 50
+    },
+    "second": {
+      "direction": "column",
+      "first": {
+        "direction": "row",
+        "first": "Image!camera",
+        "second": "3D!tracking",
+        "splitPercentage": 45
+      },
+      "second": "Tab!analysis",
+      "splitPercentage": 65
+    },
+    "splitPercentage": 9
+  }
+}

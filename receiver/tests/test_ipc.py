@@ -1,0 +1,60 @@
+import unittest
+
+from ceres_bridge.ipc import Broker, EncodedMailbox, FrameMailbox, MAX_FRAME_BYTES
+from ceres_bridge.state import LatestState
+
+
+class MailboxTests(unittest.TestCase):
+    def test_two_leases_protect_frames_and_stall_is_private(self):
+        broker = Broker(LatestState())
+        first, second = FrameMailbox(), FrameMailbox()
+        broker.consumers = {1: first, 2: second}
+        try:
+            first.publish(b"abc", 1, 1, 3, 100, 1, 0)
+            lease0 = first.acquire(100)
+            first.publish(b"def", 1, 1, 3, 101, 1, 1)
+            lease1 = first.acquire(101)
+            self.assertNotEqual(lease0["slot"], lease1["slot"])
+            for _ in range(100):
+                broker.publish_frame(b"xyz", 1, 1, 3, 1)
+            self.assertEqual(first.memory[lease0["offset"]:lease0["offset"] + 3], b"abc")
+            self.assertEqual(first.memory[lease1["offset"]:lease1["offset"] + 3], b"def")
+            self.assertEqual(first.drops, 100)
+            self.assertEqual(second.generation, 100)
+            self.assertEqual(len(first.memory), 2 * MAX_FRAME_BYTES)
+            first.leased.remove(lease0["slot"])
+            first.publish(b"new", 1, 1, 3, 200, 1, 2)
+            self.assertEqual(first.acquire(200)["generation"], 3)
+        finally:
+            first.close()
+            second.close()
+
+    def test_stale_frame_is_unavailable(self):
+        box = FrameMailbox()
+        try:
+            box.publish(b"rgb", 1, 1, 3, 1, 1, 0)
+            self.assertIsNone(box.acquire(100_002))
+        finally:
+            box.close()
+
+    def test_encoded_loss_and_age_require_a_new_keyframe(self):
+        box = EncodedMailbox()
+        try:
+            self.assertFalse(box.publish_access_unit(b"delta", False, 1, 1, 0))
+            self.assertTrue(box.publish_access_unit(b"key", True, 1, 1, 0))
+            self.assertIsNone(box.acquire(100_002))
+            self.assertTrue(box.needs_keyframe)
+            self.assertFalse(box.publish_access_unit(b"delta", False, 100_003, 1, 1))
+            self.assertTrue(box.publish_access_unit(b"new-key", True, 100_004, 1, 2))
+            lease = box.acquire(100_004)
+            self.assertTrue(lease["keyframe"])
+            self.assertTrue(box.publish_access_unit(b"delta", False, 100_005, 1, 3))
+            self.assertFalse(box.publish_access_unit(b"lost", False, 100_006, 1, 4))
+            self.assertIsNone(box.acquire(100_006))
+            self.assertEqual(box.memory[lease["offset"]:lease["offset"] + lease["bytes"]], b"new-key")
+        finally:
+            box.close()
+
+
+if __name__ == "__main__":
+    unittest.main()

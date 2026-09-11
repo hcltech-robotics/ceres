@@ -1,0 +1,12 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>ceres_bridge_ros</name><version>1.0.0</version>
+  <description>ROS 2 output for the CERES Linux receiver</description>
+  <maintainer email="chris@chrisvoncsefalvay.com">Chris von Csefalvay</maintainer>
+  <license>CC-BY-NC-4.0</license>
+  <buildtool_depend>ament_python</buildtool_depend>
+  <exec_depend>rclpy</exec_depend><exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend><exec_depend>visualization_msgs</exec_depend>
+  <exec_depend>ceres_bridge_msgs</exec_depend><exec_depend>launch_ros</exec_depend>
+  <export><build_type>ament_python</build_type></export>
+</package>

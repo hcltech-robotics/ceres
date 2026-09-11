@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "globalVariables": {},
+  "userNodes": {},
+  "playbackConfig": {
+    "speed": 1
+  },
+  "configById": {
+    "Image!camera": {
+      "imageMode": {
+        "imageTopic": "/ceres/camera/image"
+      }
+    },
+    "3D!tracking": {
+      "topics": {
+        "/ceres/scene": {
+          "visible": true
+        }
+      }
+    }
+  },
+  "layout": {
+    "direction": "row",
+    "first": "Image!camera",
+    "second": "3D!tracking",
+    "splitPercentage": 50
+  }
+}

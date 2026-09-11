@@ -1,0 +1,11 @@
+std_msgs/Header header
+uint32 connection_epoch
+uint32 reference_space_epoch
+uint32 sequence
+uint64 observed_us
+uint64 predicted_display_us
+float64 clock_uncertainty_us
+uint32 validity_mask
+string[25] joint_names
+geometry_msgs/Pose[25] joints
+float32[25] radii

@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ceres-bridge"
+version = "1.0.0"
+description = "Latest-sample Python receiver for CERES Bridge"
+readme = "README.md"
+license = {file = "LICENCE.md"}
+requires-python = ">=3.12"
+dependencies = []
+
+[project.optional-dependencies]
+worker = ["aiohttp>=3.9,<4", "qrcode>=7.4,<9"]
+foxglove = ["foxglove-sdk>=0.27,<0.28", "aiohttp>=3.9,<4", "numpy>=1.26,<3", "Pillow>=10,<13"]
+test = ["pytest>=8,<10", "build>=1,<2", "protobuf>=5,<8"]
+
+[project.scripts]
+ceres-bridge = "ceres_bridge.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+ceres_bridge = ["data/*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
