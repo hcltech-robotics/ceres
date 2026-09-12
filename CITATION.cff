@@ -6,6 +6,7 @@ version: "1.1.0"
 license: MIT
 repository-code: https://github.com/hcltech-robotics/ceres
 url: https://ceres.cam/documentation/
+doi: 10.5281/zenodo.22729061
 authors:
   - family-names: "Foldi"
     given-names: "Tamas"

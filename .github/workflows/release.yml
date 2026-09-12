@@ -44,6 +44,7 @@ jobs:
       - name: Check public source
         run: |
           npm run check:boundary
+          if [ "$GITHUB_EVENT_NAME" != "pull_request" ]; then npm run check:boundary -- --verify-export; fi
           npm run check:citation
           npm run check
           npm test

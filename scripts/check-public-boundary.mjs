@@ -3,6 +3,7 @@ import { existsSync, lstatSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 const root = path.resolve(import.meta.dirname, "..");
+const verifyExport = process.argv.includes("--verify-export");
 const hash = bytes => createHash("sha256").update(bytes).digest("hex");
 const excluded = /(?:^|\/)(?:infrastructure|docs|documentation|user-facing-documentation|\.vercel|\.wrangler|\.env(?:\..*)?)(?:\/|$)|(?:^|\/)(?:hosted-|account-export-client|account-upload-receipt|account-identity|browser-observability|browser-journeys|client-diagnostics|recording-workflow-observability|javascript-error-telemetry|posthog|site-navigation|user-documentation|arrival-app|dataset-replay)/i;
 const forbiddenImports = /(?:from\s*|import\s*\(|require\s*\()["'][^"']*(?:posthog|hosted-|account-export-client|account-upload-receipt|browser-observability|javascript-error-telemetry)[^"']*["']/;
@@ -39,10 +40,12 @@ if (existsSync(manifestPath)) {
   for (const [file, expected] of Object.entries(manifest.files ?? {})) {
     if (!/^[A-Za-z0-9._/-]+$/.test(file) || file.split("/").includes("..")) throw new Error("Unsafe manifest path");
     const absolute = path.join(root,file);
-    if (!existsSync(absolute) || !lstatSync(absolute).isFile() || hash(readFileSync(absolute)) !== expected.sha256) problems.push(`Source differs from export manifest: ${file}`);
+    if (verifyExport && (!existsSync(absolute) || !lstatSync(absolute).isFile() || hash(readFileSync(absolute)) !== expected.sha256)) problems.push(`Source differs from export manifest: ${file}`);
+    if (verifyExport && process.platform !== "win32" && expected.mode && existsSync(absolute)
+      && ((lstatSync(absolute).mode & 0o111) ? "100755" : "100644") !== expected.mode) problems.push(`File mode differs from export manifest: ${file}`);
   }
   const generated = /^(?:dist\/|dist-server\/|third-party\/|public\/(?:wasm|ui|vendor)\/)/;
-  for (const file of inventory) if (!["EXPORT-MANIFEST.json", "SOURCE.json"].includes(file) && !generated.test(file) && !manifest.files[file]) problems.push(`Unclassified public source: ${file}`);
-} else if (process.env.CI) problems.push("Export manifest is required in CI");
+  for (const file of inventory) if (verifyExport && !["EXPORT-MANIFEST.json", "SOURCE.json"].includes(file) && !generated.test(file) && !manifest.files[file]) problems.push(`Unclassified public source: ${file}`);
+} else if (verifyExport) problems.push("Export manifest is required for release verification");
 if (problems.length) throw new Error([...new Set(problems)].join("\n"));
 console.log(`Public source boundary passed for ${inventory.length} files`);
