@@ -2,7 +2,7 @@
   "version": 2,
   "packageVersion": "1.1.0",
   "generator": "ceres-public-core/2",
-  "treeDigest": "0d3ab72a029f24e6863a98c75d53b1e8c82ed6325b0b13a2a04938a46f9b1a28",
+  "treeDigest": "d014a31be1d9587d94d733f390fb5ff21acf0d16b147c0c1067affc97857cea3",
   "files": {
     ".dockerignore": {
       "sha256": "f4f0799e0c8f318b0d36a430909ba9dcb3eeca1d1b0ae8b3b7907b44cc2bedca",
@@ -110,8 +110,8 @@
       "mode": "100644"
     },
     "package.json": {
-      "sha256": "0291b6f41e30974c7d3d65ec7b8b2e94a7fbd1f9a24bd18c5b20c74314640dfd",
-      "bytes": 3169,
+      "sha256": "657587221acf2211a8da03f89aaee43787a1409f20dd0ef483a740a2d75b9f6c",
+      "bytes": 3211,
       "mode": "100644"
     },
     "playwright.config.ts": {
@@ -465,8 +465,8 @@
       "mode": "100644"
     },
     "scripts/build-wasm-package.mjs": {
-      "sha256": "980b63d3a578af441168512593f02c58b8dad19507fa1a6e930be5886747accd",
-      "bytes": 3689,
+      "sha256": "9c34c2fcf421d93906ae5437798e1093395597e5fcbe64b5bf322375dfcced73",
+      "bytes": 3861,
       "mode": "100644"
     },
     "scripts/check-public-boundary.mjs": {
@@ -487,6 +487,11 @@
     "scripts/generate-citation.ts": {
       "sha256": "1545f03cefe63961a19c89f7d3ad8cc275dd35425226d7b931368e13a8b62e3f",
       "bytes": 2187,
+      "mode": "100644"
+    },
+    "scripts/normalise-source-maps.mjs": {
+      "sha256": "8030bbbc64f3f7f8291543773bfc538a97771f307fabc772eacb40dbc526e0b6",
+      "bytes": 1020,
       "mode": "100644"
     },
     "scripts/package-public-core.py": {

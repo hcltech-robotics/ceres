@@ -1,4 +1,5 @@
-import { copyFileSync, mkdirSync, realpathSync } from "node:fs";
+import { copyFileSync, mkdirSync, readFileSync, realpathSync } from "node:fs";
+import { createHash } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -60,6 +61,7 @@ function rustEnvironment(targetDirectory, targetFeature) {
     ...process.env,
     CARGO_ENCODED_RUSTFLAGS: rustArguments.join("\x1f"),
     CARGO_TARGET_DIR: targetDirectory,
+    CONST_RANDOM_SEED: createHash("sha256").update(readFileSync(path.join(crateRoot, "Cargo.lock"))).digest("hex"),
   };
   delete environment.RUSTFLAGS;
   return environment;
