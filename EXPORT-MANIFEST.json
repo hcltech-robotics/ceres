@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "sourceCommit": "0975a968dfda1decccfc0c4f733f4bbce4b85c5f",
+  "sourceCommit": "295cfe47b6102f1b651930d5a0e18d0a7101f7bb",
   "packageVersion": "1.0.0",
   "protocolVersion": 1,
   "files": {
@@ -8,7 +8,7 @@
     "protocol/bridge/fixtures/poses.json": "757825e88bba3873c83da6cb5e06cad4228b0e9189b04432671efa0216e93d35",
     "protocol/bridge/foxglove.md": "4ce02448343a54c146b3ad171d40327c74dc4153d8aa86a09aec0dd416eda887",
     "protocol/bridge/public-export.json": "be0bf5f09c6a1832cf6c86fb2b200c8b8cd281413ccddf9fa86baa6ed6deb20c",
-    "protocol/bridge/specification.md": "0959b007fea78d338c7ad7eae480d68697707025060fddca7c01e9a30b196aff",
+    "protocol/bridge/specification.md": "842ad30a038a3b4f178568b5a1fb01a3d3b0b63c021d32ec314472370894eeb2",
     "receiver/LICENCE.md": "b2d6b76741f86b3fe3f677c8a1a6ddeb3ee582f9e31ac4ca9c025c2a23a9b8a3",
     "receiver/MANIFEST.in": "f9501541e24001177f10748bd9797e7e0710c1d21dd9201ee22b3faf207a8c00",
     "receiver/README.md": "4d848b3cc82a3ce4c860dca0983029da137aef8e916be323365f24b32e0008b5",
@@ -70,6 +70,6 @@
     ".gitignore": "56d4b1fa8bcf248c08f832dfb18177f7f2c235d464d66e6eeaf99597fcad788c",
     "README.md": "88f377d95ef1c404b529593a8452ae0955f57c24f4a95c15d4ccedb1c5737fcf",
     "LICENCE.md": "b2d6b76741f86b3fe3f677c8a1a6ddeb3ee582f9e31ac4ca9c025c2a23a9b8a3",
-    "receiver/src/ceres_bridge/data/release.json": "6e603afafb240ff49b2d1051e585d754149ba71a530dd77ef931b8f0452890ed"
+    "receiver/src/ceres_bridge/data/release.json": "07c50f5583cae29f58d49888a8f10d979be10a05b41766f4aec1edbbdd5b6f36"
   }
 }

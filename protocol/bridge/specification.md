@@ -54,13 +54,13 @@ The Linux worker owns GStreamer, WebRTC and one decoder. Applications use a priv
 
 Bridge retains the circular reticle and camera margin. Video FPS appears above the left side and motion FPS above the right. Connection status and the receiver name appear beneath the reticle. The task bar and coloured task markers are hidden.
 
-REC and the microphone status occupy the upper left. Audio starts off with a crossed-out red microphone. The square microphone button beside **Start streaming** changes outgoing audio without affecting local voice commands. Pause/resume is at the upper right and Exit at the lower left. Pause suspends video, audio and poses while keeping the peer connection and local voice control. REC pulses faintly during a pause. Exit closes XR and streaming while leaving the camera preview available.
+REC occupies the upper-left corner of the camera reticle. Exit, Pause and the microphone toggle form a vertical stack in the upper-right corner at 50% opacity. Exit and Pause use red icons. Audio starts off with a crossed-out red microphone. The square microphone button beside **Enable camera** changes the same outgoing audio setting before XR without affecting local voice commands. Pause suspends video, audio and poses while keeping the peer connection and local voice control. REC pulses faintly during a pause. Exit closes XR and streaming while leaving the camera preview available.
 
-The four lower-right controls select hand appearance, shading, trails and HUD mode. They remain at 10% opacity when idle and become visible on hover.
+Four setting icons stack upwards from the lower-right corner for hand appearance, shading, trails and HUD mode. They remain at 50% opacity in every HUD mode. Pointing at an icon fades in its current setting to the left, and selecting it cycles the value. The scan-eye icon selects OFF, LIGHT or FULL.
 
 | HUD mode | Display |
 | --- | --- |
-| OFF | Reticle, REC, Exit, Pause and lower-right controls |
+| OFF | Reticle, REC, Exit, Pause, microphone toggle and lower-right controls |
 | LIGHT | Standard display with rates, connection state, receiver name and camera margin |
 | FULL | LIGHT plus a pitch ladder and horizon line at 50% opacity |
 
