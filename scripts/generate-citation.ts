@@ -43,3 +43,14 @@ for (const [name, text] of Object.entries({ "CITATION.cff": cff, "citation.bib":
     await writeFile(file, text);
   }
 }
+
+const readmePath = path.join(directory, "README.md");
+const readme = (await readFile(readmePath, "utf8")).replaceAll("\r\n", "\n");
+const bibtexBlock = /```bibtex\n[\s\S]*?\n```/u;
+if (!bibtexBlock.test(readme)) throw new Error("README.md must include the BibTeX citation");
+const expectedReadme = readme.replace(bibtexBlock, () => `\`\`\`bibtex\n${softwareBibtex()}\n\`\`\``);
+if (check) {
+  if (readme !== expectedReadme) throw new Error("README.md does not match the software citation");
+} else {
+  await writeFile(readmePath, expectedReadme);
+}

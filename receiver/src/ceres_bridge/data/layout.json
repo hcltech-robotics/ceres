@@ -2,14 +2,14 @@
   "version": 1,
   "configById": {
     "Image!camera": {
-      "title": "Outward camera",
+      "foxglovePanelTitle": "Quest live video",
       "imageMode": {
         "imageTopic": "/ceres/camera/video"
       },
       "synchronize": false
     },
     "3D!tracking": {
-      "title": "Head and hands",
+      "foxglovePanelTitle": "Quest acquisition",
       "fixedFrame": "ceres_origin",
       "followTf": "ceres_origin",
       "followMode": "follow-none",
@@ -40,20 +40,27 @@
       },
       "scene": {
         "enableStats": true,
-        "backgroundColor": "#11161e"
+        "backgroundColor": "#11161e",
+        "transforms": {
+          "visible": false,
+          "showLabel": false
+        }
       },
       "topics": {
         "/ceres/scene": {
           "visible": true
         },
+        "/ceres/robot/scene": {
+          "visible": false
+        },
         "/ceres/camera/calibration": {
           "visible": true,
-          "distance": 0.36
+          "distance": 0.216
         },
         "/ceres/camera/projection": {
           "visible": true,
           "cameraInfoTopic": "/ceres/camera/calibration",
-          "distance": 0.36,
+          "distance": 0.216,
           "planarProjectionFactor": 1,
           "color": "#ffffff80"
         }
@@ -62,7 +69,7 @@
       "layers": {}
     },
     "Plot!rates": {
-      "title": "Received frame rates",
+      "foxglovePanelTitle": "Received frame rates",
       "paths": [
         {
           "value": "/ceres/diagnostics.video_fps",
@@ -82,7 +89,7 @@
         },
         {
           "value": "/ceres/diagnostics.left_fps",
-          "label": "Left",
+          "label": "Left hand",
           "color": "#26bfff",
           "enabled": true,
           "timestampMethod": "receiveTime",
@@ -90,7 +97,7 @@
         },
         {
           "value": "/ceres/diagnostics.right_fps",
-          "label": "Right",
+          "label": "Right hand",
           "color": "#ff8c26",
           "enabled": true,
           "timestampMethod": "receiveTime",
@@ -99,18 +106,94 @@
       ],
       "xAxisVal": "timestamp",
       "showLegend": true,
-      "legendDisplay": "top",
-      "showPlotValuesInLegend": true,
+      "legendDisplay": "left",
+      "sidebarDimension": 120,
+      "showPlotValuesInLegend": false,
       "isSynced": true,
       "timeWindowMode": "sliding",
       "followingViewWidth": 15,
-      "minYValue": 0,
       "yAxisLabel": "Frames/s",
       "showXAxisLabels": true,
-      "showYAxisLabels": true
+      "showYAxisLabels": true,
+      "minYValue": 0
+    },
+    "Plot!load": {
+      "foxglovePanelTitle": "Viewer CPU load",
+      "paths": [
+        {
+          "value": "/ceres/diagnostics.process_cpu_percent",
+          "label": "CPU",
+          "color": "#d9a6ff",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "showLine": true
+        }
+      ],
+      "xAxisVal": "timestamp",
+      "showLegend": true,
+      "legendDisplay": "left",
+      "sidebarDimension": 120,
+      "showPlotValuesInLegend": false,
+      "isSynced": true,
+      "timeWindowMode": "sliding",
+      "followingViewWidth": 15,
+      "yAxisLabel": "Percent of one CPU core",
+      "showXAxisLabels": true,
+      "showYAxisLabels": true,
+      "minYValue": 0
+    },
+    "Plot!memory": {
+      "foxglovePanelTitle": "Viewer resident memory",
+      "paths": [
+        {
+          "value": "/ceres/diagnostics.process_rss_mb",
+          "label": "RSS",
+          "color": "#d9a6ff",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "showLine": true
+        }
+      ],
+      "xAxisVal": "timestamp",
+      "showLegend": true,
+      "legendDisplay": "left",
+      "sidebarDimension": 120,
+      "showPlotValuesInLegend": false,
+      "isSynced": true,
+      "timeWindowMode": "sliding",
+      "followingViewWidth": 15,
+      "yAxisLabel": "MiB",
+      "showXAxisLabels": true,
+      "showYAxisLabels": true,
+      "minYValue": 0
+    },
+    "Plot!timings": {
+      "foxglovePanelTitle": "Processing time",
+      "paths": [
+        {
+          "value": "/ceres/diagnostics.loop_ms",
+          "label": "Viewer loop",
+          "color": "#cbd5e1",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "showLine": true
+        }
+      ],
+      "xAxisVal": "timestamp",
+      "showLegend": true,
+      "legendDisplay": "left",
+      "sidebarDimension": 120,
+      "showPlotValuesInLegend": false,
+      "isSynced": true,
+      "timeWindowMode": "sliding",
+      "followingViewWidth": 15,
+      "yAxisLabel": "Milliseconds",
+      "showXAxisLabels": true,
+      "showYAxisLabels": true,
+      "minYValue": 0
     },
     "Plot!age": {
-      "title": "Pose age and clock uncertainty",
+      "foxglovePanelTitle": "Pose age and clock uncertainty",
       "paths": [
         {
           "value": "/ceres/diagnostics.head_age_ms",
@@ -147,18 +230,19 @@
       ],
       "xAxisVal": "timestamp",
       "showLegend": true,
-      "legendDisplay": "top",
-      "showPlotValuesInLegend": true,
+      "legendDisplay": "left",
+      "sidebarDimension": 120,
+      "showPlotValuesInLegend": false,
       "isSynced": true,
       "timeWindowMode": "sliding",
       "followingViewWidth": 15,
-      "minYValue": 0,
       "yAxisLabel": "Milliseconds",
       "showXAxisLabels": true,
-      "showYAxisLabels": true
+      "showYAxisLabels": true,
+      "minYValue": 0
     },
     "Plot!pinch": {
-      "title": "Thumb to index distance",
+      "foxglovePanelTitle": "Thumb to index distance",
       "paths": [
         {
           "value": "/ceres/diagnostics.left_pinch_m",
@@ -179,54 +263,55 @@
       ],
       "xAxisVal": "timestamp",
       "showLegend": true,
-      "legendDisplay": "top",
-      "showPlotValuesInLegend": true,
+      "legendDisplay": "left",
+      "sidebarDimension": 120,
+      "showPlotValuesInLegend": false,
       "isSynced": true,
       "timeWindowMode": "sliding",
       "followingViewWidth": 15,
-      "minYValue": 0,
       "yAxisLabel": "Metres",
       "showXAxisLabels": true,
       "showYAxisLabels": true,
+      "minYValue": 0,
       "maxYValue": 0.15
     },
     "RawMessages!details": {
-      "title": "Stream diagnostics",
+      "foxglovePanelTitle": "Stream diagnostics",
       "topicPath": "/ceres/diagnostics",
       "defaultExpanded": true
     },
     "RawMessages!left": {
-      "title": "All 25 left joints",
+      "foxglovePanelTitle": "Left joint details",
       "topicPath": "/ceres/left/joints",
       "defaultExpanded": true
     },
     "RawMessages!right": {
-      "title": "All 25 right joints",
+      "foxglovePanelTitle": "Right joint details",
       "topicPath": "/ceres/right/joints",
       "defaultExpanded": true
     },
-    "Plot!position": {
-      "title": "Head position",
+    "Plot!head-position": {
+      "foxglovePanelTitle": "Head position",
       "paths": [
         {
-          "value": "/ceres/head/pose.pose.position.x",
-          "label": "X",
+          "value": "/ceres/head/motion.position.x",
+          "label": "Head X",
           "color": "#f87171",
           "enabled": true,
           "timestampMethod": "receiveTime",
           "showLine": true
         },
         {
-          "value": "/ceres/head/pose.pose.position.y",
-          "label": "Y",
+          "value": "/ceres/head/motion.position.y",
+          "label": "Head Y",
           "color": "#4ade80",
           "enabled": true,
           "timestampMethod": "receiveTime",
           "showLine": true
         },
         {
-          "value": "/ceres/head/pose.pose.position.z",
-          "label": "Z",
+          "value": "/ceres/head/motion.position.z",
+          "label": "Head Z",
           "color": "#60a5fa",
           "enabled": true,
           "timestampMethod": "receiveTime",
@@ -235,8 +320,9 @@
       ],
       "xAxisVal": "timestamp",
       "showLegend": true,
-      "legendDisplay": "top",
-      "showPlotValuesInLegend": true,
+      "legendDisplay": "left",
+      "sidebarDimension": 120,
+      "showPlotValuesInLegend": false,
       "isSynced": true,
       "timeWindowMode": "sliding",
       "followingViewWidth": 15,
@@ -244,8 +330,176 @@
       "showXAxisLabels": true,
       "showYAxisLabels": true
     },
+    "Plot!head-rotation": {
+      "foxglovePanelTitle": "Head rotation",
+      "paths": [
+        {
+          "value": "/ceres/head/motion.rotation.roll",
+          "label": "Head roll",
+          "color": "#f87171",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "showLine": true
+        },
+        {
+          "value": "/ceres/head/motion.rotation.pitch",
+          "label": "Head pitch",
+          "color": "#4ade80",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "showLine": true
+        },
+        {
+          "value": "/ceres/head/motion.rotation.yaw",
+          "label": "Head yaw",
+          "color": "#60a5fa",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "showLine": true
+        }
+      ],
+      "xAxisVal": "timestamp",
+      "showLegend": true,
+      "legendDisplay": "left",
+      "sidebarDimension": 120,
+      "showPlotValuesInLegend": false,
+      "isSynced": true,
+      "timeWindowMode": "sliding",
+      "followingViewWidth": 15,
+      "yAxisLabel": "Radians",
+      "showXAxisLabels": true,
+      "showYAxisLabels": true
+    },
+    "Plot!hand-position": {
+      "foxglovePanelTitle": "Wrist position",
+      "paths": [
+        {
+          "value": "/ceres/left/motion.position.x",
+          "label": "Left X",
+          "color": "#38bdf8",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "showLine": true
+        },
+        {
+          "value": "/ceres/left/motion.position.y",
+          "label": "Left Y",
+          "color": "#22d3ee",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "showLine": true
+        },
+        {
+          "value": "/ceres/left/motion.position.z",
+          "label": "Left Z",
+          "color": "#a5f3fc",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "showLine": true
+        },
+        {
+          "value": "/ceres/right/motion.position.x",
+          "label": "Right X",
+          "color": "#fb923c",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "showLine": true
+        },
+        {
+          "value": "/ceres/right/motion.position.y",
+          "label": "Right Y",
+          "color": "#fbbf24",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "showLine": true
+        },
+        {
+          "value": "/ceres/right/motion.position.z",
+          "label": "Right Z",
+          "color": "#fed7aa",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "showLine": true
+        }
+      ],
+      "xAxisVal": "timestamp",
+      "showLegend": true,
+      "legendDisplay": "left",
+      "sidebarDimension": 120,
+      "showPlotValuesInLegend": false,
+      "isSynced": true,
+      "timeWindowMode": "sliding",
+      "followingViewWidth": 15,
+      "yAxisLabel": "Metres",
+      "showXAxisLabels": true,
+      "showYAxisLabels": true
+    },
+    "Plot!hand-rotation": {
+      "foxglovePanelTitle": "Wrist rotation",
+      "paths": [
+        {
+          "value": "/ceres/left/motion.rotation.roll",
+          "label": "Left roll",
+          "color": "#38bdf8",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "showLine": true
+        },
+        {
+          "value": "/ceres/left/motion.rotation.pitch",
+          "label": "Left pitch",
+          "color": "#22d3ee",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "showLine": true
+        },
+        {
+          "value": "/ceres/left/motion.rotation.yaw",
+          "label": "Left yaw",
+          "color": "#a5f3fc",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "showLine": true
+        },
+        {
+          "value": "/ceres/right/motion.rotation.roll",
+          "label": "Right roll",
+          "color": "#fb923c",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "showLine": true
+        },
+        {
+          "value": "/ceres/right/motion.rotation.pitch",
+          "label": "Right pitch",
+          "color": "#fbbf24",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "showLine": true
+        },
+        {
+          "value": "/ceres/right/motion.rotation.yaw",
+          "label": "Right yaw",
+          "color": "#fed7aa",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "showLine": true
+        }
+      ],
+      "xAxisVal": "timestamp",
+      "showLegend": true,
+      "legendDisplay": "left",
+      "sidebarDimension": 120,
+      "showPlotValuesInLegend": false,
+      "isSynced": true,
+      "timeWindowMode": "sliding",
+      "followingViewWidth": 15,
+      "yAxisLabel": "Radians",
+      "showXAxisLabels": true,
+      "showYAxisLabels": true
+    },
     "Indicator!connection": {
-      "title": "Connected",
+      "foxglovePanelTitle": "Connected",
       "path": "/ceres/diagnostics.connection",
       "style": "background",
       "fontSize": 20,
@@ -261,7 +515,7 @@
       ]
     },
     "Indicator!head": {
-      "title": "Head tracked",
+      "foxglovePanelTitle": "Head tracked",
       "path": "/ceres/diagnostics.head_tracked",
       "style": "background",
       "fontSize": 20,
@@ -277,7 +531,7 @@
       ]
     },
     "Indicator!left": {
-      "title": "Left tracked",
+      "foxglovePanelTitle": "Left tracked",
       "path": "/ceres/diagnostics.left_tracked",
       "style": "background",
       "fontSize": 20,
@@ -293,7 +547,7 @@
       ]
     },
     "Indicator!right": {
-      "title": "Right tracked",
+      "foxglovePanelTitle": "Right tracked",
       "path": "/ceres/diagnostics.right_tracked",
       "style": "background",
       "fontSize": 20,
@@ -308,34 +562,74 @@
         }
       ]
     },
-    "Tab!analysis": {
+    "Tab!workspace": {
       "activeTabIdx": 0,
       "tabs": [
         {
-          "title": "Rates, age and pinch",
+          "title": "Live monitoring",
           "layout": {
-            "direction": "row",
-            "first": "Plot!rates",
+            "direction": "column",
+            "first": {
+              "direction": "row",
+              "first": "3D!tracking",
+              "second": "Image!camera",
+              "splitPercentage": 60
+            },
             "second": {
               "direction": "row",
-              "first": "Plot!age",
-              "second": "Plot!pinch",
-              "splitPercentage": 50
+              "first": {
+                "direction": "column",
+                "first": "Plot!head-position",
+                "second": "Plot!head-rotation",
+                "splitPercentage": 50
+              },
+              "second": {
+                "direction": "row",
+                "first": {
+                  "direction": "column",
+                  "first": "Plot!hand-position",
+                  "second": "Plot!hand-rotation",
+                  "splitPercentage": 50
+                },
+                "second": {
+                  "direction": "column",
+                  "first": "Plot!rates",
+                  "second": "Plot!load",
+                  "splitPercentage": 50
+                },
+                "splitPercentage": 50
+              },
+              "splitPercentage": 34
             },
-            "splitPercentage": 34
+            "splitPercentage": 46
           }
         },
         {
-          "title": "Head position and diagnostics",
+          "title": "Performance and diagnostics",
           "layout": {
-            "direction": "row",
-            "first": "Plot!position",
-            "second": "RawMessages!details",
+            "direction": "column",
+            "first": {
+              "direction": "row",
+              "first": "Plot!age",
+              "second": {
+                "direction": "row",
+                "first": "Plot!timings",
+                "second": "Plot!memory",
+                "splitPercentage": 50
+              },
+              "splitPercentage": 34
+            },
+            "second": {
+              "direction": "row",
+              "first": "RawMessages!details",
+              "second": "Plot!pinch",
+              "splitPercentage": 50
+            },
             "splitPercentage": 50
           }
         },
         {
-          "title": "Joint poses and validity",
+          "title": "Joint details",
           "layout": {
             "direction": "row",
             "first": "RawMessages!left",
@@ -369,17 +663,7 @@
       },
       "splitPercentage": 50
     },
-    "second": {
-      "direction": "column",
-      "first": {
-        "direction": "row",
-        "first": "Image!camera",
-        "second": "3D!tracking",
-        "splitPercentage": 45
-      },
-      "second": "Tab!analysis",
-      "splitPercentage": 65
-    },
-    "splitPercentage": 9
+    "second": "Tab!workspace",
+    "splitPercentage": 7
   }
 }

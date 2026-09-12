@@ -2,7 +2,7 @@
   "version": 2,
   "packageVersion": "1.1.0",
   "generator": "ceres-public-core/2",
-  "treeDigest": "b89e1dec649b2ca37131f2595808a8658fac00deb43616ded0643b912a3654d8",
+  "treeDigest": "cef77a67e31bc3ee6f812206f4b9ab3876a6be4186c700de28bc5feb45de4c7c",
   "files": {
     ".dockerignore": {
       "sha256": "f4f0799e0c8f318b0d36a430909ba9dcb3eeca1d1b0ae8b3b7907b44cc2bedca",
@@ -10,8 +10,8 @@
       "mode": "100644"
     },
     ".gitattributes": {
-      "sha256": "6fd9f151a662c2f56c19098a43e9adaf12b1214d06e9ddabe28d969130608fa0",
-      "bytes": 86,
+      "sha256": "4acf122dc7322fe126a0f44592ce3e1fe8df39822ea0ad7b5cb990d8c2cc5aa7",
+      "bytes": 215,
       "mode": "100644"
     },
     ".github/workflows/release.yml": {
@@ -45,8 +45,8 @@
       "mode": "100644"
     },
     "README.md": {
-      "sha256": "6434754623e518b29eba72bd8f692365a2f28ea61a55df1d885ea3c32e2f0070",
-      "bytes": 4712,
+      "sha256": "477e7ab7f53c5f7addb54084274215c8f0509780863725b524b70882d437b5ac",
+      "bytes": 10648,
       "mode": "100644"
     },
     "RELEASE.md": {
@@ -210,13 +210,18 @@
       "mode": "100644"
     },
     "receiver/MANIFEST.in": {
-      "sha256": "46816831f1b0496fc45918b2ecb981b4ca729290af0184f57efffb6a14fca572",
-      "bytes": 220,
+      "sha256": "8497fa2d7e067dae979815eaf9b8686f5a557df85577f44a0f60e94a417583b2",
+      "bytes": 260,
       "mode": "100644"
     },
     "receiver/README.md": {
-      "sha256": "f0985b73d397e4ca02a335c20f01cad5f541869766235a3156aa6856d4a5a48b",
-      "bytes": 330,
+      "sha256": "479c929c28fbd5f83e9fca5f59b157643cf1af7f0691aecba01058f9f0f14b97",
+      "bytes": 691,
+      "mode": "100644"
+    },
+    "receiver/THIRD-PARTY.md": {
+      "sha256": "14423ad1d58dc1fc76bcbc1b50512fbdb16dc63b6a6219e8d0f88f5596c6bd86",
+      "bytes": 1201,
       "mode": "100644"
     },
     "receiver/assets/ceres-logo.webp": {
@@ -224,19 +229,44 @@
       "bytes": 109988,
       "mode": "100644"
     },
+    "receiver/examples/dual_arm.py": {
+      "sha256": "7ee4d2b1ec081ab382c7f7581f3c3a6b4f7200d5db8fe21149cda8e91c4838b8",
+      "bytes": 424,
+      "mode": "100644"
+    },
+    "receiver/examples/dual_arm_benchmark.py": {
+      "sha256": "ec652a25e7530718b1268d3bd6ab305c806e85c49af82822e4c88f65d53a86f6",
+      "bytes": 1994,
+      "mode": "100644"
+    },
+    "receiver/examples/dual_arm_xlerobot.LICENCE.txt": {
+      "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+      "bytes": 11357,
+      "mode": "100644"
+    },
     "receiver/examples/latest.py": {
       "sha256": "423400085a966b2956e0e738e87fb60d72286b90296986084399b27e08515639",
       "bytes": 551,
       "mode": "100644"
     },
+    "receiver/foxglove/dual-arm-layout.json": {
+      "sha256": "b50bed6b46401c9034406aa3f995c6c5425d04ae2b6e103b167c58d9e17fa80a",
+      "bytes": 24533,
+      "mode": "100644"
+    },
+    "receiver/foxglove/dual-arm-vp8-layout.json": {
+      "sha256": "b0f730892923904fb3995f2ee410e3376d3be9b8a4b879c1c7eed22c10882f09",
+      "bytes": 24538,
+      "mode": "100644"
+    },
     "receiver/foxglove/generate_layouts.py": {
-      "sha256": "62b70504e746f7543e9f22eb04d11101ef9a9c81ceb015b7ff840ed6b5f4509b",
-      "bytes": 5873,
+      "sha256": "fc4851778d53d97dabcf35ea29774588a5dc8fc68be25989ad276671e47c45e3",
+      "bytes": 9974,
       "mode": "100644"
     },
     "receiver/foxglove/layout.json": {
-      "sha256": "4d8c797354ebcbf55098796f1f8625698c6d6cb38f2576456872f52172ec94d1",
-      "bytes": 9888,
+      "sha256": "ccc88fa6086f5fa88473e37c92520a3e9ce507c0adbbdc95a6fbc2a2a2c2e6cf",
+      "bytes": 18400,
       "mode": "100644"
     },
     "receiver/foxglove/ros-layout.json": {
@@ -245,8 +275,8 @@
       "mode": "100644"
     },
     "receiver/foxglove/vp8-layout.json": {
-      "sha256": "864d46445d4e5bd62dec9c50a3f98f5a0202946b241cc95249537a5848dc5531",
-      "bytes": 9893,
+      "sha256": "fe866c510d9f45e9077d9cf8a89a770b9ee71033341bda8ea35403d24d056f6b",
+      "bytes": 18405,
       "mode": "100644"
     },
     "receiver/public-gitignore": {
@@ -255,8 +285,8 @@
       "mode": "100644"
     },
     "receiver/pyproject.toml": {
-      "sha256": "d27b0305e267c7ff233ad9bd1121a655febc59840f669795d9a40d573ac7bcd1",
-      "bytes": 779,
+      "sha256": "23297d80fc83fc7df044206fdc8633255785da61b0b36047295d1b0be67c83a2",
+      "bytes": 1084,
       "mode": "100644"
     },
     "receiver/ros2/ceres_bridge_msgs/CMakeLists.txt": {
@@ -314,19 +344,24 @@
       "bytes": 675,
       "mode": "100644"
     },
+    "receiver/scripts/prepare_xlerobot_assets.py": {
+      "sha256": "62d5ff94471193f427eaab40aaf1e418e1c879007cabadb04a1645b0357e8583",
+      "bytes": 9752,
+      "mode": "100644"
+    },
     "receiver/src/ceres_bridge/__init__.py": {
       "sha256": "08a938a2fd05c71d3dbf20125f9a2e4eccb9b530b03140f726cb21ac30d6f5db",
       "bytes": 222,
       "mode": "100644"
     },
     "receiver/src/ceres_bridge/cli.py": {
-      "sha256": "a8be338fe3addd9126c1726ea5723350db83efd8611b51332411b72ac52898c6",
-      "bytes": 3161,
+      "sha256": "aec2ab3a1b63edf71d6bd88cd87f8cb7c7d6b571f6e5dd33823dea9cea539836",
+      "bytes": 4413,
       "mode": "100644"
     },
     "receiver/src/ceres_bridge/client.py": {
-      "sha256": "fa6cec545baf8e5a17184cce603fd4655c0e4cf8e53c35dd164056cbfd07d29d",
-      "bytes": 5531,
+      "sha256": "789566cf04d32f621863e52b6dcaa2a34569a8dfdf62f6f3219b92b18d5fd6b6",
+      "bytes": 5694,
       "mode": "100644"
     },
     "receiver/src/ceres_bridge/coordinates.py": {
@@ -334,9 +369,19 @@
       "bytes": 404,
       "mode": "100644"
     },
+    "receiver/src/ceres_bridge/data/dual-arm-layout.json": {
+      "sha256": "b50bed6b46401c9034406aa3f995c6c5425d04ae2b6e103b167c58d9e17fa80a",
+      "bytes": 24533,
+      "mode": "100644"
+    },
+    "receiver/src/ceres_bridge/data/dual-arm-vp8-layout.json": {
+      "sha256": "b0f730892923904fb3995f2ee410e3376d3be9b8a4b879c1c7eed22c10882f09",
+      "bytes": 24538,
+      "mode": "100644"
+    },
     "receiver/src/ceres_bridge/data/layout.json": {
-      "sha256": "4d8c797354ebcbf55098796f1f8625698c6d6cb38f2576456872f52172ec94d1",
-      "bytes": 9888,
+      "sha256": "ccc88fa6086f5fa88473e37c92520a3e9ce507c0adbbdc95a6fbc2a2a2c2e6cf",
+      "bytes": 18400,
       "mode": "100644"
     },
     "receiver/src/ceres_bridge/data/poses.json": {
@@ -350,8 +395,88 @@
       "mode": "100644"
     },
     "receiver/src/ceres_bridge/data/vp8-layout.json": {
-      "sha256": "864d46445d4e5bd62dec9c50a3f98f5a0202946b241cc95249537a5848dc5531",
-      "bytes": 9893,
+      "sha256": "fe866c510d9f45e9077d9cf8a89a770b9ee71033341bda8ea35403d24d056f6b",
+      "bytes": 18405,
+      "mode": "100644"
+    },
+    "receiver/src/ceres_bridge/data/xlerobot/LICENSE.txt": {
+      "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+      "bytes": 11357,
+      "mode": "100644"
+    },
+    "receiver/src/ceres_bridge/data/xlerobot/NOTICE.txt": {
+      "sha256": "bca0b4a9aa3ab51c0f03ddac429bc86853902193110ef5a4635e4e923953acca",
+      "bytes": 545,
+      "mode": "100644"
+    },
+    "receiver/src/ceres_bridge/data/xlerobot/base-9718193b92bc.glb": {
+      "sha256": "9718193b92bc5c1c8dc43ffdb4805db88eeefcab6d0184e6d0f2fb1b53d3a81b",
+      "bytes": 659216,
+      "mode": "100644"
+    },
+    "receiver/src/ceres_bridge/data/xlerobot/base_link-600ba8be06ce.glb": {
+      "sha256": "600ba8be06ceb46585f059093b73cd939adbb702eb694f4a841a82628bf92d34",
+      "bytes": 1296864,
+      "mode": "100644"
+    },
+    "receiver/src/ceres_bridge/data/xlerobot/fixed_jaw-52b2a3473a9e.glb": {
+      "sha256": "52b2a3473a9e272078c8be0438b54187f1b87c872c6e031d507b5f22edb5f83b",
+      "bytes": 483364,
+      "mode": "100644"
+    },
+    "receiver/src/ceres_bridge/data/xlerobot/head_pan_link-87a92d118f60.glb": {
+      "sha256": "87a92d118f60c30102f97c0d2389a897c57d0d997aa361c7525f9c53198e001b",
+      "bytes": 429264,
+      "mode": "100644"
+    },
+    "receiver/src/ceres_bridge/data/xlerobot/head_tilt_link-12542bd63b37.glb": {
+      "sha256": "12542bd63b3747512563b35e0197dd363f453cc426d4dc015c944f51dd61e4a5",
+      "bytes": 598688,
+      "mode": "100644"
+    },
+    "receiver/src/ceres_bridge/data/xlerobot/lower_arm-6ebbc5331b82.glb": {
+      "sha256": "6ebbc5331b82ad313ce81805048222e2d110ee8bc017f087efc732a025886616",
+      "bytes": 587372,
+      "mode": "100644"
+    },
+    "receiver/src/ceres_bridge/data/xlerobot/manifest.json": {
+      "sha256": "ba1232b6319206ca50fac7de9ae7336c26a10d072bf519c1548ba64fb1af3da5",
+      "bytes": 41969,
+      "mode": "100644"
+    },
+    "receiver/src/ceres_bridge/data/xlerobot/moving_jaw-65af01616662.glb": {
+      "sha256": "65af016166621b3edfd4cc8caa969eb27c952fb4a4410a314bcfe01d26a9d99b",
+      "bytes": 230220,
+      "mode": "100644"
+    },
+    "receiver/src/ceres_bridge/data/xlerobot/right_arm_camera-ad24047ac59f.glb": {
+      "sha256": "ad24047ac59f06ff94975fb07d8da547681f1defea6ccb4ff1612f4e75725ad9",
+      "bytes": 256352,
+      "mode": "100644"
+    },
+    "receiver/src/ceres_bridge/data/xlerobot/rotation_pitch-5706fd94325c.glb": {
+      "sha256": "5706fd94325c8e3093b6d4728339e74d94463a6ee91876fd8e84f845378c35fe",
+      "bytes": 571588,
+      "mode": "100644"
+    },
+    "receiver/src/ceres_bridge/data/xlerobot/top_base_link-582f95710097.glb": {
+      "sha256": "582f95710097abf378cd85dec508d392bc6a9f72af351d9612c83384d6c1835f",
+      "bytes": 276648,
+      "mode": "100644"
+    },
+    "receiver/src/ceres_bridge/data/xlerobot/upper_arm-89573ff923cf.glb": {
+      "sha256": "89573ff923cf6f786bdd59c55f3ce32410c03bfe55b78bad9d63d0e4d4aa3b38",
+      "bytes": 412244,
+      "mode": "100644"
+    },
+    "receiver/src/ceres_bridge/data/xlerobot/wrist_pitch_roll-8ecbffced7c0.glb": {
+      "sha256": "8ecbffced7c080a24bebe24d7dd156884bca4021d7b4644b0fd846e657db7187",
+      "bytes": 605024,
+      "mode": "100644"
+    },
+    "receiver/src/ceres_bridge/data/xlerobot/xlerobot.urdf": {
+      "sha256": "73e947aa4f3636819bd039c3fcd03c625760e9ad32ccadfea05710afa6bf5578",
+      "bytes": 35061,
       "mode": "100644"
     },
     "receiver/src/ceres_bridge/foxglove_mesh.py": {
@@ -360,23 +485,33 @@
       "mode": "100644"
     },
     "receiver/src/ceres_bridge/foxglove_output.py": {
-      "sha256": "e8f5d535de03088af18d2536f80862b0f5ed685f9cb46598652cb44ef8411d34",
-      "bytes": 12456,
+      "sha256": "c6852ca1ce069b60f047b3064354f674613bfa1426c2d61cf41caa9960bdc585",
+      "bytes": 14123,
       "mode": "100644"
     },
     "receiver/src/ceres_bridge/foxglove_scene.py": {
-      "sha256": "72492583234b3df8f5b066024023a890986a6754f951dc4838331ae6d6f9c605",
-      "bytes": 10722,
+      "sha256": "243e99a0eb6a4e113de8f5e9a7721fe3f59691b9df4569c84295ac54c7761581",
+      "bytes": 11437,
       "mode": "100644"
     },
     "receiver/src/ceres_bridge/foxglove_schemas.py": {
-      "sha256": "9d89113eb5cb8806251d1a57db81620932f3564a9e786e18ad20819497f1cd5f",
-      "bytes": 1941,
+      "sha256": "f70a44689b080f5b79a9d4f00941a906c3c42d36e3b0241fc4022a8833088490",
+      "bytes": 2639,
+      "mode": "100644"
+    },
+    "receiver/src/ceres_bridge/foxglove_signals.py": {
+      "sha256": "28aa99e0d259f91b5e329a8c3a675e855371bc9a2b7c4a7ab7e4bba1a0cdda8b",
+      "bytes": 4148,
+      "mode": "100644"
+    },
+    "receiver/src/ceres_bridge/foxglove_teleop.py": {
+      "sha256": "03f791c1ca9e610e93ec0ba976411c686b9f00ca16147da5e0bae988a15bd9ca",
+      "bytes": 6560,
       "mode": "100644"
     },
     "receiver/src/ceres_bridge/foxglove_ui.py": {
-      "sha256": "85f363b01a1f43dfac59e5d8169619ebf4d588db85c81cc31a7229b0e620f0b8",
-      "bytes": 890,
+      "sha256": "c992672b4dcca796e4cfa266ac28f2b53043a5fb5043135d8c6cb5b994773441",
+      "bytes": 942,
       "mode": "100644"
     },
     "receiver/src/ceres_bridge/ipc.py": {
@@ -394,9 +529,29 @@
       "bytes": 5399,
       "mode": "100644"
     },
+    "receiver/src/ceres_bridge/robot_assets.py": {
+      "sha256": "2cca84d2bf96119c9324bd5a6e0f1c57be33920950f1976045338f0dd92156b4",
+      "bytes": 1703,
+      "mode": "100644"
+    },
     "receiver/src/ceres_bridge/state.py": {
       "sha256": "e6056d9d817ab69834436706a11ac11ba7f140ab37fc3cde9e6a88ef0cb512c0",
       "bytes": 6424,
+      "mode": "100644"
+    },
+    "receiver/src/ceres_bridge/teleop.py": {
+      "sha256": "fd147e30f53b9d606917bcd4da330eae42362d1c4f67424174c7f87ddf0208ed",
+      "bytes": 8953,
+      "mode": "100644"
+    },
+    "receiver/src/ceres_bridge/teleop_isaac.py": {
+      "sha256": "985bb68079f2ac8b825bd03af5270092c64ffb37bd682125bc3aa9618b4c7c3b",
+      "bytes": 2692,
+      "mode": "100644"
+    },
+    "receiver/src/ceres_bridge/teleop_model.py": {
+      "sha256": "d0a68a462e3927dce897503d0436a09d40646586642c3e4bcd181dee0b19fa46",
+      "bytes": 12006,
       "mode": "100644"
     },
     "receiver/src/ceres_bridge/worker.py": {
@@ -429,6 +584,11 @@
       "bytes": 1393,
       "mode": "100644"
     },
+    "receiver/tests/test_client.py": {
+      "sha256": "65abae35adf9bc8d0e49b7a4737a73f73301775420750b60f3e3d8ee88715305",
+      "bytes": 3492,
+      "mode": "100644"
+    },
     "receiver/tests/test_coordinates.py": {
       "sha256": "1f40a8344dc4d044479c8bcaed5b466fae037f8b601be3aa7670e64e34f60dce",
       "bytes": 916,
@@ -439,9 +599,29 @@
       "bytes": 4287,
       "mode": "100644"
     },
+    "receiver/tests/test_foxglove_demo.py": {
+      "sha256": "08266843b043a724f655d088423eafae46781f9a15dac5727e62b0f243a72120",
+      "bytes": 15028,
+      "mode": "100644"
+    },
+    "receiver/tests/test_foxglove_scene.py": {
+      "sha256": "c48500a4d6784163d107b6467f84b5faaf8ddc5e550d431516110c517975e670",
+      "bytes": 1592,
+      "mode": "100644"
+    },
+    "receiver/tests/test_foxglove_signals.py": {
+      "sha256": "0b7db45fd878f986b0b5226a9ef093a9e7c162de153865454c05fba5e962778b",
+      "bytes": 4228,
+      "mode": "100644"
+    },
+    "receiver/tests/test_foxglove_teleop.py": {
+      "sha256": "41b51d597ca2b2bdf4fbd7a92e34f0f0b2957ecd5d2ed40cfcafceb0491cf1b3",
+      "bytes": 2101,
+      "mode": "100644"
+    },
     "receiver/tests/test_foxglove_ui.py": {
-      "sha256": "c0e64a51f09091eec3fb73e831ffd9b1ae90bdf1af3ad38cac02bc47d2bc67d5",
-      "bytes": 1473,
+      "sha256": "0e924ee51d532da4260264a05f3b66c1e5c0eda2a1cf5d803dbfd500ac2ac8f1",
+      "bytes": 4850,
       "mode": "100644"
     },
     "receiver/tests/test_ipc.py": {
@@ -459,6 +639,21 @@
       "bytes": 5240,
       "mode": "100644"
     },
+    "receiver/tests/test_robot_assets.py": {
+      "sha256": "3068f9420b96a53f0748449e9ea8afd26201976b7f052a77cd892eb31c481a52",
+      "bytes": 6713,
+      "mode": "100644"
+    },
+    "receiver/tests/test_teleop.py": {
+      "sha256": "4acfcaf6f3e50aadfcb4da6ed15b68b9f721bca97c224a6d06910fe790615133",
+      "bytes": 15296,
+      "mode": "100644"
+    },
+    "receiver/tests/test_teleop_solver.py": {
+      "sha256": "b8917cd3fe6623e3dd5771a262d7ecc58488520689620095a03bff5589bdb8fe",
+      "bytes": 5524,
+      "mode": "100644"
+    },
     "rust-toolchain.toml": {
       "sha256": "0bcd795d437143e1789d37951cb5f0466b7bd8042a4ac08798c72fc824892b54",
       "bytes": 88,
@@ -470,8 +665,8 @@
       "mode": "100644"
     },
     "scripts/check-public-boundary.mjs": {
-      "sha256": "dfba9259f89e159799eae1105ee8e52df134c3fcb74b593ec3b306e9fffb1c31",
-      "bytes": 4320,
+      "sha256": "387725c6be6431f16a1dfb40edbf03aa306d384b1aa35c5a03c6e0e964e29ff3",
+      "bytes": 4366,
       "mode": "100644"
     },
     "scripts/check-release-sboms.mjs": {
@@ -490,8 +685,8 @@
       "mode": "100644"
     },
     "scripts/generate-citation.ts": {
-      "sha256": "1545f03cefe63961a19c89f7d3ad8cc275dd35425226d7b931368e13a8b62e3f",
-      "bytes": 2187,
+      "sha256": "7d76d58e6f224407199b3b9434dc05daa2fdb078106f5dcb85e296bb8e5b7954",
+      "bytes": 2737,
       "mode": "100644"
     },
     "scripts/normalise-source-maps.mjs": {

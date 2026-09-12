@@ -29,6 +29,19 @@ def main():
     foxglove.add_argument("--host", default="127.0.0.1")
     foxglove.add_argument("--port", type=int, default=8765)
     foxglove.add_argument("--assets", help="Directory containing quest-3.glb and authorised mano-left/right.json assets")
+    foxglove.add_argument("--robot", choices=("xlerobot",), help="Retarget both wrists to the XLeRobot arm model")
+    foxglove.add_argument("--retargeter", choices=("cpu", "isaacteleop"), default="cpu",
+                         help="Wrist target adapter for the dual-arm example")
+    foxglove.add_argument("--robot-rate", type=int, choices=range(1, 121), default=60, metavar="1-120",
+                         help="Maximum robot update rate in Hz (default: 60)")
+    foxglove.add_argument("--position-scale", type=float, default=0.6,
+                         help="Scale absolute wrist positions before the fixed robot transform (default: 0.6)")
+    foxglove.add_argument("--robot-origin", type=float, nargs=3, metavar=("X", "Y", "Z"), default=(0.0, 0.0, 0.0),
+                         help="Position of the scaled CERES origin in the robot base, in metres (default: 0 0 0)")
+    foxglove.add_argument("--robot-yaw", type=float, default=0.0,
+                         help="Fixed CERES-to-robot rotation about Z, in degrees (default: 0)")
+    foxglove.add_argument("--tracking-grace", type=float, default=0.5,
+                         help="Seconds to continue towards the last target after tracking loss before returning to neutral (default: 0.5)")
     commands.add_parser("doctor", help="Check the Linux media runtime")
     args = parser.parse_args()
     if sys.platform != "linux":
