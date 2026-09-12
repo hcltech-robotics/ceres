@@ -18,6 +18,7 @@
   <a href="https://ceres.cam/"><img src="https://img.shields.io/badge/Built_for-WebXR-5A45FF?style=flat-square" alt="Built for WebXR"></a>
   <a href="https://ceres.cam/documentation/data-description-and-output-format/"><img src="https://img.shields.io/badge/Datasets-LeRobot_v3-FFD21E?style=flat-square&amp;logo=huggingface&amp;logoColor=black" alt="LeRobot v3 datasets"></a>
   <a href="LICENCE.md"><img src="https://img.shields.io/badge/Licence-MIT-4C76BA?style=flat-square" alt="Licence: MIT"></a>
+  <a href="https://doi.org/10.5281/zenodo.22729061"><img src="https://zenodo.org/badge/DOI/10.5281/zenodo.22729061.svg" alt="DOI: 10.5281/zenodo.22729061"></a>
 </p>
 
 <p align="center">
@@ -66,8 +67,19 @@ Use `/launch/capture/?mode=solo` for Solo.
 
 The source build uses Node.js 22 and Rust 1.91.0, selected by `rust-toolchain.toml`.
 The runtime archive starts with `node dist-server/ceres-server.cjs`, or `./start.ps1`
-on Windows. To run the container behind your HTTPS reverse proxy, set
-`CERES_PUBLIC_ORIGIN` and run `docker compose up -d`.
+on Windows. Download `ceres-container.tar.gz` from the
+[release](https://github.com/hcltech-robotics/ceres/releases/tag/v1.1.0) and verify it
+with `gh attestation verify ceres-container.tar.gz --repo hcltech-robotics/ceres`.
+To run the container behind your HTTPS reverse proxy, set `CERES_PUBLIC_ORIGIN`
+and load the image before starting Compose:
+
+```sh
+docker load --input ceres-container.tar.gz
+docker compose up -d
+```
+
+The container archive can be transferred to a host without network access.
+Compose uses the loaded image and persistent local storage.
 
 Hugging Face uploads and Gist imports are enabled separately with
 `CERES_ALLOW_HUGGING_FACE=1` and `CERES_ALLOW_GIST=1`. Core capture and local export
@@ -84,3 +96,10 @@ please cite the version you used using [CITATION.cff](CITATION.cff) or
 
 Third-party components retain their respective licences. Release artefacts
 include an SBOM, checksums and signed build provenance.
+
+## Develop the core
+
+Run `npm run check`, `npm test` and `npm run build` against your changes. These
+commands use public source and dependencies. Submit core changes through a pull
+request. Official releases also verify the complete export manifest with
+`npm run check:boundary -- --verify-export`.

@@ -11,7 +11,7 @@ export const softwareCitation = {
   licence: "MIT",
   repository: "https://github.com/hcltech-robotics/ceres",
   documentation: "https://ceres.cam/documentation/",
-  doi: "",
+  doi: "10.5281/zenodo.22729061",
 } as const;
 
 export function softwareBibtex() {
