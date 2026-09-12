@@ -18,6 +18,7 @@
   <a href="https://ceres.cam/"><img src="https://img.shields.io/badge/Built_for-WebXR-5A45FF?style=flat-square" alt="Built for WebXR"></a>
   <a href="https://ceres.cam/documentation/data-description-and-output-format/"><img src="https://img.shields.io/badge/Datasets-LeRobot_v3-FFD21E?style=flat-square&amp;logo=huggingface&amp;logoColor=black" alt="LeRobot v3 datasets"></a>
   <a href="LICENCE.md"><img src="https://img.shields.io/badge/Licence-MIT-4C76BA?style=flat-square" alt="Licence: MIT"></a>
+  <a href="https://doi.org/10.5281/zenodo.22729061"><img src="https://zenodo.org/badge/DOI/10.5281/zenodo.22729061.svg" alt="DOI: 10.5281/zenodo.22729061"></a>
 </p>
 
 <p align="center">
@@ -84,3 +85,10 @@ please cite the version you used using [CITATION.cff](CITATION.cff) or
 
 Third-party components retain their respective licences. Release artefacts
 include an SBOM, checksums and signed build provenance.
+
+## Develop the core
+
+Run `npm run check`, `npm test` and `npm run build` against your changes. These
+commands use public source and dependencies. Submit core changes through a pull
+request. Official releases also verify the complete export manifest with
+`npm run check:boundary -- --verify-export`.

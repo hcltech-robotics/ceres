@@ -2,7 +2,7 @@
   "version": 2,
   "packageVersion": "1.1.0",
   "generator": "ceres-public-core/2",
-  "treeDigest": "c7f41ffcfe9a640846d0a6542b9557f7f9b4b45a3fd8086abe108d4bde8b6cee",
+  "treeDigest": "c33b4ea3c7a03ff2abbcd20271547d82ba4ecc8fa88cb2a652fd42a8e98d1750",
   "files": {
     ".dockerignore": {
       "sha256": "f4f0799e0c8f318b0d36a430909ba9dcb3eeca1d1b0ae8b3b7907b44cc2bedca",
@@ -15,8 +15,8 @@
       "mode": "100644"
     },
     ".github/workflows/release.yml": {
-      "sha256": "9e63126104cd293b87dcc12b650d87c343b8f9a66837c83ff9b75f678c4c4a3d",
-      "bytes": 8287,
+      "sha256": "50a32f6a4e49b151f38e624842b55a9f99365a526fa710786fd556ec72cf85ab",
+      "bytes": 8395,
       "mode": "100644"
     },
     ".gitignore": {
@@ -30,8 +30,8 @@
       "mode": "100644"
     },
     "CITATION.cff": {
-      "sha256": "a522a1178fcb05de6080bf64e4811620a8183e2651224b387314645e7afefc03",
-      "bytes": 472,
+      "sha256": "9c4f9a215c599720aac7715806df9a153a765d1552fa7c083cd42a23f37e3fe4",
+      "bytes": 501,
       "mode": "100644"
     },
     "Dockerfile": {
@@ -45,8 +45,8 @@
       "mode": "100644"
     },
     "README.md": {
-      "sha256": "1d333d3e3c86f1a691fdea78bad5964caa34c622d4cde5d13baa3f66b144ff2c",
-      "bytes": 3816,
+      "sha256": "26d1c16f5f40a2243332a723bf51934dabbfd734162324aa37759837d908e156",
+      "bytes": 4276,
       "mode": "100644"
     },
     "RELEASE.md": {
@@ -60,8 +60,8 @@
       "mode": "100644"
     },
     "citation.bib": {
-      "sha256": "388ee6f5cb0cfb444cd4834713d3b24bbbeb5e9aef9f130edafaf75f19afa4dd",
-      "bytes": 315,
+      "sha256": "a1dad611d3e52d2433d4461511e810eb40219566bc216114723e4b68c0a8034c",
+      "bytes": 354,
       "mode": "100644"
     },
     "compose.yaml": {
@@ -470,8 +470,8 @@
       "mode": "100644"
     },
     "scripts/check-public-boundary.mjs": {
-      "sha256": "ca12b702c4b0ee7003a78d72aa5097568408d49e16c22c1140c56e06248d7d58",
-      "bytes": 3959,
+      "sha256": "dfba9259f89e159799eae1105ee8e52df134c3fcb74b593ec3b306e9fffb1c31",
+      "bytes": 4320,
       "mode": "100644"
     },
     "scripts/check-release-sboms.mjs": {
@@ -660,8 +660,8 @@
       "mode": "100644"
     },
     "shared/software-citation.ts": {
-      "sha256": "75817777a8851d0c2388d0f6faf5bc382f722616422c16565a49da1a41e3ebed",
-      "bytes": 1030,
+      "sha256": "aa6295e16a418a231b69c1c7483e8545154f21d4fa1678dd9cf797d5c69e74c6",
+      "bytes": 1053,
       "mode": "100644"
     },
     "shared/task-specification.ts": {
@@ -1527,6 +1527,11 @@
     "test/peer-recorder-framing.test.ts": {
       "sha256": "f464c21be4aeff6db127e1a3344ebfefc0f9c34b9506c6bdd98587edf56118f5",
       "bytes": 1054,
+      "mode": "100644"
+    },
+    "test/public-boundary.test.ts": {
+      "sha256": "4c21a62b92b9bb8527683b78e2501fb04b5182cd171cd54d8ddd79c60ba38b1f",
+      "bytes": 1962,
       "mode": "100644"
     },
     "test/quest-camera.test.ts": {
