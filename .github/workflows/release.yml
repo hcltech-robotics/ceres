@@ -37,7 +37,9 @@ jobs:
           rustup toolchain install 1.91.0 --profile minimal --target wasm32-unknown-unknown
           rustup override set 1.91.0
           cargo install wasm-bindgen-cli --version 0.2.127 --locked
-          python -m pip install './receiver[worker,foxglove,test]'
+          python -m venv .venv
+          .venv/bin/python -m pip install './receiver[worker,foxglove,test]' 'datasets==3.6.0' build
+          echo "$GITHUB_WORKSPACE/.venv/bin" >> "$GITHUB_PATH"
           npx playwright install --with-deps chromium
       - name: Check public source
         run: |
@@ -46,7 +48,7 @@ jobs:
           npm run check
           npm test
           npm run test:rust
-          python -m pytest receiver/tests
+          .venv/bin/python -m pytest receiver/tests
       - name: Build public source
         env:
           CERES_BUILD_COMMIT: ${{ github.sha }}
@@ -56,7 +58,8 @@ jobs:
           npm run test:browser
           node scripts/collect-notices.mjs
           python scripts/package-public-core.py
-          python -m build receiver --outdir release
+          .venv/bin/python -m build receiver --outdir release
+          .venv/bin/python -m pip inspect > release/python-environment.json
       - name: Verify source archive installs without Git metadata
         run: |
           mkdir "$RUNNER_TEMP/ceres-source"
@@ -66,6 +69,9 @@ jobs:
           npm ci
           npm run check
           npm run check:citation
+          npm run build
+          diff -qr "$GITHUB_WORKSPACE/dist" dist
+          diff -qr "$GITHUB_WORKSPACE/dist-server" dist-server
       - name: Build runtime image
         run: |
           docker build --build-arg CERES_REVISION="$GITHUB_SHA" -t ceres-release .

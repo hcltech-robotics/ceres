@@ -2,7 +2,7 @@
   "version": 2,
   "packageVersion": "1.1.0",
   "generator": "ceres-public-core/2",
-  "treeDigest": "0aa4bd1f145888e2fee6e22177ff87a6eb95df378d1ba1e997006404fca30482",
+  "treeDigest": "77e663dc6736e6719135763563ed9d25118fe354e42b0fc70cac12c725af8263",
   "files": {
     ".dockerignore": {
       "sha256": "f4f0799e0c8f318b0d36a430909ba9dcb3eeca1d1b0ae8b3b7907b44cc2bedca",
@@ -15,8 +15,8 @@
       "mode": "100644"
     },
     ".github/workflows/release.yml": {
-      "sha256": "8abf89cc64d670367b6fd1b003577f7e36b527ff48f3eb343da3a6f65522f710",
-      "bytes": 7677,
+      "sha256": "062aaab8b3cba46cf2a27ff93ac0d3210fa844d016113a37c2235cbc13af2872",
+      "bytes": 8037,
       "mode": "100644"
     },
     ".gitignore": {
@@ -215,8 +215,8 @@
       "mode": "100644"
     },
     "receiver/README.md": {
-      "sha256": "df1adfc748f80728acd26db6e414d2edd5ae57c276c9ed31a27dc03d9466917c",
-      "bytes": 397,
+      "sha256": "f0985b73d397e4ca02a335c20f01cad5f541869766235a3156aa6856d4a5a48b",
+      "bytes": 330,
       "mode": "100644"
     },
     "receiver/assets/ceres-logo.webp": {
@@ -470,13 +470,13 @@
       "mode": "100644"
     },
     "scripts/check-public-boundary.mjs": {
-      "sha256": "5ef14eb39acc6e39f140e35ffa97f9d5bf42b6130cef2a5114bab54427991d5a",
-      "bytes": 3950,
+      "sha256": "ca12b702c4b0ee7003a78d72aa5097568408d49e16c22c1140c56e06248d7d58",
+      "bytes": 3959,
       "mode": "100644"
     },
     "scripts/collect-notices.mjs": {
-      "sha256": "4b2044f90988929f263aeca48f2b4b78234e3493cb1b928caf964df43c64f4c7",
-      "bytes": 1242,
+      "sha256": "9c9898f9e02f3aacd3545fbc524eb45682d31513a8482883dee07a970cdae787",
+      "bytes": 2736,
       "mode": "100644"
     },
     "scripts/copy-monitor-media.mjs": {

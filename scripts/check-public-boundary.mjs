@@ -8,7 +8,7 @@ const excluded = /(?:^|\/)(?:infrastructure|docs|documentation|user-facing-docum
 const forbiddenImports = /(?:from\s*|import\s*\(|require\s*\()["'][^"']*(?:posthog|hosted-|account-export-client|account-upload-receipt|browser-observability|javascript-error-telemetry)[^"']*["']/;
 const forbiddenDependencies = /posthog|@vercel\/blob|@clerk\//i;
 const secret = /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|\b(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{50,}|sk_live_[A-Za-z0-9]{20,})\b/;
-const skip = new Set([".git", "node_modules", "target", "pkg-scalar", "pkg-simd", "__pycache__", ".pytest_cache", "test-results", "playwright-report", "release", "data"]);
+const skip = new Set([".git", ".venv", "node_modules", "target", "pkg-scalar", "pkg-simd", "__pycache__", ".pytest_cache", "test-results", "playwright-report", "release", "data"]);
 function files(directory, prefix = "") {
   return readdirSync(directory, { withFileTypes: true }).flatMap(entry => {
     if (skip.has(entry.name) || entry.name.endsWith(".egg-info") || (prefix === "receiver" && entry.name === "build")) return [];
