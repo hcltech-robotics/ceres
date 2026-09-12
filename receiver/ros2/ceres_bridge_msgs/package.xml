@@ -3,7 +3,7 @@
   <name>ceres_bridge_msgs</name><version>1.0.0</version>
   <description>Typed CERES live tracking observations</description>
   <maintainer email="chris@chrisvoncsefalvay.com">Chris von Csefalvay</maintainer>
-  <license>CC-BY-NC-4.0</license>
+  <license>MIT</license>
   <buildtool_depend>ament_cmake</buildtool_depend>
   <build_depend>rosidl_default_generators</build_depend>
   <exec_depend>rosidl_default_runtime</exec_depend>

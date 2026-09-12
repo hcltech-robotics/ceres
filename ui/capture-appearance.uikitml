@@ -1,0 +1,105 @@
+<style>
+  .appearance-hud {
+    width: 420px;
+    height: 80px;
+    padding: 8px;
+    gap: 8px;
+    flex-direction: row;
+    align-items: stretch;
+    overflow: hidden;
+    pointer-events: none;
+  }
+
+  .appearance-control {
+    position: relative;
+    width: 129px;
+    height: 64px;
+    min-width: 0;
+    min-height: 64px;
+    flex-grow: 1;
+    padding-left: 10px;
+    padding-right: 10px;
+    pointer-events: listener;
+  }
+
+  .appearance-voice-glow {
+    display: none;
+    position: absolute;
+    top: 0px;
+    left: 0px;
+    width: 100%;
+    height: 100%;
+    border-radius: 16px;
+    opacity: 0.36;
+    transform-translate-z: 2px;
+    pointer-events: none;
+  }
+
+  .appearance-icon-slot {
+    width: 22px;
+    height: 22px;
+  }
+
+  .appearance-icon {
+    width: 20px;
+    height: 20px;
+    transform-translate-z: 4px;
+    pointer-events: none;
+  }
+
+  .appearance-label-stack {
+    min-width: 0;
+    flex-grow: 1;
+    gap: 0;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+  }
+
+  .appearance-label {
+    font-size: 13px;
+    line-height: 16px;
+    font-weight: 500;
+    pointer-events: none;
+  }
+
+  .appearance-value {
+    font-size: 15px;
+    line-height: 18px;
+    font-weight: 600;
+    pointer-events: none;
+  }
+</style>
+
+<Container id="capture-appearance-root" class="appearance-hud">
+  <Button id="hand-handMode" class="appearance-control" variant="secondary" size="lg">
+    <Container id="hand-handMode-voice-glow" class="appearance-voice-glow"></Container>
+    <ButtonIcon class="appearance-icon-slot"><Hand class="appearance-icon"></Hand></ButtonIcon>
+    <ButtonLabel class="appearance-label-stack">
+      <Text id="hand-handMode-label" class="appearance-label">Hand</Text>
+      <ButtonLabelSubtext><Text id="hand-handMode-value" class="appearance-value">Outline</Text></ButtonLabelSubtext>
+    </ButtonLabel>
+  </Button>
+  <Button id="hand-handShading" class="appearance-control" variant="secondary" size="lg">
+    <Container id="hand-handShading-voice-glow" class="appearance-voice-glow"></Container>
+    <ButtonIcon class="appearance-icon-slot"><Contrast class="appearance-icon"></Contrast></ButtonIcon>
+    <ButtonLabel class="appearance-label-stack">
+      <Text id="hand-handShading-label" class="appearance-label">Shade</Text>
+      <ButtonLabelSubtext><Text id="hand-handShading-value" class="appearance-value">Side</Text></ButtonLabelSubtext>
+    </ButtonLabel>
+  </Button>
+  <Button id="hand-handTrail" class="appearance-control" variant="secondary" size="lg">
+    <Container id="hand-handTrail-voice-glow" class="appearance-voice-glow"></Container>
+    <ButtonIcon class="appearance-icon-slot"><Waypoints class="appearance-icon"></Waypoints></ButtonIcon>
+    <ButtonLabel class="appearance-label-stack">
+      <Text id="hand-handTrail-label" class="appearance-label">Trail</Text>
+      <ButtonLabelSubtext><Text id="hand-handTrail-value" class="appearance-value">Off</Text></ButtonLabelSubtext>
+    </ButtonLabel>
+  </Button>
+  <Button id="bridge-hud-mode" class="appearance-control" variant="secondary" size="lg" display="none">
+    <ButtonLabel class="appearance-label-stack">
+      <Text class="appearance-label">HUD</Text>
+      <ButtonLabelSubtext><Text id="bridge-hud-mode-value" class="appearance-value">LIGHT</Text></ButtonLabelSubtext>
+    </ButtonLabel>
+  </Button>
+</Container>

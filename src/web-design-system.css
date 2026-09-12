@@ -1,0 +1,166 @@
+/*
+ * Browser design system
+ *
+ * Shared tokens and low-level browser primitives for the landing site, capture
+ * director, Solo setup and user documentation. Keep spatial XR UI in ui/ and
+ * its dedicated runtime styling independent from this file.
+ */
+
+:root {
+  /* Colour primitives and semantic roles. */
+  --colour-canvas: #0b0d10;
+  --colour-surface-sunken: #0f1216;
+  --colour-surface: #14181d;
+  --colour-surface-raised: #1a1f25;
+  --colour-surface-interactive: #222830;
+  --colour-border: #2a3037;
+  --colour-border-strong: #3a424c;
+  --colour-text: #eef1f4;
+  --colour-text-secondary: #bac2ca;
+  --colour-text-muted: #7e8994;
+  --colour-text-disabled: #56616c;
+  --colour-action: #6ba9ff;
+  --colour-success: #65d4cb;
+  --colour-accent: #bd9cff;
+  --colour-warning: #e2c568;
+  --colour-danger: #ff6d70;
+  --colour-on-action: #07101c;
+  --colour-on-danger: #140506;
+  --colour-shadow: rgb(0 0 0 / .46);
+  --colour-scrim: rgb(3 5 8 / .78);
+  --colour-scrim-strong: rgb(3 5 8 / .94);
+  --colour-qr-foreground: #000000;
+  --colour-qr-background: #ffffff;
+  --colour-print-canvas: #fdfdfc;
+  --colour-print-text: #151719;
+  --colour-print-body: #30343a;
+  --colour-print-accent: #334f73;
+  --colour-print-border-strong: #6e747c;
+  --colour-print-border: #9aa0a7;
+  --colour-print-frame: #777d84;
+  --colour-print-surface: #f0f1f2;
+  --colour-focus: var(--colour-action);
+  --colour-surface-selected: color-mix(in srgb, var(--colour-action) 14%, var(--colour-surface-sunken));
+  --colour-surface-action: color-mix(in srgb, var(--colour-action) 18%, var(--colour-surface-interactive));
+  --colour-surface-success: color-mix(in srgb, var(--colour-success) 22%, var(--colour-surface-interactive));
+  --colour-surface-danger: color-mix(in srgb, var(--colour-danger) 24%, var(--colour-surface));
+  --colour-border-action: color-mix(in srgb, var(--colour-action) 55%, var(--colour-border-strong));
+  --colour-border-danger: color-mix(in srgb, var(--colour-danger) 58%, var(--colour-border-strong));
+
+  /* Typography. Sans is the browser interface default. Mono is data only. */
+  --font-family-sans: "Geist Variable", "Geist", sans-serif;
+  --font-family-mono: "Geist Mono", ui-monospace, "Cascadia Code", Consolas, monospace;
+  --type-size-micro: .625rem;
+  --type-size-label: .75rem;
+  --type-size-small: .8125rem;
+  --type-size-body: .875rem;
+  --type-size-title: 1.25rem;
+  --font-ui-title: 650 var(--type-size-title)/1.15 var(--font-family-sans);
+  --font-ui-section: 700 var(--type-size-label)/1 var(--font-family-sans);
+  --font-ui-label: 650 var(--type-size-label)/1.2 var(--font-family-sans);
+  --font-ui-body: 500 var(--type-size-body)/1.45 var(--font-family-sans);
+  --font-ui-control: 650 var(--type-size-body)/1 var(--font-family-sans);
+  --font-ui-quiet: 500 var(--type-size-label)/1.35 var(--font-family-sans);
+  --font-ui-data: 650 var(--type-size-label)/1.2 var(--font-family-mono);
+  --tracking-label: .08em;
+  --tracking-data: .06em;
+
+  /* Layout and component geometry. */
+  --space-2xs: 4px;
+  --space-xs: 8px;
+  --space-sm: 12px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --space-2xl: 48px;
+  --space-3xl: 64px;
+  --radius-control: 0;
+  --border-width: 1px;
+  --control-height-compact: 28px;
+  --control-height: 36px;
+  --control-height-touch: 44px;
+  --control-padding-inline: 12px;
+  --panel-padding: var(--space-md);
+  --elevation-floating: 0 18px 48px var(--colour-shadow);
+  --transition-interactive: 140ms ease;
+  --z-dropdown: 20;
+  --z-popover: 50;
+  --z-modal: 100;
+
+  --site-gutter: clamp(14px, 3vw, 24px);
+  --site-page-space: clamp(32px, 6vw, 64px);
+  --site-section-space: clamp(48px, 5vw, 64px);
+  --site-content-width: 1120px;
+  --site-wide-width: 1320px;
+  --site-reading-width: 760px;
+  --site-intro-width: 710px;
+  --site-header-height: 64px;
+  --studio-command-bar-height: 38px;
+  --monitor-status-bar-height: 30px;
+  color: var(--colour-text);
+  background: var(--colour-canvas);
+  color-scheme: dark;
+  font-family: var(--font-family-sans);
+  font-size: var(--type-size-body);
+  font-synthesis: none;
+  font-variant-numeric: tabular-nums lining-nums;
+  text-rendering: geometricPrecision;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+.visually-hidden-until-focus:not(:focus) {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip-path: inset(50%) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+html,
+body,
+#app {
+  min-height: 100%;
+  margin: 0;
+}
+
+button,
+input,
+textarea,
+select {
+  border-radius: var(--radius-control);
+}
+
+button,
+input,
+textarea,
+select,
+code {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+a:focus-visible,
+summary:focus-visible,
+.capture-health-summary:focus-visible {
+  outline: 2px solid var(--colour-focus);
+  outline-offset: 2px;
+}
+
+code {
+  color: inherit;
+  font-family: var(--font-family-mono);
+}

@@ -1,0 +1,38 @@
+{
+  "title": "CERES: Capturing Egocentric Recordings with Ease and Speed",
+  "description": "CERES captures synchronised egocentric video, audio, head pose and hand tracking with task metadata on Meta Quest. The self-hosted application supports paired capture, Solo capture, Bridge streaming and LeRobot v3 dataset export.",
+  "upload_type": "software",
+  "access_right": "open",
+  "license": "mit",
+  "version": "1.1.0",
+  "creators": [
+    {
+      "name": "Foldi, Tamas"
+    },
+    {
+      "name": "von Csefalvay, Chris"
+    },
+    {
+      "name": "Unni Krishnan, Achyuthan"
+    }
+  ],
+  "keywords": [
+    "egocentric capture",
+    "robotics",
+    "WebXR",
+    "LeRobot",
+    "self-hosting"
+  ],
+  "related_identifiers": [
+    {
+      "identifier": "https://github.com/hcltech-robotics/ceres",
+      "relation": "isSupplementTo",
+      "scheme": "url"
+    },
+    {
+      "identifier": "https://ceres.cam/documentation/",
+      "relation": "isDocumentedBy",
+      "scheme": "url"
+    }
+  ]
+}

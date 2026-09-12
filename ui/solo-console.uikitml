@@ -1,0 +1,605 @@
+<style>
+  .workspace {
+    width: 1040px;
+    height: 760px;
+    gap: 16px;
+    flex-direction: row;
+    align-items: stretch;
+    overflow: visible;
+    pointer-events: listener;
+  }
+
+  .console {
+    width: 1040px;
+    height: 760px;
+    flex-shrink: 0;
+    padding: 32px;
+    gap: 12px;
+    flex-direction: column;
+    overflow: hidden;
+    color: rgba(255, 255, 255, 0.90);
+    pointer-events: listener;
+  }
+
+  .foreground {
+    z-index: 2;
+  }
+
+  .header {
+    height: 64px;
+    gap: 10px;
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-start;
+  }
+
+  .identity {
+    min-width: 0;
+    flex-grow: 1;
+    font-size: 24px;
+    line-height: 30px;
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.88);
+  }
+
+  .header-actions {
+    height: 64px;
+    gap: 8px;
+    flex-direction: row;
+    align-items: stretch;
+    flex-shrink: 0;
+  }
+
+  .header-button {
+    height: 64px;
+    min-height: 64px;
+    flex-shrink: 0;
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+
+  .header-back {
+    width: 232px;
+  }
+
+  .header-exit {
+    width: 136px;
+  }
+
+  .header-button-label {
+    font-size: 22px;
+    line-height: 28px;
+    font-weight: 500;
+  }
+
+  .navigation {
+    height: 74px;
+    gap: 10px;
+    flex-direction: row;
+    align-items: stretch;
+  }
+
+  .navigation-button {
+    height: 74px;
+    min-height: 74px;
+    min-width: 0;
+    flex-grow: 1;
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+
+  .navigation-label {
+    width: 100%;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    font-size: 36px;
+    line-height: 42px;
+    font-weight: 500;
+  }
+
+  .context {
+    height: 40px;
+    flex-direction: row;
+    align-items: center;
+  }
+
+  .hint {
+    font-size: 28px;
+    line-height: 34px;
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.88);
+  }
+
+  .rows {
+    height: 190px;
+    gap: 8px;
+    flex-direction: column;
+    overflow: scroll;
+    pointer-events: listener;
+    padding-right: 12px;
+    scrollbar-width: 8px;
+    scrollbar-color: rgba(104, 174, 255, 0.72);
+  }
+
+  .row {
+    width: 100%;
+    height: 64px;
+    min-height: 64px;
+    flex-shrink: 0;
+    padding-left: 20px;
+    padding-right: 20px;
+    justify-content: flex-start;
+  }
+
+  .row-label {
+    width: 100%;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .row-primary {
+    font-size: 32px;
+    line-height: 38px;
+    font-weight: 500;
+  }
+
+  .row-secondary {
+    font-size: 22px;
+    line-height: 28px;
+    font-weight: 500;
+    opacity: 0.70;
+  }
+
+  .fields {
+    display: none;
+    height: 212px;
+    gap: 12px;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-content: flex-start;
+  }
+
+  .field {
+    width: 482px;
+    height: 88px;
+    flex-direction: column;
+  }
+
+  .field-label {
+    font-size: 20px;
+    line-height: 26px;
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.70);
+  }
+
+  .field-input {
+    width: 482px;
+    height: 88px;
+    min-height: 88px;
+  }
+
+  .field-textarea {
+    display: none;
+    width: 976px;
+    height: 112px;
+    min-height: 112px;
+  }
+
+  .task-properties {
+    display: none;
+    width: 480px;
+    height: 760px;
+    flex-shrink: 0;
+    padding: 24px;
+    gap: 6px;
+    flex-direction: column;
+    overflow: hidden;
+    color: rgba(255, 255, 255, 0.90);
+    pointer-events: listener;
+  }
+
+  .task-properties-header {
+    width: 100%;
+    height: 58px;
+    min-height: 58px;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .task-properties-heading {
+    flex-grow: 1;
+    min-width: 0;
+    font-size: 30px;
+    line-height: 36px;
+    font-weight: 500;
+  }
+
+  .task-properties-close {
+    width: 64px;
+    height: 64px;
+    min-width: 64px;
+    min-height: 64px;
+    flex-shrink: 0;
+  }
+
+  .task-properties-field {
+    width: 100%;
+    gap: 2px;
+    flex-direction: column;
+    flex-shrink: 0;
+  }
+
+  .task-properties-title-field {
+    height: 88px;
+  }
+
+  .task-properties-instructions-field {
+    height: 104px;
+  }
+
+  .task-properties-type-field {
+    height: 76px;
+  }
+
+  .task-properties-slider-field {
+    height: 66px;
+  }
+
+  .task-properties-label {
+    height: 22px;
+    min-height: 22px;
+    font-size: 18px;
+    line-height: 22px;
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.70);
+  }
+
+  .task-properties-input {
+    width: 100%;
+    height: 88px;
+    min-height: 88px;
+  }
+
+  .task-properties-textarea {
+    width: 100%;
+    height: 104px;
+    min-height: 104px;
+  }
+
+  .task-properties-radio-group {
+    width: 100%;
+    height: 50px;
+    min-height: 50px;
+    gap: 6px;
+    flex-direction: row;
+  }
+
+  .task-properties-radio-item {
+    width: 140px;
+    height: 50px;
+    min-width: 140px;
+    min-height: 50px;
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+
+  .task-properties-radio-label {
+    width: 100%;
+    text-align: center;
+    font-size: 21px;
+    line-height: 27px;
+    font-weight: 500;
+  }
+
+  .task-properties-slider {
+    width: 100%;
+    height: 42px;
+    min-height: 42px;
+  }
+
+  .task-properties-spacer {
+    flex-grow: 1;
+    min-height: 0;
+  }
+
+  .task-properties-status {
+    width: 100%;
+    height: 26px;
+    min-height: 26px;
+    font-size: 18px;
+    line-height: 22px;
+    color: rgba(255, 255, 255, 0.66);
+  }
+
+  .task-properties-save {
+    width: 100%;
+    height: 64px;
+    min-height: 64px;
+    flex-shrink: 0;
+  }
+
+  .task-properties-save-label {
+    width: 100%;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    font-size: 24px;
+    line-height: 30px;
+    font-weight: 500;
+  }
+
+  .field-slider {
+    display: none;
+    width: 482px;
+    height: 48px;
+    min-height: 48px;
+  }
+
+  .semantic-controls {
+    display: none;
+    width: 100%;
+    height: 74px;
+    min-height: 74px;
+    gap: 12px;
+    flex-direction: row;
+    align-items: stretch;
+    overflow: hidden;
+  }
+
+  .semantic-control {
+    width: 482px;
+    height: 74px;
+    min-height: 74px;
+    gap: 4px;
+    flex-direction: column;
+  }
+
+  .toggle-row {
+    width: 100%;
+    height: 48px;
+    min-height: 48px;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .control-value {
+    flex-grow: 1;
+    text-align: right;
+    font-size: 24px;
+    line-height: 30px;
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.88);
+  }
+
+  .radio-group {
+    width: 100%;
+    height: 48px;
+    min-height: 48px;
+    gap: 6px;
+    flex-direction: row;
+  }
+
+  .radio-item {
+    width: 156px;
+    height: 48px;
+    min-width: 156px;
+    min-height: 48px;
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+
+  .radio-label {
+    width: 100%;
+    text-align: center;
+    font-size: 22px;
+    line-height: 28px;
+    font-weight: 500;
+  }
+
+  .progress-bar {
+    width: 100%;
+    height: 18px;
+    min-height: 18px;
+    margin-top: 10px;
+  }
+
+  .row-checkbox {
+    width: 32px;
+    height: 32px;
+    min-width: 32px;
+    min-height: 32px;
+    margin-right: 14px;
+  }
+
+  .actions {
+    height: 136px;
+    gap: 8px;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-content: flex-start;
+    overflow: hidden;
+  }
+
+  .action {
+    width: 188px;
+    height: 64px;
+    min-height: 64px;
+    min-width: 188px;
+    flex-shrink: 0;
+  }
+
+  .action-label {
+    width: 100%;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    font-size: 26px;
+    line-height: 32px;
+    font-weight: 500;
+  }
+
+  .logo-underlay {
+    position: absolute;
+    top: -112px;
+    right: -86px;
+    width: 420px;
+    height: 420px;
+    opacity: 0.12;
+    z-index: 1;
+  }
+
+  .noninteractive {
+    pointer-events: none;
+  }
+</style>
+
+<Container id="solo-console-root" class="workspace">
+<Panel id="solo-console-panel" class="console">
+  <img class="logo-underlay noninteractive" src="/assets/ceres-project-icon-monochrome.webp" />
+
+  <Container class="header foreground">
+    <Text id="solo-console-identity" class="identity noninteractive">SOLO / SESSION -- / ACTIVE</Text>
+    <Container class="header-actions">
+      <Button id="solo-console-back" class="header-button header-back" variant="secondary" size="lg">
+        <ButtonIcon><ArrowLeft class="noninteractive"></ArrowLeft></ButtonIcon>
+        <ButtonLabel><Text class="header-button-label noninteractive">Back to capture</Text></ButtonLabel>
+      </Button>
+      <Button id="solo-console-exit" class="header-button header-exit" variant="secondary" size="lg">
+        <ButtonIcon><LogOut class="noninteractive"></LogOut></ButtonIcon>
+        <ButtonLabel><Text class="header-button-label noninteractive">Exit XR</Text></ButtonLabel>
+      </Button>
+    </Container>
+  </Container>
+
+  <Container class="navigation foreground">
+    <Button id="nav-run" class="navigation-button" variant="primary" size="lg">
+      <ButtonLabel class="navigation-label"><Text id="nav-run-label" class="noninteractive">Run</Text></ButtonLabel>
+    </Button>
+    <Button id="nav-tasks" class="navigation-button" variant="tertiary" size="lg">
+      <ButtonLabel class="navigation-label"><Text id="nav-tasks-label" class="noninteractive">Tasks</Text></ButtonLabel>
+    </Button>
+    <Button id="nav-import" class="navigation-button" variant="tertiary" size="lg">
+      <ButtonLabel class="navigation-label"><Text id="nav-import-label" class="noninteractive">Import</Text></ButtonLabel>
+    </Button>
+    <Button id="nav-episodes" class="navigation-button" variant="tertiary" size="lg">
+      <ButtonLabel class="navigation-label"><Text id="nav-episodes-label" class="noninteractive">Episodes</Text></ButtonLabel>
+    </Button>
+    <Button id="nav-export" class="navigation-button" variant="tertiary" size="lg">
+      <ButtonLabel class="navigation-label"><Text id="nav-export-label" class="noninteractive">Export</Text></ButtonLabel>
+    </Button>
+  </Container>
+
+  <Divider class="foreground" orientation="horizontal"></Divider>
+
+  <Container class="context foreground">
+    <Text id="solo-console-hint" class="hint noninteractive">Choose a start task</Text>
+  </Container>
+
+  <Container id="rows-container" class="rows foreground" overflow="scroll"></Container>
+
+  <Container id="fields-container" class="fields foreground">
+    <Container id="field-0" class="field">
+      <InputField id="field-0-input" class="field-input" label="--" placeholder="--"></InputField>
+      <InputField id="field-0-textarea" class="field-textarea" label="--" placeholder="--"></InputField>
+      <Slider id="field-0-slider" class="field-slider" size="md"></Slider>
+    </Container>
+    <Container id="field-1" class="field">
+      <InputField id="field-1-input" class="field-input" label="--" placeholder="--"></InputField>
+      <InputField id="field-1-textarea" class="field-textarea" label="--" placeholder="--"></InputField>
+      <Slider id="field-1-slider" class="field-slider" size="md"></Slider>
+    </Container>
+    <Container id="field-2" class="field">
+      <InputField id="field-2-input" class="field-input" label="--" placeholder="--"></InputField>
+      <InputField id="field-2-textarea" class="field-textarea" label="--" placeholder="--"></InputField>
+      <Slider id="field-2-slider" class="field-slider" size="md"></Slider>
+    </Container>
+    <Container id="field-3" class="field">
+      <InputField id="field-3-input" class="field-input" label="--" placeholder="--"></InputField>
+      <InputField id="field-3-textarea" class="field-textarea" label="--" placeholder="--"></InputField>
+      <Slider id="field-3-slider" class="field-slider" size="md"></Slider>
+    </Container>
+    <Container id="field-4" class="field">
+      <InputField id="field-4-input" class="field-input" label="--" placeholder="--"></InputField>
+      <InputField id="field-4-textarea" class="field-textarea" label="--" placeholder="--"></InputField>
+      <Slider id="field-4-slider" class="field-slider" size="md"></Slider>
+    </Container>
+  </Container>
+
+  <Container id="semantic-controls" class="semantic-controls foreground">
+    <Container id="visibility-control" class="semantic-control">
+      <Text class="field-label noninteractive">Dataset visibility</Text>
+      <Container class="toggle-row">
+        <Text id="visibility-value" class="control-value noninteractive">Private</Text>
+        <Toggle id="visibility-toggle"></Toggle>
+      </Container>
+    </Container>
+    <Container id="export-progress-control" class="semantic-control">
+      <Text id="export-progress-label" class="field-label noninteractive">Export progress</Text>
+      <ProgressBar id="export-progress-bar" class="progress-bar"></ProgressBar>
+    </Container>
+  </Container>
+
+  <Container id="actions-container" class="actions foreground"></Container>
+
+</Panel>
+
+<Panel id="task-properties-pane" class="task-properties">
+  <Container class="task-properties-header">
+    <Text class="task-properties-heading noninteractive">Task properties</Text>
+    <Button id="task-properties-close" class="task-properties-close" variant="tertiary" size="lg">
+      <ButtonIcon><X class="noninteractive"></X></ButtonIcon>
+    </Button>
+  </Container>
+
+  <Container class="task-properties-field task-properties-title-field">
+    <InputField id="task-properties-title" class="task-properties-input" label="Title" placeholder="Task title"></InputField>
+  </Container>
+
+  <Container class="task-properties-field task-properties-instructions-field">
+    <InputField id="task-properties-instructions" class="task-properties-textarea" label="Instructions" placeholder="Task instructions"></InputField>
+  </Container>
+
+  <Container class="task-properties-field task-properties-type-field">
+    <Text class="task-properties-label noninteractive">Type</Text>
+    <RadioGroup id="task-properties-type-radio" class="task-properties-radio-group">
+      <RadioGroupItem id="task-properties-type-timed" class="task-properties-radio-item" value="timed">
+        <Text class="task-properties-radio-label noninteractive">Timed</Text>
+      </RadioGroupItem>
+      <RadioGroupItem id="task-properties-type-open" class="task-properties-radio-item" value="open">
+        <Text class="task-properties-radio-label noninteractive">Open</Text>
+      </RadioGroupItem>
+      <RadioGroupItem id="task-properties-type-pause" class="task-properties-radio-item" value="pause">
+        <Text class="task-properties-radio-label noninteractive">Pause</Text>
+      </RadioGroupItem>
+    </RadioGroup>
+  </Container>
+
+  <Container id="task-properties-duration-field" class="task-properties-field task-properties-slider-field">
+    <Text id="task-properties-duration-label" class="task-properties-label noninteractive">Duration / 5 s</Text>
+    <Slider id="task-properties-duration" class="task-properties-slider" size="md"></Slider>
+  </Container>
+
+  <Container id="task-properties-repetitions-field" class="task-properties-field task-properties-slider-field">
+    <Text id="task-properties-repetitions-label" class="task-properties-label noninteractive">Repetitions / 1</Text>
+    <Slider id="task-properties-repetitions" class="task-properties-slider" size="md"></Slider>
+  </Container>
+
+  <Container id="task-properties-reset-field" class="task-properties-field task-properties-slider-field">
+    <Text id="task-properties-reset-label" class="task-properties-label noninteractive">Reset / 5 s</Text>
+    <Slider id="task-properties-reset" class="task-properties-slider" size="md"></Slider>
+  </Container>
+
+  <Container class="task-properties-spacer"></Container>
+  <Text id="task-properties-status" class="task-properties-status noninteractive">No unsaved changes</Text>
+  <Button id="task-properties-save" class="task-properties-save" variant="primary" size="lg">
+    <ButtonLabel class="task-properties-save-label">
+      <Text id="task-properties-save-label" class="noninteractive">Save task</Text>
+    </ButtonLabel>
+  </Button>
+</Panel>
+
+</Container>

@@ -1,0 +1,115 @@
+@import "./web-design-system.css";
+
+.capture-loading-page {
+  min-width: 0;
+  background: var(--colour-canvas);
+}
+
+.capture-loading-shell {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 28px;
+}
+
+.capture-loading-card {
+  width: min(100%, 520px);
+  display: grid;
+  gap: var(--space-lg);
+  padding: var(--space-xl);
+  border: var(--border-width) solid var(--colour-border-strong);
+  background: var(--colour-surface);
+}
+
+.capture-loading-brand {
+  color: var(--colour-action);
+  font: var(--font-ui-section);
+  letter-spacing: .18em;
+}
+
+.capture-loading-card h1,
+.capture-loading-card p {
+  margin: 0;
+}
+
+.capture-loading-card h1 {
+  color: var(--colour-text);
+  font-size: clamp(26px, 7vw, 38px);
+  font-weight: 650;
+  letter-spacing: -.04em;
+  line-height: 1.05;
+}
+
+.capture-loading-stage {
+  color: var(--colour-text-secondary);
+  font: var(--font-ui-body);
+}
+
+.capture-loading-progress {
+  height: 3px;
+  position: relative;
+  overflow: hidden;
+  background: var(--colour-border);
+}
+
+.capture-loading-progress span {
+  width: 38%;
+  height: 100%;
+  position: absolute;
+  inset: 0 auto 0 -38%;
+  background: var(--colour-action);
+  animation: capture-loading-sweep 1.15s ease-in-out infinite;
+}
+
+.capture-loading-note {
+  color: var(--colour-text-muted);
+  font: var(--font-ui-quiet);
+}
+
+.capture-loading-build {
+  color: var(--colour-action);
+  font: var(--font-ui-quiet);
+  letter-spacing: .12em;
+}
+
+.capture-loading-retry {
+  min-height: 44px;
+  justify-self: start;
+  padding: 0 18px;
+  border: var(--border-width) solid var(--colour-border-action);
+  border-radius: var(--radius-control);
+  background: var(--colour-surface-sunken);
+  color: var(--colour-action);
+  font: var(--font-ui-control);
+  cursor: pointer;
+}
+
+.capture-loading-retry:focus-visible {
+  outline: 2px solid var(--colour-focus);
+  outline-offset: 3px;
+}
+
+@keyframes capture-loading-sweep {
+  0% { transform: translateX(0); }
+  55%,
+  100% { transform: translateX(365%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .capture-loading-progress span {
+    width: 100%;
+    inset-inline: 0;
+    animation: none;
+    opacity: .72;
+  }
+}
+
+@media (max-width: 520px) {
+  .capture-loading-shell {
+    padding: 14px;
+  }
+
+  .capture-loading-card {
+    padding: 24px;
+  }
+}

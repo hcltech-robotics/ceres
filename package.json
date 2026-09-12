@@ -1,0 +1,79 @@
+{
+  "name": "ceres",
+  "version": "1.1.0",
+  "releaseCodename": "Scirocco",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "description": "Self-hosted egocentric capture, recording and LeRobot export",
+  "repository": "https://github.com/hcltech-robotics/ceres",
+  "homepage": "https://ceres.cam/documentation/",
+  "scripts": {
+    "dev": "concurrently --kill-others-on-fail \"tsx watch server/index.ts\" \"vite\"",
+    "check": "tsc --noEmit && tsc -p tsconfig.server.json --noEmit",
+    "check:boundary": "node scripts/check-public-boundary.mjs",
+    "check:citation": "tsx scripts/generate-citation.ts --check",
+    "build:recorder-kernels": "node scripts/build-wasm-package.mjs wasm/recorder-kernels recorder_kernels public/wasm/recorder-kernels",
+    "build:lerobot-exporter": "node scripts/build-wasm-package.mjs wasm/lerobot-exporter ceres_lerobot_exporter public/wasm/lerobot-exporter",
+    "build:wasm": "npm run build:recorder-kernels && npm run build:lerobot-exporter",
+    "build:browser": "node scripts/copy-monitor-media.mjs && vite build",
+    "build:server": "esbuild server/index.ts --bundle --platform=node --format=cjs --target=node22 --outfile=dist-server/ceres-server.cjs",
+    "build": "npm run check && npm run build:wasm && npm run build:browser && npm run build:server && npm run check:boundary",
+    "test": "tsx --test --test-concurrency=1 test/*.test.ts",
+    "test:rust": "cargo test --locked --manifest-path wasm/recorder-kernels/Cargo.toml && cargo test --locked --manifest-path wasm/lerobot-exporter/Cargo.toml",
+    "test:wasm": "tsx --test wasm/recorder-kernels/ts/*.test.ts wasm/lerobot-exporter/ts/*.test.ts",
+    "test:browser": "playwright test",
+    "package": "node scripts/collect-notices.mjs && python scripts/package-public-core.py",
+    "start": "node dist-server/ceres-server.cjs"
+  },
+  "dependencies": {
+    "@ffmpeg/core": "0.12.10",
+    "@ffmpeg/ffmpeg": "^0.12.15",
+    "@ffmpeg/util": "^0.12.2",
+    "@fontsource-variable/geist": "^5.3.0",
+    "@huggingface/hub": "^2.15.0",
+    "@huggingface/transformers": "^3.8.1",
+    "@iwsdk/core": "0.4.2",
+    "@pmndrs/uikit-horizon": "^1.0.74",
+    "@pmndrs/uikit-lucide": "^1.0.74",
+    "@zxing/browser": "^0.2.1",
+    "express": "^5.2.1",
+    "jsqr": "^1.4.0",
+    "lucide": "^1.31.0",
+    "mediabunny": "^1.54.0",
+    "qrcode": "^1.5.4",
+    "three": "npm:super-three@0.181.0",
+    "ws": "^8.21.3",
+    "yaml": "2.9.0",
+    "zod": "^4.4.3",
+    "@pmndrs/uikit": "1.0.75",
+    "@preact/signals-core": "1.14.4"
+  },
+  "devDependencies": {
+    "iwer": "2.3.0",
+    "@iwsdk/vite-plugin-uikitml": "0.4.2",
+    "@playwright/test": "^1.62.1",
+    "@types/express": "^5.0.6",
+    "@types/qrcode": "^1.5.6",
+    "@types/three": "*",
+    "@types/ws": "^8.18.1",
+    "acorn": "^8.18.0",
+    "concurrently": "^9.2.1",
+    "esbuild": "0.28.2",
+    "tsx": "^4.23.12",
+    "typescript": "^7.0.2",
+    "vite": "^7.3.6",
+    "sharp": "^0.35.4",
+    "@types/node": "20.19.43"
+  },
+  "overrides": {
+    "qs": "^6.16.0",
+    "@huggingface/transformers": {
+      "sharp": "$sharp"
+    },
+    "@zxing/library": "0.21.3"
+  },
+  "engines": {
+    "node": ">=22.12.0 <23 || >=24"
+  }
+}
