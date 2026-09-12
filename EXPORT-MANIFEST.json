@@ -2,7 +2,7 @@
   "version": 2,
   "packageVersion": "1.1.0",
   "generator": "ceres-public-core/2",
-  "treeDigest": "77e663dc6736e6719135763563ed9d25118fe354e42b0fc70cac12c725af8263",
+  "treeDigest": "0d3ab72a029f24e6863a98c75d53b1e8c82ed6325b0b13a2a04938a46f9b1a28",
   "files": {
     ".dockerignore": {
       "sha256": "f4f0799e0c8f318b0d36a430909ba9dcb3eeca1d1b0ae8b3b7907b44cc2bedca",
@@ -45,8 +45,8 @@
       "mode": "100644"
     },
     "README.md": {
-      "sha256": "c424255d7cf2b758791dfdc891de2bb68b0b46b857f17575cfcae70ea6cb88d3",
-      "bytes": 1976,
+      "sha256": "1d333d3e3c86f1a691fdea78bad5964caa34c622d4cde5d13baa3f66b144ff2c",
+      "bytes": 3816,
       "mode": "100644"
     },
     "RELEASE.md": {

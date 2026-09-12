@@ -1,4 +1,36 @@
-# CERES
+<p align="center">
+  <a href="https://ceres.cam/">
+    <img src="receiver/assets/ceres-logo.webp" alt="CERES" width="200">
+  </a>
+</p>
+
+<h1 align="center">
+  CERES<br>
+  <sub><a href="https://nerc2026.github.io/">[NERC'26]</a></sub>
+</h1>
+
+<p align="center">
+  <strong>Egocentric capture for robotics and embodied AI.</strong>
+</p>
+
+<p align="center">
+  <a href="https://ceres.cam/documentation/setup-and-system-requirements/"><img src="https://img.shields.io/badge/Meta_Quest-3-0081FB?style=flat-square&amp;logo=meta&amp;logoColor=white" alt="Meta Quest 3"></a>
+  <a href="https://ceres.cam/"><img src="https://img.shields.io/badge/Built_for-WebXR-5A45FF?style=flat-square" alt="Built for WebXR"></a>
+  <a href="https://ceres.cam/documentation/data-description-and-output-format/"><img src="https://img.shields.io/badge/Datasets-LeRobot_v3-FFD21E?style=flat-square&amp;logo=huggingface&amp;logoColor=black" alt="LeRobot v3 datasets"></a>
+  <a href="LICENCE.md"><img src="https://img.shields.io/badge/Licence-MIT-4C76BA?style=flat-square" alt="Licence: MIT"></a>
+</p>
+
+<p align="center">
+  <a href="https://ceres.cam/"><strong>Open CERES</strong></a>
+  &nbsp;&middot;&nbsp;
+  <a href="https://ceres.cam/documentation/">User guide</a>
+  &nbsp;&middot;&nbsp;
+  <a href="https://ceres.cam/documentation/getting-started/">Quickstart</a>
+  &nbsp;&middot;&nbsp;
+  <a href="https://huggingface.co/spaces/chrisvoncsefalvay/ceres-dataset-viewer">Dataset viewer</a>
+</p>
+
+---
 
 CERES captures outward video, audio, head pose and hand tracking on Meta Quest,
 aligns them with task and run metadata and exports LeRobot v3 datasets.
@@ -8,7 +40,16 @@ and Bridge streaming to a Python receiver.
 Run CERES on your own infrastructure or work on its recorder, capture and export
 logic. Recordings stay in browser storage or your selected local destination.
 
-[Documentation](https://ceres.cam/documentation/)
+
+## Three modes, one system
+
+| Mode | How you work | Local route |
+| --- | --- | --- |
+| **Solo** | Configure, record, review and export a run entirely on the headset. | `/launch/capture/?mode=solo` |
+| **Duet** | Prepare tasks and supervise a demonstrator from another browser. | `/monitor/` |
+| **Bridge** | Stream live video, head pose and both hands to a Linux application. | `/bridge/` |
+
+## Run CERES
 
 ```sh
 rustup target add wasm32-unknown-unknown
@@ -33,6 +74,8 @@ Hugging Face uploads and Gist imports are enabled separately with
 use local assets and make no external service calls. Voice model files are served
 from `/models/` on the same host. Speech recognition is enabled with
 `CERES_SPEECH_ENABLED=1` and a local ASR endpoint.
+
+## Licence and citation
 
 CERES is licensed under [MIT](LICENCE.md). When CERES contributes to your work,
 please cite the version you used using [CITATION.cff](CITATION.cff) or
