@@ -86,6 +86,7 @@ jobs:
       - name: Source SBOM
         uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
         with:
+          syft-version: v1.51.1
           path: .
           format: spdx-json
           output-file: release/ceres-source.spdx.json
@@ -93,12 +94,17 @@ jobs:
           upload-release-assets: false
       - name: Container SBOM
         uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        env:
+          SYFT_SELECT_CATALOGERS: +rust-cargo-lock-cataloger,+javascript-lock-cataloger
         with:
+          syft-version: v1.51.1
           image: ceres-release
           format: spdx-json
           output-file: release/ceres-container.spdx.json
           upload-artifact: false
           upload-release-assets: false
+      - name: Verify SBOM coverage
+        run: node scripts/check-release-sboms.mjs
       - name: Checksums
         working-directory: release
         run: sha256sum * > SHA256SUMS
