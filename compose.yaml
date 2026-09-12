@@ -1,0 +1,23 @@
+services:
+  ceres:
+    image: ghcr.io/hcltech-robotics/ceres:1.1.0
+    ports:
+      - "127.0.0.1:4317:4317"
+    environment:
+      CERES_PUBLIC_ORIGIN: ${CERES_PUBLIC_ORIGIN:?Set the HTTPS origin served by your reverse proxy}
+      CERES_DATA_DIR: /data
+      CERES_SPEECH_ENABLED: "0"
+      CERES_ALLOW_HUGGING_FACE: ${CERES_ALLOW_HUGGING_FACE:-0}
+      CERES_ALLOW_GIST: ${CERES_ALLOW_GIST:-0}
+    volumes:
+      - ceres-data:/data
+    read_only: true
+    tmpfs:
+      - /tmp:size=128m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+volumes:
+  ceres-data:

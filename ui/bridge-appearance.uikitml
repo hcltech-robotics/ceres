@@ -1,0 +1,41 @@
+<style>
+  .bridge-appearance { width: 1024px; height: 1024px; pointer-events: none; }
+  .bridge-setting { position: absolute; width: 56px; height: 56px; align-items: center; justify-content: center; opacity: 0.5; pointer-events: listener; }
+  .bridge-setting-icon { width: 24px; height: 24px; color: #ffffff; pointer-events: none; }
+  .bridge-setting-detail { position: absolute; width: 192px; height: 56px; flex-direction: column; justify-content: center; align-items: flex-end; opacity: 0; pointer-events: none; }
+  .bridge-setting-label { font-size: 16px; color: #ffffff; pointer-events: none; }
+  .bridge-setting-value { font-size: 24px; font-weight: 600; color: #ffffff; pointer-events: none; }
+</style>
+<Container id="capture-appearance-root" class="bridge-appearance">
+  <Container id="hand-handMode" class="bridge-setting">
+    <Container id="hand-handMode-voice-glow" display="none"></Container>
+    <Hand class="bridge-setting-icon"></Hand>
+  </Container>
+  <Container id="hand-handMode-setting" class="bridge-setting-detail">
+    <Text id="hand-handMode-label" class="bridge-setting-label">Hand</Text>
+    <Text id="hand-handMode-value" class="bridge-setting-value">Outline</Text>
+  </Container>
+  <Container id="hand-handShading" class="bridge-setting">
+    <Container id="hand-handShading-voice-glow" display="none"></Container>
+    <Contrast class="bridge-setting-icon"></Contrast>
+  </Container>
+  <Container id="hand-handShading-setting" class="bridge-setting-detail">
+    <Text id="hand-handShading-label" class="bridge-setting-label">Shade</Text>
+    <Text id="hand-handShading-value" class="bridge-setting-value">Side</Text>
+  </Container>
+  <Container id="hand-handTrail" class="bridge-setting">
+    <Container id="hand-handTrail-voice-glow" display="none"></Container>
+    <Waypoints class="bridge-setting-icon"></Waypoints>
+  </Container>
+  <Container id="hand-handTrail-setting" class="bridge-setting-detail">
+    <Text id="hand-handTrail-label" class="bridge-setting-label">Trail</Text>
+    <Text id="hand-handTrail-value" class="bridge-setting-value">Off</Text>
+  </Container>
+  <Container id="bridge-hud-mode" class="bridge-setting">
+    <ScanEye class="bridge-setting-icon"></ScanEye>
+  </Container>
+  <Container id="bridge-hud-mode-setting" class="bridge-setting-detail">
+    <Text class="bridge-setting-label">HUD</Text>
+    <Text id="bridge-hud-mode-value" class="bridge-setting-value">LIGHT</Text>
+  </Container>
+</Container>

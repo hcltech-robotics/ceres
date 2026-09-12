@@ -1,0 +1,322 @@
+<style>
+  .capture-hud {
+    width: 1620px;
+    height: 280px;
+    padding: 20px;
+    gap: 20px;
+    flex-direction: row;
+    align-items: stretch;
+    overflow: hidden;
+    pointer-events: none;
+  }
+
+  .task-panel {
+    width: 880px;
+    min-width: 0;
+    flex-grow: 1;
+    gap: 4px;
+    flex-direction: column;
+    justify-content: center;
+    pointer-events: none;
+  }
+
+  .task-meta {
+    width: 100%;
+    height: 24px;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    pointer-events: none;
+  }
+
+  .identity {
+    min-width: 0;
+    flex-grow: 1;
+    font-size: 17px;
+    line-height: 24px;
+    font-weight: 600;
+    pointer-events: none;
+  }
+
+  .upload-status {
+    display: none;
+    min-width: 0;
+    flex-grow: 1;
+    gap: 8px;
+    flex-direction: row;
+    align-items: center;
+    pointer-events: none;
+  }
+
+  .upload-icon {
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+    pointer-events: none;
+  }
+
+  .upload-label {
+    min-width: 0;
+    flex-grow: 1;
+    font-size: 17px;
+    line-height: 24px;
+    font-weight: 600;
+    pointer-events: none;
+  }
+
+  .upload-progress {
+    width: 116px;
+    height: 8px;
+    flex-shrink: 0;
+    pointer-events: none;
+  }
+
+  .upload-percentage {
+    width: 44px;
+    flex-shrink: 0;
+    font-size: 16px;
+    line-height: 24px;
+    font-weight: 600;
+    text-align: right;
+    pointer-events: none;
+  }
+
+  .task-timing {
+    flex-shrink: 0;
+    font-size: 18px;
+    line-height: 24px;
+    font-weight: 600;
+    text-align: right;
+    pointer-events: none;
+  }
+
+  .task-state {
+    width: 100%;
+    height: 24px;
+    font-size: 17px;
+    line-height: 24px;
+    font-weight: 600;
+    pointer-events: none;
+  }
+
+  .task-title {
+    width: 100%;
+    height: 38px;
+    font-size: 30px;
+    line-height: 38px;
+    font-weight: 600;
+    pointer-events: none;
+  }
+
+  .task-description {
+    width: 100%;
+    height: 54px;
+    font-size: 20px;
+    line-height: 27px;
+    font-weight: 500;
+    pointer-events: none;
+  }
+
+  .progress-item {
+    width: 100%;
+    height: 22px;
+    gap: 10px;
+    flex-direction: row;
+    align-items: center;
+    pointer-events: none;
+  }
+
+  .progress-label {
+    width: 82px;
+    flex-shrink: 0;
+    font-size: 16px;
+    line-height: 22px;
+    font-weight: 600;
+    pointer-events: none;
+  }
+
+  .progress-bar {
+    min-width: 0;
+    flex-grow: 1;
+    height: 10px;
+    pointer-events: none;
+  }
+
+  .control-panel {
+    width: 480px;
+    min-width: 0;
+    flex-shrink: 0;
+    flex-direction: column;
+    justify-content: center;
+    pointer-events: none;
+  }
+
+  .control-row {
+    width: 480px;
+    height: 72px;
+    gap: 10px;
+    flex-direction: row;
+    align-items: stretch;
+    justify-content: center;
+    pointer-events: none;
+  }
+
+  .run-control {
+    position: relative;
+    width: 144px;
+    height: 72px;
+    min-height: 72px;
+    min-width: 0;
+    padding-left: 12px;
+    padding-right: 12px;
+    pointer-events: listener;
+  }
+
+  .run-voice-glow {
+    display: none;
+    position: absolute;
+    top: 0px;
+    left: 0px;
+    width: 100%;
+    height: 100%;
+    border-radius: 16px;
+    opacity: 0.36;
+    transform-translate-z: 2px;
+    pointer-events: none;
+  }
+
+  .run-icon-slot {
+    width: 26px;
+    height: 26px;
+  }
+
+  .run-icon {
+    display: none;
+    width: 24px;
+    height: 24px;
+    transform-translate-z: 5px;
+    pointer-events: none;
+  }
+
+  .run-label {
+    font-size: 19px;
+    line-height: 24px;
+    font-weight: 600;
+    pointer-events: none;
+  }
+
+  .system-panel {
+    width: 180px;
+    flex-shrink: 0;
+    gap: 8px;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: center;
+    pointer-events: none;
+  }
+
+  .system-control {
+    width: 180px;
+    height: 72px;
+    min-height: 72px;
+    padding-left: 14px;
+    padding-right: 14px;
+    pointer-events: listener;
+  }
+
+  .system-icon-slot {
+    width: 26px;
+    height: 26px;
+  }
+
+  .system-icon {
+    width: 24px;
+    height: 24px;
+    transform-translate-z: 5px;
+    pointer-events: none;
+  }
+
+  .system-label {
+    font-size: 19px;
+    line-height: 24px;
+    font-weight: 600;
+    pointer-events: none;
+  }
+</style>
+
+<Panel id="capture-hud-root" class="capture-hud">
+  <Container id="capture-task-panel" class="task-panel">
+    <Container class="task-meta">
+      <Text id="capture-identity" class="identity">Solo capture</Text>
+      <Container id="capture-upload-status" class="upload-status">
+        <Upload id="capture-upload-icon" class="upload-icon"></Upload>
+        <Text id="capture-upload-label" class="upload-label">Preparing upload...</Text>
+        <ProgressBar id="capture-upload-progress" class="upload-progress" value="0"></ProgressBar>
+        <Text id="capture-upload-percentage" class="upload-percentage">0%</Text>
+      </Container>
+      <Text id="capture-task-timing" class="task-timing">Take 00:00</Text>
+    </Container>
+    <Text id="capture-task-state" class="task-state">Select task</Text>
+    <Text id="capture-task-title" class="task-title">Open task</Text>
+    <Text id="capture-task-description" class="task-description">Choose a runnable task to begin.</Text>
+    <Container id="progress-0" class="progress-item">
+      <Text id="progress-0-label" class="progress-label">Run</Text>
+      <ProgressBar id="progress-0-bar" class="progress-bar" value="0"></ProgressBar>
+    </Container>
+  </Container>
+
+  <Container id="capture-control-panel" class="control-panel">
+    <Container id="capture-control-row" class="control-row">
+      <Button id="run-0" class="run-control" variant="secondary" size="lg">
+        <Container id="run-0-voice-glow" class="run-voice-glow"></Container>
+        <ButtonIcon class="run-icon-slot">
+          <Play id="run-0-icon-play" class="run-icon"></Play><Pause id="run-0-icon-pause" class="run-icon"></Pause><Square id="run-0-icon-stop" class="run-icon"></Square><CircleDot id="run-0-icon-record" class="run-icon"></CircleDot><RotateCcw id="run-0-icon-retry" class="run-icon"></RotateCcw><SkipForward id="run-0-icon-next" class="run-icon"></SkipForward><Check id="run-0-icon-pass" class="run-icon"></Check><X id="run-0-icon-fail" class="run-icon"></X>
+        </ButtonIcon>
+        <ButtonLabel><Text id="run-0-label" class="run-label">Choose task</Text></ButtonLabel>
+      </Button>
+      <Button id="run-1" class="run-control" variant="secondary" size="lg">
+        <Container id="run-1-voice-glow" class="run-voice-glow"></Container>
+        <ButtonIcon class="run-icon-slot">
+          <Play id="run-1-icon-play" class="run-icon"></Play><Pause id="run-1-icon-pause" class="run-icon"></Pause><Square id="run-1-icon-stop" class="run-icon"></Square><CircleDot id="run-1-icon-record" class="run-icon"></CircleDot><RotateCcw id="run-1-icon-retry" class="run-icon"></RotateCcw><SkipForward id="run-1-icon-next" class="run-icon"></SkipForward><Check id="run-1-icon-pass" class="run-icon"></Check><X id="run-1-icon-fail" class="run-icon"></X>
+        </ButtonIcon>
+        <ButtonLabel><Text id="run-1-label" class="run-label">Record</Text></ButtonLabel>
+      </Button>
+      <Button id="run-2" class="run-control" variant="secondary" size="lg">
+        <Container id="run-2-voice-glow" class="run-voice-glow"></Container>
+        <ButtonIcon class="run-icon-slot">
+          <Play id="run-2-icon-play" class="run-icon"></Play><Pause id="run-2-icon-pause" class="run-icon"></Pause><Square id="run-2-icon-stop" class="run-icon"></Square><CircleDot id="run-2-icon-record" class="run-icon"></CircleDot><RotateCcw id="run-2-icon-retry" class="run-icon"></RotateCcw><SkipForward id="run-2-icon-next" class="run-icon"></SkipForward><Check id="run-2-icon-pass" class="run-icon"></Check><X id="run-2-icon-fail" class="run-icon"></X>
+        </ButtonIcon>
+        <ButtonLabel><Text id="run-2-label" class="run-label">Retry</Text></ButtonLabel>
+      </Button>
+      <Button id="run-3" class="run-control" variant="secondary" size="lg">
+        <Container id="run-3-voice-glow" class="run-voice-glow"></Container>
+        <ButtonIcon class="run-icon-slot">
+          <Play id="run-3-icon-play" class="run-icon"></Play><Pause id="run-3-icon-pause" class="run-icon"></Pause><Square id="run-3-icon-stop" class="run-icon"></Square><CircleDot id="run-3-icon-record" class="run-icon"></CircleDot><RotateCcw id="run-3-icon-retry" class="run-icon"></RotateCcw><SkipForward id="run-3-icon-next" class="run-icon"></SkipForward><Check id="run-3-icon-pass" class="run-icon"></Check><X id="run-3-icon-fail" class="run-icon"></X>
+        </ButtonIcon>
+        <ButtonLabel><Text id="run-3-label" class="run-label">Next</Text></ButtonLabel>
+      </Button>
+      <Button id="run-4" class="run-control" variant="secondary" size="lg">
+        <Container id="run-4-voice-glow" class="run-voice-glow"></Container>
+        <ButtonIcon class="run-icon-slot">
+          <Play id="run-4-icon-play" class="run-icon"></Play><Pause id="run-4-icon-pause" class="run-icon"></Pause><Square id="run-4-icon-stop" class="run-icon"></Square><CircleDot id="run-4-icon-record" class="run-icon"></CircleDot><RotateCcw id="run-4-icon-retry" class="run-icon"></RotateCcw><SkipForward id="run-4-icon-next" class="run-icon"></SkipForward><Check id="run-4-icon-pass" class="run-icon"></Check><X id="run-4-icon-fail" class="run-icon"></X>
+        </ButtonIcon>
+        <ButtonLabel><Text id="run-4-label" class="run-label">Pass</Text></ButtonLabel>
+      </Button>
+    </Container>
+  </Container>
+
+  <Container class="system-panel">
+    <Button id="capture-menu" class="system-control" variant="secondary" size="lg">
+      <ButtonIcon class="system-icon-slot"><Menu class="system-icon"></Menu></ButtonIcon>
+      <ButtonLabel><Text class="system-label">Configure</Text></ButtonLabel>
+    </Button>
+    <Button id="capture-retread" class="system-control" variant="secondary" size="lg">
+      <ButtonIcon class="system-icon-slot"><RotateCcw class="system-icon"></RotateCcw></ButtonIcon>
+      <ButtonLabel><Text class="system-label">Retread</Text></ButtonLabel>
+    </Button>
+    <Button id="capture-exit" class="system-control" variant="secondary" size="lg">
+      <ButtonIcon class="system-icon-slot"><LogOut class="system-icon"></LogOut></ButtonIcon>
+      <ButtonLabel><Text class="system-label">Exit XR</Text></ButtonLabel>
+    </Button>
+  </Container>
+</Panel>

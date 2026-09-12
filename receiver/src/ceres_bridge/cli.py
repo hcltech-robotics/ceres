@@ -3,6 +3,7 @@
 import argparse
 import asyncio
 import json
+import os
 import platform
 import socket
 import sys
@@ -14,8 +15,8 @@ def main():
     commands = parser.add_subparsers(dest="command", required=True)
     listen = commands.add_parser("listen", help="Start or reconnect the receiver")
     listen.add_argument("--name", default=socket.gethostname(), help="Name shown on the headset")
-    listen.add_argument("--relay", default="https://ceres.ceres-relay.workers.dev", help="Public CERES signalling origin")
-    listen.add_argument("--app-origin", default="https://ceres.cam", help="CERES browser origin")
+    listen.add_argument("--relay", help="Signalling origin, defaults to the browser origin")
+    listen.add_argument("--app-origin", default=os.environ.get("CERES_PUBLIC_ORIGIN", "http://127.0.0.1:4317"), help="CERES browser origin")
     listen.add_argument("--bind-address", help="Local LAN address used for ICE gathering")
     listen.add_argument("--jitter-ms", type=int, choices=(0, 5, 10), default=5)
     listen.add_argument("--socket", help="Private Unix socket path")
@@ -34,6 +35,7 @@ def main():
         parser.error("Run the receiver on Linux")
     try:
         if args.command == "listen":
+            args.relay = args.relay or args.app_origin
             from .worker import run
             asyncio.run(run(args))
         elif args.command == "foxglove":

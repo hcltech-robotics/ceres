@@ -1,0 +1,28 @@
+[data-capture-mode="bridge"] [hidden] {
+  display: none !important;
+}
+
+[data-capture-mode="bridge"] [data-incognito-toggle] {
+  display: none !important;
+}
+
+.bridge-audio-button {
+  display: grid;
+  place-items: center;
+  flex: 0 0 42px;
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  border: 1px solid var(--colour-border);
+  background: var(--colour-surface-raised);
+  cursor: pointer;
+}
+
+.bridge-audio-button:hover,
+.bridge-audio-button:focus-visible {
+  border-color: var(--colour-action);
+}
+
+.bridge-audio-button[aria-checked="true"] {
+  border-color: var(--colour-action);
+}

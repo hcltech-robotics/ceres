@@ -1,0 +1,23 @@
+{
+  "profile": "LeRobotDataset v3.0",
+  "oracle_commit": "f25ac02e6c8fa9c467ab8462289e5f4aed3a2e85",
+  "expected_artifacts": [
+    "ceres/export-manifest.json",
+    "ceres/metrics.json",
+    "data/chunk-000/file-002.parquet",
+    "meta/episodes/chunk-000/file-002.parquet",
+    "meta/info.json",
+    "meta/stats.json",
+    "meta/tasks.parquet",
+    "videos/observation.images.monitor/chunk-000/file-002.mp4"
+  ],
+  "row_count": 3,
+  "frame_indices": [0, 1, 2],
+  "global_indices": [10, 11, 12],
+  "episode_index": 2,
+  "task_index": 1,
+  "timestamps": [0.0, 0.1, 0.2],
+  "first_state_mean": 1.001,
+  "action_mean": [1.25, 1.75],
+  "action_std": [0.816496580927726, 0.816496580927726]
+}

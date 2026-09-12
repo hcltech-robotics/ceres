@@ -1,0 +1,29 @@
+<style>
+  .bridge-hud { width: 1024px; height: 1024px; pointer-events: none; }
+  .bridge-status { position: absolute; flex-direction: row; align-items: center; height: 32px; pointer-events: none; }
+  .bridge-rec { flex-direction: row; align-items: center; gap: 8px; }
+  .bridge-icon { width: 24px; height: 24px; color: #ffffff; pointer-events: none; }
+  .bridge-danger { color: #f87171; }
+  .bridge-dot { width: 18px; height: 18px; border-radius: 9px; background-color: #f87171; pointer-events: none; }
+  .bridge-label { font-size: 24px; font-weight: 700; color: #ffffff; pointer-events: none; }
+  .bridge-control { position: absolute; width: 56px; height: 56px; align-items: center; justify-content: center; opacity: 0.5; pointer-events: listener; }
+</style>
+<Container id="capture-hud-root" class="bridge-hud">
+  <Container id="bridge-status" class="bridge-status">
+    <Container id="bridge-rec" class="bridge-rec">
+      <Container class="bridge-dot"></Container>
+      <Text class="bridge-label">REC</Text>
+    </Container>
+  </Container>
+  <Container id="bridge-pause" class="bridge-control">
+    <Pause id="bridge-pause-icon" class="bridge-icon bridge-danger"></Pause>
+    <Play id="bridge-resume-icon" class="bridge-icon bridge-danger"></Play>
+  </Container>
+  <Container id="capture-exit" class="bridge-control">
+    <LogOut class="bridge-icon bridge-danger"></LogOut>
+  </Container>
+  <Container id="bridge-audio" class="bridge-control">
+    <MicOff id="bridge-audio-muted" class="bridge-icon bridge-danger"></MicOff>
+    <Mic id="bridge-audio-live" class="bridge-icon"></Mic>
+  </Container>
+</Container>

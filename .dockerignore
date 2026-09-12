@@ -1,0 +1,8 @@
+**
+!dist/**
+!dist-server/**
+!third-party/**
+!LICENCE.md
+!CITATION.cff
+!citation.bib
+!Dockerfile

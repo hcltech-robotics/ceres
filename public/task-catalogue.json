@@ -1,0 +1,159 @@
+{
+  "schema": "ceres-task-catalogue",
+  "version": 1,
+  "entries": [
+    {
+      "id": "object-in-container",
+      "title": "Object in container",
+      "summary": "Repeatable timed pick-and-place into a marked container.",
+      "category": "repeatable",
+      "tags": [
+        "manipulation",
+        "pick-and-place",
+        "timed",
+        "repeatable"
+      ],
+      "gistId": "2507021ca8403d75f4a817acbff564e2",
+      "gistUrl": "https://gist.github.com/chrisvoncsefalvay/2507021ca8403d75f4a817acbff564e2",
+      "rawUrl": "https://gist.githubusercontent.com/chrisvoncsefalvay/2507021ca8403d75f4a817acbff564e2/raw/6f9ab1f3400d0fee5c70f0cfbf008517d1522afc/ceres-task-specification.json",
+      "fileName": "ceres-task-specification.json",
+      "taskCount": 1,
+      "taskSpecVersion": 1,
+      "taskSpecHash": "fff14e0cf2e9e66a69d86de93bc405e97ffd6dadd38c090198aaa9fb446f3632"
+    },
+    {
+      "id": "cup-on-saucer",
+      "title": "Cup on saucer",
+      "summary": "Repeatable timed bimanual placement of a cup onto a saucer.",
+      "category": "repeatable",
+      "tags": [
+        "bimanual",
+        "precision",
+        "placement",
+        "timed",
+        "repeatable"
+      ],
+      "gistId": "0eabe65a4d091f4e43e3dcc5db6940c2",
+      "gistUrl": "https://gist.github.com/chrisvoncsefalvay/0eabe65a4d091f4e43e3dcc5db6940c2",
+      "rawUrl": "https://gist.githubusercontent.com/chrisvoncsefalvay/0eabe65a4d091f4e43e3dcc5db6940c2/raw/b32a7f838c5e7baac5b43443f5df4786ae522356/ceres-task-specification.json",
+      "fileName": "ceres-task-specification.json",
+      "taskCount": 1,
+      "taskSpecVersion": 1,
+      "taskSpecHash": "f0371350654c7d2b40830615f7de2190252e498e1bf7a799bbf0c67d4295f8ad"
+    },
+    {
+      "id": "wash-dishes",
+      "title": "Wash dishes",
+      "summary": "Open-ended washing, rinsing and drying-area placement.",
+      "category": "open-ended",
+      "tags": [
+        "household",
+        "cleaning",
+        "kitchen",
+        "open-ended"
+      ],
+      "gistId": "6e4374c967c356ba92631bf1ed11c6e3",
+      "gistUrl": "https://gist.github.com/chrisvoncsefalvay/6e4374c967c356ba92631bf1ed11c6e3",
+      "rawUrl": "https://gist.githubusercontent.com/chrisvoncsefalvay/6e4374c967c356ba92631bf1ed11c6e3/raw/9312c06ae14b5f643e3f035ee1b3d1282dfe477a/ceres-task-specification.json",
+      "fileName": "ceres-task-specification.json",
+      "taskCount": 1,
+      "taskSpecVersion": 1,
+      "taskSpecHash": "1b1a55e6eb19e69a594ab17462d7a32e30dc7c67f99c1966ded01e1880f6ca6f"
+    },
+    {
+      "id": "bag-groceries",
+      "title": "Bag groceries",
+      "summary": "Long-horizon grouping and packing of stable, fragile and chilled groceries.",
+      "category": "multi-step",
+      "tags": [
+        "household",
+        "packing",
+        "long-horizon",
+        "multi-step"
+      ],
+      "gistId": "8f0a71e145c2607541730e1c4f08df61",
+      "gistUrl": "https://gist.github.com/chrisvoncsefalvay/8f0a71e145c2607541730e1c4f08df61",
+      "rawUrl": "https://gist.githubusercontent.com/chrisvoncsefalvay/8f0a71e145c2607541730e1c4f08df61/raw/1f8afb545ef57ba66c8488c818735eb2b107ce42/ceres-task-specification.json",
+      "fileName": "ceres-task-specification.json",
+      "taskCount": 4,
+      "taskSpecVersion": 1,
+      "taskSpecHash": "4f58b435e72a7ae29d88fce7966f504cc2eb6fcdffe664bb0bcccb898970d7a4"
+    },
+    {
+      "id": "make-burrito",
+      "title": "Make a burrito",
+      "summary": "Long-horizon preparation, filling, rolling and plating of a burrito.",
+      "category": "multi-step",
+      "tags": [
+        "food-preparation",
+        "assembly",
+        "long-horizon",
+        "multi-step"
+      ],
+      "gistId": "d9e13bc6190b115a383494910c24f650",
+      "gistUrl": "https://gist.github.com/chrisvoncsefalvay/d9e13bc6190b115a383494910c24f650",
+      "rawUrl": "https://gist.githubusercontent.com/chrisvoncsefalvay/d9e13bc6190b115a383494910c24f650/raw/afd2221e1e9db1fe88d3e80149b980d2eec2f273/ceres-task-specification.json",
+      "fileName": "ceres-task-specification.json",
+      "taskCount": 4,
+      "taskSpecVersion": 1,
+      "taskSpecHash": "165015107b419b3f8d5528eeedae2b6b639812ae0fd84b46c8251efe400ef0d9"
+    },
+    {
+      "id": "set-dining-table",
+      "title": "Set a dining table",
+      "summary": "Ordered placement and inspection of complete dining settings.",
+      "category": "multi-step",
+      "tags": [
+        "household",
+        "table-setting",
+        "rearrangement",
+        "multi-step"
+      ],
+      "gistId": "cdbe8e0dfddccaf68802c1b9b9f1dc00",
+      "gistUrl": "https://gist.github.com/chrisvoncsefalvay/cdbe8e0dfddccaf68802c1b9b9f1dc00",
+      "rawUrl": "https://gist.githubusercontent.com/chrisvoncsefalvay/cdbe8e0dfddccaf68802c1b9b9f1dc00/raw/1d800473c1fac91af2cb8ea1d5994e9376749601/ceres-task-specification.json",
+      "fileName": "ceres-task-specification.json",
+      "taskCount": 4,
+      "taskSpecVersion": 1,
+      "taskSpecHash": "1d7a2b3680aa1eca24e00fe3f3101b02c89e93c05bdd885ca7325658fa3fa9db"
+    },
+    {
+      "id": "fold-laundry",
+      "title": "Fold laundry",
+      "summary": "Open-ended folding and sorting into stable stacks.",
+      "category": "open-ended",
+      "tags": [
+        "household",
+        "laundry",
+        "folding",
+        "open-ended"
+      ],
+      "gistId": "eeffcb43c5a1eb94513734d431a7810d",
+      "gistUrl": "https://gist.github.com/chrisvoncsefalvay/eeffcb43c5a1eb94513734d431a7810d",
+      "rawUrl": "https://gist.githubusercontent.com/chrisvoncsefalvay/eeffcb43c5a1eb94513734d431a7810d/raw/ef4d02bd6f92fa6d0f3147cc5edc512997c68d2e/ceres-task-specification.json",
+      "fileName": "ceres-task-specification.json",
+      "taskCount": 1,
+      "taskSpecVersion": 1,
+      "taskSpecHash": "6202e936990ee7933321c3e19f853c37fb91281f7c14d06625d29390f20ff985"
+    },
+    {
+      "id": "clean-refrigerator-shelf",
+      "title": "Clean a refrigerator shelf",
+      "summary": "Clear, clean, air-dry and restock a refrigerator shelf.",
+      "category": "multi-step",
+      "tags": [
+        "household",
+        "cleaning",
+        "rearrangement",
+        "multi-step"
+      ],
+      "gistId": "e0d6c8d4e0178669f9c8663bb1dc9d72",
+      "gistUrl": "https://gist.github.com/chrisvoncsefalvay/e0d6c8d4e0178669f9c8663bb1dc9d72",
+      "rawUrl": "https://gist.githubusercontent.com/chrisvoncsefalvay/e0d6c8d4e0178669f9c8663bb1dc9d72/raw/ce09ade08a35089b0542288c1ddfabe22501cc03/ceres-task-specification.json",
+      "fileName": "ceres-task-specification.json",
+      "taskCount": 4,
+      "taskSpecVersion": 1,
+      "taskSpecHash": "62c9cc17a76f48ae2885e962e6666e8d7340c9c2bdbb546e3ca8254b82beba59"
+    }
+  ]
+}

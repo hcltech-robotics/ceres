@@ -1,0 +1,20 @@
+[package]
+name = "recorder-kernels"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Deterministic binary and signal kernels for the Ceres recorder"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+wasm-bindgen = "=0.2.127"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+panic = "abort"
+strip = true
