@@ -2,7 +2,7 @@
   "version": 2,
   "packageVersion": "1.1.0",
   "generator": "ceres-public-core/2",
-  "treeDigest": "d014a31be1d9587d94d733f390fb5ff21acf0d16b147c0c1067affc97857cea3",
+  "treeDigest": "c7f41ffcfe9a640846d0a6542b9557f7f9b4b45a3fd8086abe108d4bde8b6cee",
   "files": {
     ".dockerignore": {
       "sha256": "f4f0799e0c8f318b0d36a430909ba9dcb3eeca1d1b0ae8b3b7907b44cc2bedca",
@@ -15,8 +15,8 @@
       "mode": "100644"
     },
     ".github/workflows/release.yml": {
-      "sha256": "062aaab8b3cba46cf2a27ff93ac0d3210fa844d016113a37c2235cbc13af2872",
-      "bytes": 8037,
+      "sha256": "9e63126104cd293b87dcc12b650d87c343b8f9a66837c83ff9b75f678c4c4a3d",
+      "bytes": 8287,
       "mode": "100644"
     },
     ".gitignore": {
@@ -472,6 +472,11 @@
     "scripts/check-public-boundary.mjs": {
       "sha256": "ca12b702c4b0ee7003a78d72aa5097568408d49e16c22c1140c56e06248d7d58",
       "bytes": 3959,
+      "mode": "100644"
+    },
+    "scripts/check-release-sboms.mjs": {
+      "sha256": "5bc7bf9806ca277ca721e1882494766f11279b949ce65a646bccdf6ff947502e",
+      "bytes": 1073,
       "mode": "100644"
     },
     "scripts/collect-notices.mjs": {
