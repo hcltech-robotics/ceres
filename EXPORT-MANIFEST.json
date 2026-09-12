@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "sourceCommit": "439d31c4e87a73b6d397f122f911ca79f05fcd11",
+  "sourceCommit": "0975a968dfda1decccfc0c4f733f4bbce4b85c5f",
   "packageVersion": "1.0.0",
   "protocolVersion": 1,
   "files": {
@@ -12,6 +12,7 @@
     "receiver/LICENCE.md": "b2d6b76741f86b3fe3f677c8a1a6ddeb3ee582f9e31ac4ca9c025c2a23a9b8a3",
     "receiver/MANIFEST.in": "f9501541e24001177f10748bd9797e7e0710c1d21dd9201ee22b3faf207a8c00",
     "receiver/README.md": "4d848b3cc82a3ce4c860dca0983029da137aef8e916be323365f24b32e0008b5",
+    "receiver/assets/ceres-logo.webp": "9be697f08843a874df20f00bb1052c5fc94d6d39d74fc7e2baea3e9ef11a90a5",
     "receiver/docs/acceptance.md": "92d2d74fc6e374beca98085964f7edfc375987fd5f2af1a467ebc2b6531611fc",
     "receiver/docs/foxglove.md": "c84588281e1c0bf7f477906fe3fc2f4406b5b856cf189a19f4cea536d7c0dce5",
     "receiver/docs/python-api.md": "78d7826e1750e565ef6a08f1be553d19ae4e780f263642b84d2e42b1ea2f8c65",
@@ -22,7 +23,7 @@
     "receiver/foxglove/ros-layout.json": "4662fad3e105f03af4380b2e77ee00bf98196a6f735d561e145a93850a32eeea",
     "receiver/foxglove/vp8-layout.json": "864d46445d4e5bd62dec9c50a3f98f5a0202946b241cc95249537a5848dc5531",
     "receiver/public-gitignore": "56d4b1fa8bcf248c08f832dfb18177f7f2c235d464d66e6eeaf99597fcad788c",
-    "receiver/public-readme.md": "66d644836b13582c000084ae0c73e5d8f92b3ed75bfd35c7faaff2b446a7306a",
+    "receiver/public-readme.md": "88f377d95ef1c404b529593a8452ae0955f57c24f4a95c15d4ccedb1c5737fcf",
     "receiver/pyproject.toml": "d27b0305e267c7ff233ad9bd1121a655febc59840f669795d9a40d573ac7bcd1",
     "receiver/ros2/ceres_bridge_msgs/CMakeLists.txt": "213c517e7e46a6f0e1b6998d766c8862d7b9ab698c6a75c73bd543a807d56f33",
     "receiver/ros2/ceres_bridge_msgs/msg/HandPose.msg": "a5601b20d87230c8c618aa48ae54033bb6a34619c5797657c8482da9cbba6ab4",
@@ -67,8 +68,8 @@
     "shared/bridge-protocol.ts": "8c443f623c9e473906681dda73717c194909f04fbbe535b5540188a7a714fac5",
     "shared/xr-hand-joints.ts": "7d79040c80d7120b68da894545da8b439e413ca7c1672c9fb5ee6e1959030662",
     ".gitignore": "56d4b1fa8bcf248c08f832dfb18177f7f2c235d464d66e6eeaf99597fcad788c",
-    "README.md": "66d644836b13582c000084ae0c73e5d8f92b3ed75bfd35c7faaff2b446a7306a",
+    "README.md": "88f377d95ef1c404b529593a8452ae0955f57c24f4a95c15d4ccedb1c5737fcf",
     "LICENCE.md": "b2d6b76741f86b3fe3f677c8a1a6ddeb3ee582f9e31ac4ca9c025c2a23a9b8a3",
-    "receiver/src/ceres_bridge/data/release.json": "58ddd36ed1306ffc2793a229927872e2cb354105e8fb62dbfced3122181d1cef"
+    "receiver/src/ceres_bridge/data/release.json": "6e603afafb240ff49b2d1051e585d754149ba71a530dd77ef931b8f0452890ed"
   }
 }
