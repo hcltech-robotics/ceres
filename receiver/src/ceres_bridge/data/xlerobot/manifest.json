@@ -1,0 +1,1951 @@
+{
+  "version": 1,
+  "repository": "https://github.com/Vector-Wangel/XLeRobot",
+  "revision": "3d14695e40c9c68229c0aacffca6053c75cd3eb6",
+  "licence": "Apache-2.0",
+  "source_urdf_sha256": "73e947aa4f3636819bd039c3fcd03c625760e9ad32ccadfea05710afa6bf5578",
+  "gltf_from_link": [
+    [
+      1.0,
+      0.0,
+      0.0
+    ],
+    [
+      0.0,
+      0.0,
+      1.0
+    ],
+    [
+      0.0,
+      -1.0,
+      0.0
+    ]
+  ],
+  "source_files": {
+    "meshes/Base.stl": {
+      "url": "https://raw.githubusercontent.com/Vector-Wangel/XLeRobot/3d14695e40c9c68229c0aacffca6053c75cd3eb6/simulation/Maniskill/assets/xlerobot/meshes/Base.stl",
+      "sha256": "bb8afb0303c0125f265a797625cfaf646ac214d5d2dc9c986348c415755e2a74",
+      "bytes": 443484
+    },
+    "meshes/Base_Motor.stl": {
+      "url": "https://raw.githubusercontent.com/Vector-Wangel/XLeRobot/3d14695e40c9c68229c0aacffca6053c75cd3eb6/simulation/Maniskill/assets/xlerobot/meshes/Base_Motor.stl",
+      "sha256": "aac4485d448eca418d2a93df3f78f449bd59b21ec1af2a579171819fd44ea576",
+      "bytes": 154284
+    },
+    "meshes/Fixed_Jaw.stl": {
+      "url": "https://raw.githubusercontent.com/Vector-Wangel/XLeRobot/3d14695e40c9c68229c0aacffca6053c75cd3eb6/simulation/Maniskill/assets/xlerobot/meshes/Fixed_Jaw.stl",
+      "sha256": "5528867073033eaa4c27a8087180954f3f0635bd69d517d5cace92f01dd266b2",
+      "bytes": 264584
+    },
+    "meshes/Fixed_Jaw_Motor.stl": {
+      "url": "https://raw.githubusercontent.com/Vector-Wangel/XLeRobot/3d14695e40c9c68229c0aacffca6053c75cd3eb6/simulation/Maniskill/assets/xlerobot/meshes/Fixed_Jaw_Motor.stl",
+      "sha256": "0321bfb902d5a119c4f2a934ab4be7e9ea8c93a02e1685f066f99c24a5ca3ecf",
+      "bytes": 151884
+    },
+    "meshes/Lower_Arm.stl": {
+      "url": "https://raw.githubusercontent.com/Vector-Wangel/XLeRobot/3d14695e40c9c68229c0aacffca6053c75cd3eb6/simulation/Maniskill/assets/xlerobot/meshes/Lower_Arm.stl",
+      "sha256": "a04511bc65cbb702b2d6023764de947888b06a09fbf272803f39c22724329a3e",
+      "bytes": 347184
+    },
+    "meshes/Lower_Arm_Motor.stl": {
+      "url": "https://raw.githubusercontent.com/Vector-Wangel/XLeRobot/3d14695e40c9c68229c0aacffca6053c75cd3eb6/simulation/Maniskill/assets/xlerobot/meshes/Lower_Arm_Motor.stl",
+      "sha256": "07368fa4c50dea70e8157accee71072120c0cb374f672c85aba1d081702bc476",
+      "bytes": 151884
+    },
+    "meshes/Moving_Jaw.stl": {
+      "url": "https://raw.githubusercontent.com/Vector-Wangel/XLeRobot/3d14695e40c9c68229c0aacffca6053c75cd3eb6/simulation/Maniskill/assets/xlerobot/meshes/Moving_Jaw.stl",
+      "sha256": "6d9c923024c75e6f0a8d8300317c4d8a17dd49880260cbc60b7fe5e0c6dadfa8",
+      "bytes": 177184
+    },
+    "meshes/Rotation_Pitch.stl": {
+      "url": "https://raw.githubusercontent.com/Vector-Wangel/XLeRobot/3d14695e40c9c68229c0aacffca6053c75cd3eb6/simulation/Maniskill/assets/xlerobot/meshes/Rotation_Pitch.stl",
+      "sha256": "4a1476f57d28d2c065bc0ede6a674cb3ebacf1193372916ef1e0ff32eeb92cf0",
+      "bytes": 347584
+    },
+    "meshes/Rotation_Pitch_Motor.stl": {
+      "url": "https://raw.githubusercontent.com/Vector-Wangel/XLeRobot/3d14695e40c9c68229c0aacffca6053c75cd3eb6/simulation/Maniskill/assets/xlerobot/meshes/Rotation_Pitch_Motor.stl",
+      "sha256": "f4fbcf18d8f2e91d12a767c1679430140dce0c81ea1478cc153bfce3a162db61",
+      "bytes": 154284
+    },
+    "meshes/Upper_Arm.stl": {
+      "url": "https://raw.githubusercontent.com/Vector-Wangel/XLeRobot/3d14695e40c9c68229c0aacffca6053c75cd3eb6/simulation/Maniskill/assets/xlerobot/meshes/Upper_Arm.stl",
+      "sha256": "d97ad37c90400fe39bb2d5ace8b4290f3d1262e13f1d4f166494421752d5f3b7",
+      "bytes": 215184
+    },
+    "meshes/Upper_Arm_Motor.stl": {
+      "url": "https://raw.githubusercontent.com/Vector-Wangel/XLeRobot/3d14695e40c9c68229c0aacffca6053c75cd3eb6/simulation/Maniskill/assets/xlerobot/meshes/Upper_Arm_Motor.stl",
+      "sha256": "bafdb2cb9e9a884e62b5fbf15b1f706a65771da82764dbe703df128d9f34d723",
+      "bytes": 152284
+    },
+    "meshes/Wrist_Pitch_Roll.stl": {
+      "url": "https://raw.githubusercontent.com/Vector-Wangel/XLeRobot/3d14695e40c9c68229c0aacffca6053c75cd3eb6/simulation/Maniskill/assets/xlerobot/meshes/Wrist_Pitch_Roll.stl",
+      "sha256": "58e83ce1c8b24e1fa3a79672ea965ea4143986c81a21386dcd6da1cbcfdc94bb",
+      "bytes": 341684
+    },
+    "meshes/Wrist_Pitch_Roll_Motor.stl": {
+      "url": "https://raw.githubusercontent.com/Vector-Wangel/XLeRobot/3d14695e40c9c68229c0aacffca6053c75cd3eb6/simulation/Maniskill/assets/xlerobot/meshes/Wrist_Pitch_Roll_Motor.stl",
+      "sha256": "89ac3fb1d2536fa4f7c40e7449be4b934d7d776f9cd0453c842767f980ff6c18",
+      "bytes": 133684
+    },
+    "meshes/XLeRobot_camera1.stl": {
+      "url": "https://raw.githubusercontent.com/Vector-Wangel/XLeRobot/3d14695e40c9c68229c0aacffca6053c75cd3eb6/simulation/Maniskill/assets/xlerobot/meshes/XLeRobot_camera1.stl",
+      "sha256": "f54fc014701f1772f1fd1f4699b5a17b8648ccf0d5d34f5af35048101b978de0",
+      "bytes": 42284
+    },
+    "meshes/XLeRobot_camera2.stl": {
+      "url": "https://raw.githubusercontent.com/Vector-Wangel/XLeRobot/3d14695e40c9c68229c0aacffca6053c75cd3eb6/simulation/Maniskill/assets/xlerobot/meshes/XLeRobot_camera2.stl",
+      "sha256": "95154bef44deeb7138f6914ac23250189100df17be1433c70b297eab7398a109",
+      "bytes": 120884
+    },
+    "meshes/raskogbody.stl": {
+      "url": "https://raw.githubusercontent.com/Vector-Wangel/XLeRobot/3d14695e40c9c68229c0aacffca6053c75cd3eb6/simulation/Maniskill/assets/xlerobot/meshes/raskogbody.stl",
+      "sha256": "b208f31d48329e6c68b89a27ce25dade6a26ceeed155989b216ee4e068c702cb",
+      "bytes": 629384
+    },
+    "meshes/raskogwheel1.stl": {
+      "url": "https://raw.githubusercontent.com/Vector-Wangel/XLeRobot/3d14695e40c9c68229c0aacffca6053c75cd3eb6/simulation/Maniskill/assets/xlerobot/meshes/raskogwheel1.stl",
+      "sha256": "cb8330074b23de6aba316fb47978b9acd194a8020820255ba2c6b64350781161",
+      "bytes": 91884
+    },
+    "meshes/raskogwheel2.stl": {
+      "url": "https://raw.githubusercontent.com/Vector-Wangel/XLeRobot/3d14695e40c9c68229c0aacffca6053c75cd3eb6/simulation/Maniskill/assets/xlerobot/meshes/raskogwheel2.stl",
+      "sha256": "719d4d1ec811f54af6bdadab64dcec5411ed356d1bce691e7bf19ab685f02edf",
+      "bytes": 114884
+    },
+    "meshes/topbase1.stl": {
+      "url": "https://raw.githubusercontent.com/Vector-Wangel/XLeRobot/3d14695e40c9c68229c0aacffca6053c75cd3eb6/simulation/Maniskill/assets/xlerobot/meshes/topbase1.stl",
+      "sha256": "9d8ffc8101829b061e10ce3ee312c475599936dff49f826abc93c36b3767e9da",
+      "bytes": 101784
+    },
+    "meshes/topbase2.stl": {
+      "url": "https://raw.githubusercontent.com/Vector-Wangel/XLeRobot/3d14695e40c9c68229c0aacffca6053c75cd3eb6/simulation/Maniskill/assets/xlerobot/meshes/topbase2.stl",
+      "sha256": "866c172149e274ffad3fbb9a98c2dcd348eb3556a8227b73e2c0c09d9ce2bbef",
+      "bytes": 83284
+    },
+    "meshes/tophead3.stl": {
+      "url": "https://raw.githubusercontent.com/Vector-Wangel/XLeRobot/3d14695e40c9c68229c0aacffca6053c75cd3eb6/simulation/Maniskill/assets/xlerobot/meshes/tophead3.stl",
+      "sha256": "117adaf328309532ff161464d8b78eaa50d1dcd0b8ade10ca2a12866080d435b",
+      "bytes": 158884
+    },
+    "meshes/tophead4.stl": {
+      "url": "https://raw.githubusercontent.com/Vector-Wangel/XLeRobot/3d14695e40c9c68229c0aacffca6053c75cd3eb6/simulation/Maniskill/assets/xlerobot/meshes/tophead4.stl",
+      "sha256": "a427b70481f89f5fe41480613a8f1470e1e0ae18fd085142c0bee5cd5ad9254d",
+      "bytes": 119284
+    },
+    "meshes/tophead5.stl": {
+      "url": "https://raw.githubusercontent.com/Vector-Wangel/XLeRobot/3d14695e40c9c68229c0aacffca6053c75cd3eb6/simulation/Maniskill/assets/xlerobot/meshes/tophead5.stl",
+      "sha256": "54bda4db70209c444aff603267209e6b382ec11729ec2bde38989e360cbc7985",
+      "bytes": 70084
+    },
+    "meshes/tophead6.stl": {
+      "url": "https://raw.githubusercontent.com/Vector-Wangel/XLeRobot/3d14695e40c9c68229c0aacffca6053c75cd3eb6/simulation/Maniskill/assets/xlerobot/meshes/tophead6.stl",
+      "sha256": "3646936db777b61f57b6150cded1894b696e519d99071425fc3911458bb11c95",
+      "bytes": 313384
+    }
+  },
+  "models": {
+    "base_link": {
+      "file": "base_link-600ba8be06ce.glb",
+      "sha256": "600ba8be06ceb46585f059093b73cd939adbb702eb694f4a841a82628bf92d34",
+      "bytes": 1296864,
+      "triangles": 16718,
+      "gltf_bounds": [
+        [
+          -0.19786199927330017,
+          0.00148572598118335,
+          -0.2336106151342392
+        ],
+        [
+          0.19448086619377136,
+          0.7750756740570068,
+          0.23253218829631805
+        ]
+      ],
+      "visuals": [
+        {
+          "mesh": "meshes/raskogbody.stl",
+          "scale": [
+            0.0009,
+            0.001,
+            0.0009
+          ],
+          "xyz": [
+            -0.01668,
+            0.502,
+            0.895
+          ],
+          "rpy": [
+            1.5708,
+            0.0,
+            0.0
+          ],
+          "rgba": [
+            0.2,
+            0.3,
+            0.6,
+            1.0
+          ]
+        },
+        {
+          "mesh": "meshes/raskogwheel1.stl",
+          "scale": [
+            0.0009,
+            0.001,
+            0.0009
+          ],
+          "xyz": [
+            -0.01668,
+            0.502,
+            0.895
+          ],
+          "rpy": [
+            1.5708,
+            0.0,
+            0.0
+          ],
+          "rgba": [
+            0.6,
+            0.6,
+            0.6,
+            1.0
+          ]
+        },
+        {
+          "mesh": "meshes/raskogwheel2.stl",
+          "scale": [
+            0.0009,
+            0.001,
+            0.0009
+          ],
+          "xyz": [
+            -0.01668,
+            0.502,
+            0.895
+          ],
+          "rpy": [
+            1.5708,
+            0.0,
+            0.0
+          ],
+          "rgba": [
+            0.02,
+            0.02,
+            0.02,
+            1.0
+          ]
+        }
+      ]
+    },
+    "Base": {
+      "file": "base-9718193b92bc.glb",
+      "sha256": "9718193b92bc5c1c8dc43ffdb4805db88eeefcab6d0184e6d0f2fb1b53d3a81b",
+      "bytes": 659216,
+      "triangles": 11952,
+      "gltf_bounds": [
+        [
+          -0.05546249821782112,
+          -1.2012782558179935e-17,
+          -0.024900000542402267
+        ],
+        [
+          0.05546249821782112,
+          0.08349644392728806,
+          0.07100000232458115
+        ]
+      ],
+      "visuals": [
+        {
+          "mesh": "meshes/Base.stl",
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "xyz": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rpy": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rgba": [
+            0.3,
+            0.3,
+            0.3,
+            1.0
+          ]
+        },
+        {
+          "mesh": "meshes/Base_Motor.stl",
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "xyz": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rpy": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rgba": [
+            0.02,
+            0.02,
+            0.02,
+            1.0
+          ]
+        }
+      ]
+    },
+    "Rotation_Pitch": {
+      "file": "rotation_pitch-5706fd94325c.glb",
+      "sha256": "5706fd94325c8e3093b6d4728339e74d94463a6ee91876fd8e84f845378c35fe",
+      "bytes": 571588,
+      "triangles": 10034,
+      "gltf_bounds": [
+        [
+          -0.02630000002682209,
+          -0.012000000104308128,
+          -0.11269999295473099
+        ],
+        [
+          0.026100000366568565,
+          0.05079999938607216,
+          8.940695406245425e-11
+        ]
+      ],
+      "visuals": [
+        {
+          "mesh": "meshes/Rotation_Pitch.stl",
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "xyz": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rpy": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rgba": [
+            0.3,
+            0.3,
+            0.3,
+            1.0
+          ]
+        },
+        {
+          "mesh": "meshes/Rotation_Pitch_Motor.stl",
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "xyz": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rpy": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rgba": [
+            0.02,
+            0.02,
+            0.02,
+            1.0
+          ]
+        }
+      ]
+    },
+    "Upper_Arm": {
+      "file": "upper_arm-89573ff923cf.glb",
+      "sha256": "89573ff923cf6f786bdd59c55f3ce32410c03bfe55b78bad9d63d0e4d4aa3b38",
+      "bytes": 412244,
+      "triangles": 7346,
+      "gltf_bounds": [
+        [
+          -0.035099998116493225,
+          -0.012000000104308128,
+          -0.13016997277736664
+        ],
+        [
+          0.03490000218153,
+          0.03819999843835831,
+          0.011912507005035877
+        ]
+      ],
+      "visuals": [
+        {
+          "mesh": "meshes/Upper_Arm.stl",
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "xyz": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rpy": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rgba": [
+            0.3,
+            0.3,
+            0.3,
+            1.0
+          ]
+        },
+        {
+          "mesh": "meshes/Upper_Arm_Motor.stl",
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "xyz": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rpy": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rgba": [
+            0.02,
+            0.02,
+            0.02,
+            1.0
+          ]
+        }
+      ]
+    },
+    "Lower_Arm": {
+      "file": "lower_arm-6ebbc5331b82.glb",
+      "sha256": "6ebbc5331b82ad313ce81805048222e2d110ee8bc017f087efc732a025886616",
+      "bytes": 587372,
+      "triangles": 9978,
+      "gltf_bounds": [
+        [
+          -0.035099998116493225,
+          -0.012000002898275852,
+          -0.02189999632537365
+        ],
+        [
+          0.026100000366568565,
+          0.14509981870651245,
+          0.015000003390014172
+        ]
+      ],
+      "visuals": [
+        {
+          "mesh": "meshes/Lower_Arm.stl",
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "xyz": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rpy": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rgba": [
+            0.3,
+            0.3,
+            0.3,
+            1.0
+          ]
+        },
+        {
+          "mesh": "meshes/Lower_Arm_Motor.stl",
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "xyz": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rpy": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rgba": [
+            0.02,
+            0.02,
+            0.02,
+            1.0
+          ]
+        }
+      ]
+    },
+    "Wrist_Pitch_Roll": {
+      "file": "wrist_pitch_roll-8ecbffced7c0.glb",
+      "sha256": "8ecbffced7c080a24bebe24d7dd156884bca4021d7b4644b0fd846e657db7187",
+      "bytes": 605024,
+      "triangles": 9504,
+      "gltf_bounds": [
+        [
+          -0.03519999980926514,
+          -0.015999993309378624,
+          -0.012000005692243576
+        ],
+        [
+          0.028075294569134712,
+          0.016000011935830116,
+          0.06260000914335251
+        ]
+      ],
+      "visuals": [
+        {
+          "mesh": "meshes/Wrist_Pitch_Roll.stl",
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "xyz": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rpy": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rgba": [
+            0.3,
+            0.3,
+            0.3,
+            1.0
+          ]
+        },
+        {
+          "mesh": "meshes/Wrist_Pitch_Roll_Motor.stl",
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "xyz": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rpy": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rgba": [
+            0.02,
+            0.02,
+            0.02,
+            1.0
+          ]
+        }
+      ]
+    },
+    "Fixed_Jaw": {
+      "file": "fixed_jaw-52b2a3473a9e.glb",
+      "sha256": "52b2a3473a9e272078c8be0438b54187f1b87c872c6e031d507b5f22edb5f83b",
+      "bytes": 483364,
+      "triangles": 8326,
+      "gltf_bounds": [
+        [
+          -0.030400000512599945,
+          -0.02399999462068081,
+          -6.820160880494086e-09
+        ],
+        [
+          0.03519999980926514,
+          0.023999998345971107,
+          0.10637500137090683
+        ]
+      ],
+      "visuals": [
+        {
+          "mesh": "meshes/Fixed_Jaw.stl",
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "xyz": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rpy": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rgba": [
+            0.3,
+            0.3,
+            0.3,
+            1.0
+          ]
+        },
+        {
+          "mesh": "meshes/Fixed_Jaw_Motor.stl",
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "xyz": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rpy": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rgba": [
+            0.02,
+            0.02,
+            0.02,
+            1.0
+          ]
+        }
+      ]
+    },
+    "Moving_Jaw": {
+      "file": "moving_jaw-65af01616662.glb",
+      "sha256": "65af016166621b3edfd4cc8caa969eb27c952fb4a4410a314bcfe01d26a9d99b",
+      "bytes": 230220,
+      "triangles": 3542,
+      "gltf_bounds": [
+        [
+          -0.012299999594688416,
+          -0.023900000378489494,
+          -0.009955084882676601
+        ],
+        [
+          0.009999998845160007,
+          0.02410000003874302,
+          0.0820000022649765
+        ]
+      ],
+      "visuals": [
+        {
+          "mesh": "meshes/Moving_Jaw.stl",
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "xyz": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rpy": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rgba": [
+            0.3,
+            0.3,
+            0.3,
+            1.0
+          ]
+        }
+      ]
+    },
+    "Right_Arm_Camera": {
+      "file": "right_arm_camera-ad24047ac59f.glb",
+      "sha256": "ad24047ac59f06ff94975fb07d8da547681f1defea6ccb4ff1612f4e75725ad9",
+      "bytes": 256352,
+      "triangles": 3260,
+      "gltf_bounds": [
+        [
+          -0.03454452380537987,
+          -0.01433105580508709,
+          -0.03952290490269661
+        ],
+        [
+          0.008184059523046017,
+          0.021779585629701614,
+          0.027714639902114868
+        ]
+      ],
+      "visuals": [
+        {
+          "mesh": "meshes/XLeRobot_camera1.stl",
+          "scale": [
+            0.001,
+            0.001,
+            0.001
+          ],
+          "xyz": [
+            -0.015,
+            -0.026,
+            0.0
+          ],
+          "rpy": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rgba": [
+            0.3,
+            0.3,
+            0.3,
+            1.0
+          ]
+        },
+        {
+          "mesh": "meshes/XLeRobot_camera2.stl",
+          "scale": [
+            0.001,
+            0.001,
+            0.001
+          ],
+          "xyz": [
+            -0.015,
+            -0.026,
+            0.0
+          ],
+          "rpy": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rgba": [
+            0.02,
+            0.02,
+            0.02,
+            1.0
+          ]
+        }
+      ]
+    },
+    "Base_2": {
+      "file": "base-9718193b92bc.glb",
+      "sha256": "9718193b92bc5c1c8dc43ffdb4805db88eeefcab6d0184e6d0f2fb1b53d3a81b",
+      "bytes": 659216,
+      "triangles": 11952,
+      "gltf_bounds": [
+        [
+          -0.05546249821782112,
+          -1.2012782558179935e-17,
+          -0.024900000542402267
+        ],
+        [
+          0.05546249821782112,
+          0.08349644392728806,
+          0.07100000232458115
+        ]
+      ],
+      "visuals": [
+        {
+          "mesh": "meshes/Base.stl",
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "xyz": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rpy": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rgba": [
+            0.3,
+            0.3,
+            0.3,
+            1.0
+          ]
+        },
+        {
+          "mesh": "meshes/Base_Motor.stl",
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "xyz": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rpy": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rgba": [
+            0.02,
+            0.02,
+            0.02,
+            1.0
+          ]
+        }
+      ]
+    },
+    "Rotation_Pitch_2": {
+      "file": "rotation_pitch-5706fd94325c.glb",
+      "sha256": "5706fd94325c8e3093b6d4728339e74d94463a6ee91876fd8e84f845378c35fe",
+      "bytes": 571588,
+      "triangles": 10034,
+      "gltf_bounds": [
+        [
+          -0.02630000002682209,
+          -0.012000000104308128,
+          -0.11269999295473099
+        ],
+        [
+          0.026100000366568565,
+          0.05079999938607216,
+          8.940695406245425e-11
+        ]
+      ],
+      "visuals": [
+        {
+          "mesh": "meshes/Rotation_Pitch.stl",
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "xyz": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rpy": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rgba": [
+            0.3,
+            0.3,
+            0.3,
+            1.0
+          ]
+        },
+        {
+          "mesh": "meshes/Rotation_Pitch_Motor.stl",
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "xyz": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rpy": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rgba": [
+            0.02,
+            0.02,
+            0.02,
+            1.0
+          ]
+        }
+      ]
+    },
+    "Upper_Arm_2": {
+      "file": "upper_arm-89573ff923cf.glb",
+      "sha256": "89573ff923cf6f786bdd59c55f3ce32410c03bfe55b78bad9d63d0e4d4aa3b38",
+      "bytes": 412244,
+      "triangles": 7346,
+      "gltf_bounds": [
+        [
+          -0.035099998116493225,
+          -0.012000000104308128,
+          -0.13016997277736664
+        ],
+        [
+          0.03490000218153,
+          0.03819999843835831,
+          0.011912507005035877
+        ]
+      ],
+      "visuals": [
+        {
+          "mesh": "meshes/Upper_Arm.stl",
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "xyz": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rpy": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rgba": [
+            0.3,
+            0.3,
+            0.3,
+            1.0
+          ]
+        },
+        {
+          "mesh": "meshes/Upper_Arm_Motor.stl",
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "xyz": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rpy": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rgba": [
+            0.02,
+            0.02,
+            0.02,
+            1.0
+          ]
+        }
+      ]
+    },
+    "Lower_Arm_2": {
+      "file": "lower_arm-6ebbc5331b82.glb",
+      "sha256": "6ebbc5331b82ad313ce81805048222e2d110ee8bc017f087efc732a025886616",
+      "bytes": 587372,
+      "triangles": 9978,
+      "gltf_bounds": [
+        [
+          -0.035099998116493225,
+          -0.012000002898275852,
+          -0.02189999632537365
+        ],
+        [
+          0.026100000366568565,
+          0.14509981870651245,
+          0.015000003390014172
+        ]
+      ],
+      "visuals": [
+        {
+          "mesh": "meshes/Lower_Arm.stl",
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "xyz": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rpy": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rgba": [
+            0.3,
+            0.3,
+            0.3,
+            1.0
+          ]
+        },
+        {
+          "mesh": "meshes/Lower_Arm_Motor.stl",
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "xyz": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rpy": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rgba": [
+            0.02,
+            0.02,
+            0.02,
+            1.0
+          ]
+        }
+      ]
+    },
+    "Wrist_Pitch_Roll_2": {
+      "file": "wrist_pitch_roll-8ecbffced7c0.glb",
+      "sha256": "8ecbffced7c080a24bebe24d7dd156884bca4021d7b4644b0fd846e657db7187",
+      "bytes": 605024,
+      "triangles": 9504,
+      "gltf_bounds": [
+        [
+          -0.03519999980926514,
+          -0.015999993309378624,
+          -0.012000005692243576
+        ],
+        [
+          0.028075294569134712,
+          0.016000011935830116,
+          0.06260000914335251
+        ]
+      ],
+      "visuals": [
+        {
+          "mesh": "meshes/Wrist_Pitch_Roll.stl",
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "xyz": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rpy": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rgba": [
+            0.3,
+            0.3,
+            0.3,
+            1.0
+          ]
+        },
+        {
+          "mesh": "meshes/Wrist_Pitch_Roll_Motor.stl",
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "xyz": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rpy": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rgba": [
+            0.02,
+            0.02,
+            0.02,
+            1.0
+          ]
+        }
+      ]
+    },
+    "Fixed_Jaw_2": {
+      "file": "fixed_jaw-52b2a3473a9e.glb",
+      "sha256": "52b2a3473a9e272078c8be0438b54187f1b87c872c6e031d507b5f22edb5f83b",
+      "bytes": 483364,
+      "triangles": 8326,
+      "gltf_bounds": [
+        [
+          -0.030400000512599945,
+          -0.02399999462068081,
+          -6.820160880494086e-09
+        ],
+        [
+          0.03519999980926514,
+          0.023999998345971107,
+          0.10637500137090683
+        ]
+      ],
+      "visuals": [
+        {
+          "mesh": "meshes/Fixed_Jaw.stl",
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "xyz": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rpy": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rgba": [
+            0.3,
+            0.3,
+            0.3,
+            1.0
+          ]
+        },
+        {
+          "mesh": "meshes/Fixed_Jaw_Motor.stl",
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "xyz": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rpy": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rgba": [
+            0.02,
+            0.02,
+            0.02,
+            1.0
+          ]
+        }
+      ]
+    },
+    "Moving_Jaw_2": {
+      "file": "moving_jaw-65af01616662.glb",
+      "sha256": "65af016166621b3edfd4cc8caa969eb27c952fb4a4410a314bcfe01d26a9d99b",
+      "bytes": 230220,
+      "triangles": 3542,
+      "gltf_bounds": [
+        [
+          -0.012299999594688416,
+          -0.023900000378489494,
+          -0.009955084882676601
+        ],
+        [
+          0.009999998845160007,
+          0.02410000003874302,
+          0.0820000022649765
+        ]
+      ],
+      "visuals": [
+        {
+          "mesh": "meshes/Moving_Jaw.stl",
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "xyz": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rpy": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rgba": [
+            0.3,
+            0.3,
+            0.3,
+            1.0
+          ]
+        }
+      ]
+    },
+    "Left_Arm_Camera": {
+      "file": "right_arm_camera-ad24047ac59f.glb",
+      "sha256": "ad24047ac59f06ff94975fb07d8da547681f1defea6ccb4ff1612f4e75725ad9",
+      "bytes": 256352,
+      "triangles": 3260,
+      "gltf_bounds": [
+        [
+          -0.03454452380537987,
+          -0.01433105580508709,
+          -0.03952290490269661
+        ],
+        [
+          0.008184059523046017,
+          0.021779585629701614,
+          0.027714639902114868
+        ]
+      ],
+      "visuals": [
+        {
+          "mesh": "meshes/XLeRobot_camera1.stl",
+          "scale": [
+            0.001,
+            0.001,
+            0.001
+          ],
+          "xyz": [
+            -0.015,
+            -0.026,
+            0.0
+          ],
+          "rpy": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rgba": [
+            0.3,
+            0.3,
+            0.3,
+            1.0
+          ]
+        },
+        {
+          "mesh": "meshes/XLeRobot_camera2.stl",
+          "scale": [
+            0.001,
+            0.001,
+            0.001
+          ],
+          "xyz": [
+            -0.015,
+            -0.026,
+            0.0
+          ],
+          "rpy": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rgba": [
+            0.02,
+            0.02,
+            0.02,
+            1.0
+          ]
+        }
+      ]
+    },
+    "top_base_link": {
+      "file": "top_base_link-582f95710097.glb",
+      "sha256": "582f95710097abf378cd85dec508d392bc6a9f72af351d9612c83384d6c1835f",
+      "bytes": 276648,
+      "triangles": 3696,
+      "gltf_bounds": [
+        [
+          -0.22922874987125397,
+          -0.039000000804662704,
+          -0.19300000369548798
+        ],
+        [
+          -0.05400000140070915,
+          0.3949488401412964,
+          0.19499999284744263
+        ]
+      ],
+      "visuals": [
+        {
+          "mesh": "meshes/topbase1.stl",
+          "scale": [
+            0.001,
+            0.001,
+            0.001
+          ],
+          "xyz": [
+            0.016,
+            -0.006,
+            -0.727
+          ],
+          "rpy": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rgba": [
+            0.3,
+            0.3,
+            0.3,
+            1.0
+          ]
+        },
+        {
+          "mesh": "meshes/topbase2.stl",
+          "scale": [
+            0.001,
+            0.001,
+            0.001
+          ],
+          "xyz": [
+            0.016,
+            -0.006,
+            -0.727
+          ],
+          "rpy": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rgba": [
+            0.02,
+            0.02,
+            0.02,
+            1.0
+          ]
+        }
+      ]
+    },
+    "head_pan_link": {
+      "file": "head_pan_link-87a92d118f60.glb",
+      "sha256": "87a92d118f60c30102f97c0d2389a897c57d0d997aa361c7525f9c53198e001b",
+      "bytes": 429264,
+      "triangles": 5551,
+      "gltf_bounds": [
+        [
+          -0.01219845563173294,
+          0.33881616592407227,
+          -0.02872125618159771
+        ],
+        [
+          0.05125347897410393,
+          0.4494776725769043,
+          0.026431504637002945
+        ]
+      ],
+      "visuals": [
+        {
+          "mesh": "meshes/tophead3.stl",
+          "scale": [
+            0.001,
+            0.001,
+            0.001
+          ],
+          "xyz": [
+            0.194,
+            -0.006,
+            -0.73
+          ],
+          "rpy": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rgba": [
+            0.3,
+            0.3,
+            0.3,
+            1.0
+          ]
+        },
+        {
+          "mesh": "meshes/tophead4.stl",
+          "scale": [
+            0.001,
+            0.001,
+            0.001
+          ],
+          "xyz": [
+            0.194,
+            -0.006,
+            -0.73
+          ],
+          "rpy": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rgba": [
+            0.02,
+            0.02,
+            0.02,
+            1.0
+          ]
+        }
+      ]
+    },
+    "head_tilt_link": {
+      "file": "head_tilt_link-12542bd63b37.glb",
+      "sha256": "12542bd63b3747512563b35e0197dd363f453cc426d4dc015c944f51dd61e4a5",
+      "bytes": 598688,
+      "triangles": 7665,
+      "gltf_bounds": [
+        [
+          -0.01235048845410347,
+          -0.011060033924877644,
+          -0.051976077258586884
+        ],
+        [
+          0.03263550251722336,
+          0.038780052214860916,
+          0.0468120239675045
+        ]
+      ],
+      "visuals": [
+        {
+          "mesh": "meshes/tophead5.stl",
+          "scale": [
+            0.001,
+            0.001,
+            0.001
+          ],
+          "xyz": [
+            0.16265,
+            -0.006,
+            -1.16815
+          ],
+          "rpy": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rgba": [
+            0.3,
+            0.3,
+            0.3,
+            1.0
+          ]
+        },
+        {
+          "mesh": "meshes/tophead6.stl",
+          "scale": [
+            0.001,
+            0.001,
+            0.001
+          ],
+          "xyz": [
+            0.16265,
+            -0.006,
+            -1.16815
+          ],
+          "rpy": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rgba": [
+            0.02,
+            0.02,
+            0.02,
+            1.0
+          ]
+        }
+      ]
+    }
+  },
+  "joints": [
+    {
+      "name": "root_x_axis_joint",
+      "parent": "root",
+      "child": "root_arm_1_link_1",
+      "xyz": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "rpy": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "root_y_axis_joint",
+      "parent": "root_arm_1_link_1",
+      "child": "root_arm_1_link_2",
+      "xyz": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "rpy": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "root_z_rotation_joint",
+      "parent": "root_arm_1_link_2",
+      "child": "base_link",
+      "xyz": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "rpy": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "arm_base_joint",
+      "parent": "base_link",
+      "child": "Base",
+      "xyz": [
+        -0.135,
+        -0.133,
+        0.76
+      ],
+      "rpy": [
+        0.0,
+        0.0,
+        1.5708
+      ]
+    },
+    {
+      "name": "Rotation",
+      "parent": "Base",
+      "child": "Rotation_Pitch",
+      "xyz": [
+        0.0,
+        -0.0452,
+        0.0165
+      ],
+      "rpy": [
+        1.5708,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "Pitch",
+      "parent": "Rotation_Pitch",
+      "child": "Upper_Arm",
+      "xyz": [
+        0.0,
+        0.1025,
+        0.0306
+      ],
+      "rpy": [
+        1.5708,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "Elbow",
+      "parent": "Upper_Arm",
+      "child": "Lower_Arm",
+      "xyz": [
+        0.0,
+        0.11257,
+        0.028
+      ],
+      "rpy": [
+        -1.5708,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "Wrist_Pitch",
+      "parent": "Lower_Arm",
+      "child": "Wrist_Pitch_Roll",
+      "xyz": [
+        0.0,
+        0.0052,
+        0.1349
+      ],
+      "rpy": [
+        -1.5708,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "Wrist_Roll",
+      "parent": "Wrist_Pitch_Roll",
+      "child": "Fixed_Jaw",
+      "xyz": [
+        0.0,
+        -0.0601,
+        0.0
+      ],
+      "rpy": [
+        0.0,
+        1.5708,
+        0.0
+      ]
+    },
+    {
+      "name": "Jaw",
+      "parent": "Fixed_Jaw",
+      "child": "Moving_Jaw",
+      "xyz": [
+        -0.0202,
+        -0.0244,
+        0.0
+      ],
+      "rpy": [
+        3.1416,
+        0.0,
+        3.33
+      ]
+    },
+    {
+      "name": "Fixed_Jaw_tip_joint",
+      "parent": "Fixed_Jaw",
+      "child": "Fixed_Jaw_tip",
+      "xyz": [
+        0.01,
+        -0.097,
+        0.0
+      ],
+      "rpy": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "Moving_Jaw_tip_joint",
+      "parent": "Moving_Jaw",
+      "child": "Moving_Jaw_tip",
+      "xyz": [
+        -0.01,
+        -0.073,
+        0.0
+      ],
+      "rpy": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "Right_Arm_Camera_joint",
+      "parent": "Fixed_Jaw",
+      "child": "Right_Arm_Camera",
+      "xyz": [
+        0.0,
+        -0.02,
+        0.05
+      ],
+      "rpy": [
+        1.5708,
+        0.0,
+        -1.5708
+      ]
+    },
+    {
+      "name": "arm_base_joint_2",
+      "parent": "base_link",
+      "child": "Base_2",
+      "xyz": [
+        -0.135,
+        0.133,
+        0.76
+      ],
+      "rpy": [
+        0.0,
+        0.0,
+        1.5708
+      ]
+    },
+    {
+      "name": "Rotation_2",
+      "parent": "Base_2",
+      "child": "Rotation_Pitch_2",
+      "xyz": [
+        0.0,
+        -0.0452,
+        0.0165
+      ],
+      "rpy": [
+        1.5708,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "Pitch_2",
+      "parent": "Rotation_Pitch_2",
+      "child": "Upper_Arm_2",
+      "xyz": [
+        0.0,
+        0.1025,
+        0.0306
+      ],
+      "rpy": [
+        1.5708,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "Elbow_2",
+      "parent": "Upper_Arm_2",
+      "child": "Lower_Arm_2",
+      "xyz": [
+        0.0,
+        0.11257,
+        0.028
+      ],
+      "rpy": [
+        -1.5708,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "Wrist_Pitch_2",
+      "parent": "Lower_Arm_2",
+      "child": "Wrist_Pitch_Roll_2",
+      "xyz": [
+        0.0,
+        0.0052,
+        0.1349
+      ],
+      "rpy": [
+        -1.5708,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "Wrist_Roll_2",
+      "parent": "Wrist_Pitch_Roll_2",
+      "child": "Fixed_Jaw_2",
+      "xyz": [
+        0.0,
+        -0.0601,
+        0.0
+      ],
+      "rpy": [
+        0.0,
+        1.5708,
+        0.0
+      ]
+    },
+    {
+      "name": "Jaw_2",
+      "parent": "Fixed_Jaw_2",
+      "child": "Moving_Jaw_2",
+      "xyz": [
+        -0.0202,
+        -0.0244,
+        0.0
+      ],
+      "rpy": [
+        3.1416,
+        0.0,
+        3.33
+      ]
+    },
+    {
+      "name": "Fixed_Jaw_tip_joint_2",
+      "parent": "Fixed_Jaw_2",
+      "child": "Fixed_Jaw_tip_2",
+      "xyz": [
+        0.01,
+        -0.097,
+        0.0
+      ],
+      "rpy": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "Moving_Jaw_tip_joint_2",
+      "parent": "Moving_Jaw_2",
+      "child": "Moving_Jaw_tip_2",
+      "xyz": [
+        -0.01,
+        -0.073,
+        0.0
+      ],
+      "rpy": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "Left_Arm_Camera_joint",
+      "parent": "Fixed_Jaw_2",
+      "child": "Left_Arm_Camera",
+      "xyz": [
+        0.0,
+        -0.02,
+        0.05
+      ],
+      "rpy": [
+        1.5708,
+        0.0,
+        -1.5708
+      ]
+    },
+    {
+      "name": "top_base_joint",
+      "parent": "base_link",
+      "child": "top_base_link",
+      "xyz": [
+        0.0,
+        0.0,
+        0.73
+      ],
+      "rpy": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "head_pan_joint",
+      "parent": "top_base_link",
+      "child": "head_pan_link",
+      "xyz": [
+        -0.178,
+        0.0,
+        0.0
+      ],
+      "rpy": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "head_tilt_joint",
+      "parent": "head_pan_link",
+      "child": "head_tilt_link",
+      "xyz": [
+        0.031,
+        0.0,
+        0.43815
+      ],
+      "rpy": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "head_camera_joint",
+      "parent": "head_tilt_link",
+      "child": "head_camera_link",
+      "xyz": [
+        0.055,
+        0.0,
+        0.0225
+      ],
+      "rpy": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "head_camera_rgb_joint",
+      "parent": "head_camera_link",
+      "child": "head_camera_rgb_frame",
+      "xyz": [
+        0.0,
+        0.02,
+        0.0
+      ],
+      "rpy": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "head_camera_rgb_optical_joint",
+      "parent": "head_camera_rgb_frame",
+      "child": "head_camera_rgb_optical_frame",
+      "xyz": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "rpy": [
+        -1.57079632679,
+        0.0,
+        -1.57079632679
+      ]
+    },
+    {
+      "name": "head_camera_depth_joint",
+      "parent": "head_camera_link",
+      "child": "head_camera_depth_frame",
+      "xyz": [
+        0.0,
+        0.045,
+        0.0
+      ],
+      "rpy": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "head_camera_depth_optical_joint",
+      "parent": "head_camera_depth_frame",
+      "child": "head_camera_depth_optical_frame",
+      "xyz": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "rpy": [
+        -1.57079632679,
+        0.0,
+        -1.57079632679
+      ]
+    }
+  ]
+}

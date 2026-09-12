@@ -2,7 +2,7 @@
   "version": 2,
   "packageVersion": "1.1.0",
   "generator": "ceres-public-core/2",
-  "treeDigest": "cef77a67e31bc3ee6f812206f4b9ab3876a6be4186c700de28bc5feb45de4c7c",
+  "treeDigest": "c1ac61a1e5f5554f89bbd55358b98575ac6c3f6e7a9f006f86049c5c38ae60e4",
   "files": {
     ".dockerignore": {
       "sha256": "f4f0799e0c8f318b0d36a430909ba9dcb3eeca1d1b0ae8b3b7907b44cc2bedca",
@@ -20,8 +20,8 @@
       "mode": "100644"
     },
     ".gitignore": {
-      "sha256": "03f60cf2d70de5528bb768f963f5f3c3797480783db983278828ff0b4098b130",
-      "bytes": 372,
+      "sha256": "f81acef770a2c0280baad334680edd4131b037d7c80b2c99634a27d58119c092",
+      "bytes": 373,
       "mode": "100644"
     },
     ".zenodo.json": {
