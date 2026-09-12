@@ -4,3 +4,5 @@
 *.jpg binary
 *.glb binary
 *.wasm binary
+# Preserve upstream URDF bytes recorded in the asset manifest.
+receiver/src/ceres_bridge/data/xlerobot/xlerobot.urdf -whitespace

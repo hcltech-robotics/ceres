@@ -13,17 +13,21 @@ dependencies = []
 
 [project.optional-dependencies]
 worker = ["aiohttp>=3.9,<4", "qrcode>=7.4,<9"]
+teleop = ["numpy>=1.26,<3"]
 foxglove = ["foxglove-sdk>=0.27,<0.28", "aiohttp>=3.9,<4", "numpy>=1.26,<3", "Pillow>=10,<13"]
 test = ["pytest>=8,<10", "build>=1,<2", "protobuf>=5,<8"]
 
 [project.scripts]
 ceres-bridge = "ceres_bridge.cli:main"
 
+[tool.setuptools]
+license-files = ["LICENCE.md", "examples/dual_arm_xlerobot.LICENCE.txt", "src/ceres_bridge/data/xlerobot/LICENSE.txt", "src/ceres_bridge/data/xlerobot/NOTICE.txt"]
+
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
-ceres_bridge = ["data/*.json"]
+ceres_bridge = ["data/*.json", "data/xlerobot/*.json", "data/xlerobot/*.glb", "data/xlerobot/*.urdf", "data/xlerobot/*.txt"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

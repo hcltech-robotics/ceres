@@ -102,6 +102,14 @@
           "enabled": true,
           "timestampMethod": "receiveTime",
           "showLine": true
+        },
+        {
+          "value": "/ceres/robot/diagnostics.update_fps",
+          "label": "Robot",
+          "color": "#d9a6ff",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "showLine": true
         }
       ],
       "xAxisVal": "timestamp",
@@ -174,6 +182,14 @@
           "value": "/ceres/diagnostics.loop_ms",
           "label": "Viewer loop",
           "color": "#cbd5e1",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "showLine": true
+        },
+        {
+          "value": "/ceres/robot/diagnostics.solve_ms",
+          "label": "Retargeting",
+          "color": "#d9a6ff",
           "enabled": true,
           "timestampMethod": "receiveTime",
           "showLine": true
@@ -562,6 +578,194 @@
         }
       ]
     },
+    "3D!robot": {
+      "foxglovePanelTitle": "Dual robot arms",
+      "fixedFrame": "ceres_robot_base",
+      "followTf": "ceres_robot_base",
+      "followMode": "follow-none",
+      "cameraState": {
+        "distance": 1.6,
+        "perspective": true,
+        "target": [
+          0.05,
+          0,
+          0.8
+        ],
+        "targetOffset": [
+          0,
+          0,
+          0
+        ],
+        "targetOrientation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "thetaOffset": 45,
+        "phi": 65,
+        "fovy": 45,
+        "near": 0.01,
+        "far": 100
+      },
+      "scene": {
+        "enableStats": true,
+        "backgroundColor": "#11161e",
+        "transforms": {
+          "visible": false,
+          "showLabel": false
+        }
+      },
+      "topics": {
+        "/ceres/robot/scene": {
+          "visible": true
+        },
+        "/ceres/scene": {
+          "visible": false
+        },
+        "/ceres/camera/calibration": {
+          "visible": false
+        },
+        "/ceres/camera/projection": {
+          "visible": false
+        }
+      },
+      "transforms": {},
+      "layers": {}
+    },
+    "Plot!robot-left": {
+      "foxglovePanelTitle": "Left arm joints",
+      "paths": [
+        {
+          "value": "/ceres/robot/joints.left.shoulder_pan",
+          "label": "Shoulder pan",
+          "color": "#f87171",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "showLine": true
+        },
+        {
+          "value": "/ceres/robot/joints.left.shoulder_lift",
+          "label": "Shoulder lift",
+          "color": "#fb923c",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "showLine": true
+        },
+        {
+          "value": "/ceres/robot/joints.left.elbow_flex",
+          "label": "Elbow flex",
+          "color": "#facc15",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "showLine": true
+        },
+        {
+          "value": "/ceres/robot/joints.left.wrist_flex",
+          "label": "Wrist flex",
+          "color": "#4ade80",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "showLine": true
+        },
+        {
+          "value": "/ceres/robot/joints.left.wrist_roll",
+          "label": "Wrist roll",
+          "color": "#38bdf8",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "showLine": true
+        },
+        {
+          "value": "/ceres/robot/joints.left.gripper",
+          "label": "Gripper",
+          "color": "#a78bfa",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "showLine": true
+        }
+      ],
+      "xAxisVal": "timestamp",
+      "showLegend": true,
+      "legendDisplay": "left",
+      "sidebarDimension": 120,
+      "showPlotValuesInLegend": false,
+      "isSynced": true,
+      "timeWindowMode": "sliding",
+      "followingViewWidth": 15,
+      "yAxisLabel": "Radians",
+      "showXAxisLabels": true,
+      "showYAxisLabels": true
+    },
+    "Plot!robot-right": {
+      "foxglovePanelTitle": "Right arm joints",
+      "paths": [
+        {
+          "value": "/ceres/robot/joints.right.shoulder_pan",
+          "label": "Shoulder pan",
+          "color": "#f87171",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "showLine": true
+        },
+        {
+          "value": "/ceres/robot/joints.right.shoulder_lift",
+          "label": "Shoulder lift",
+          "color": "#fb923c",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "showLine": true
+        },
+        {
+          "value": "/ceres/robot/joints.right.elbow_flex",
+          "label": "Elbow flex",
+          "color": "#facc15",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "showLine": true
+        },
+        {
+          "value": "/ceres/robot/joints.right.wrist_flex",
+          "label": "Wrist flex",
+          "color": "#4ade80",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "showLine": true
+        },
+        {
+          "value": "/ceres/robot/joints.right.wrist_roll",
+          "label": "Wrist roll",
+          "color": "#38bdf8",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "showLine": true
+        },
+        {
+          "value": "/ceres/robot/joints.right.gripper",
+          "label": "Gripper",
+          "color": "#a78bfa",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "showLine": true
+        }
+      ],
+      "xAxisVal": "timestamp",
+      "showLegend": true,
+      "legendDisplay": "left",
+      "sidebarDimension": 120,
+      "showPlotValuesInLegend": false,
+      "isSynced": true,
+      "timeWindowMode": "sliding",
+      "followingViewWidth": 15,
+      "yAxisLabel": "Radians",
+      "showXAxisLabels": true,
+      "showYAxisLabels": true
+    },
+    "RawMessages!robot": {
+      "foxglovePanelTitle": "Robot diagnostics",
+      "topicPath": "/ceres/robot/diagnostics",
+      "defaultExpanded": true
+    },
     "Tab!workspace": {
       "activeTabIdx": 0,
       "tabs": [
@@ -571,24 +775,29 @@
             "direction": "column",
             "first": {
               "direction": "row",
-              "first": "3D!tracking",
+              "first": {
+                "direction": "row",
+                "first": "3D!robot",
+                "second": "3D!tracking",
+                "splitPercentage": 50
+              },
               "second": "Image!camera",
-              "splitPercentage": 60
+              "splitPercentage": 76
             },
             "second": {
               "direction": "row",
               "first": {
                 "direction": "column",
-                "first": "Plot!head-position",
-                "second": "Plot!head-rotation",
+                "first": "Plot!hand-position",
+                "second": "Plot!hand-rotation",
                 "splitPercentage": 50
               },
               "second": {
                 "direction": "row",
                 "first": {
                   "direction": "column",
-                  "first": "Plot!hand-position",
-                  "second": "Plot!hand-rotation",
+                  "first": "Plot!robot-left",
+                  "second": "Plot!robot-right",
                   "splitPercentage": 50
                 },
                 "second": {
@@ -622,7 +831,7 @@
             "second": {
               "direction": "row",
               "first": "RawMessages!details",
-              "second": "Plot!pinch",
+              "second": "RawMessages!robot",
               "splitPercentage": 50
             },
             "splitPercentage": 50
@@ -635,6 +844,20 @@
             "first": "RawMessages!left",
             "second": "RawMessages!right",
             "splitPercentage": 50
+          }
+        },
+        {
+          "title": "Head and grasp",
+          "layout": {
+            "direction": "column",
+            "first": {
+              "direction": "row",
+              "first": "Plot!head-position",
+              "second": "Plot!head-rotation",
+              "splitPercentage": 50
+            },
+            "second": "Plot!pinch",
+            "splitPercentage": 70
           }
         }
       ]

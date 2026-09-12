@@ -1,5 +1,5 @@
-include LICENCE.md README.md
-recursive-include examples *.py
+include LICENCE.md README.md THIRD-PARTY.md
+recursive-include examples *.py *.txt
 recursive-include foxglove *.json
 recursive-include ros2 *.py *.cfg *.xml *.msg CMakeLists.txt ceres_bridge_ros
-recursive-include src/ceres_bridge/data *.json
+recursive-include src/ceres_bridge/data *.json *.glb *.urdf *.txt

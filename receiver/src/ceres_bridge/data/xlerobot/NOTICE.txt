@@ -1,0 +1,7 @@
+XLeRobot visual models
+
+Source: https://github.com/Vector-Wangel/XLeRobot/tree/3d14695e40c9c68229c0aacffca6053c75cd3eb6/simulation/Maniskill/assets/xlerobot/
+Revision: 3d14695e40c9c68229c0aacffca6053c75cd3eb6
+Licence: Apache-2.0 (see LICENSE.txt).
+
+CERES modifications: converted upstream STL visual meshes to GLB, applied the URDF visual origins, scales and materials, and converted link coordinates to glTF Y-up. The original triangle geometry is retained apart from zero-area faces. Sources and generated files are recorded in manifest.json.

@@ -12,7 +12,7 @@ const secret = /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|\b(?:gh[pousr]
 const skip = new Set([".git", ".venv", "node_modules", "target", "pkg-scalar", "pkg-simd", "__pycache__", ".pytest_cache", "test-results", "playwright-report", "release", "data"]);
 function files(directory, prefix = "") {
   return readdirSync(directory, { withFileTypes: true }).flatMap(entry => {
-    if (skip.has(entry.name) || entry.name.endsWith(".egg-info") || (prefix === "receiver" && entry.name === "build")) return [];
+    if ((skip.has(entry.name) && (entry.name !== "data" || prefix === "")) || entry.name.endsWith(".egg-info") || (prefix === "receiver" && entry.name === "build")) return [];
     const file = prefix ? `${prefix}/${entry.name}` : entry.name;
     if (entry.isSymbolicLink()) throw new Error(`Source contains a symbolic link: ${file}`);
     return entry.isDirectory() ? files(path.join(directory, entry.name), file) : [file];

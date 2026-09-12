@@ -7,10 +7,21 @@ def object_schema(properties, *, nullable=False):
 
 NUMBER = {"type": "number"}
 OPTIONAL_NUMBER = {"type": ["number", "null"]}
+# Foxglove requires one numeric schema type. Its JSON reader preserves the
+# "NaN" transport sentinel and its plot adapter converts it to a numeric gap.
+# JSON null is skipped by the plot adapter and would join across the loss.
+PLOT_NUMBER = {"type": "number"}
 BOOLEAN = {"type": "boolean"}
 STRING = {"type": "string"}
 VECTOR = object_schema({axis: NUMBER for axis in "xyz"})
 ORIENTATION = object_schema({axis: NUMBER for axis in "xyzw"})
+MOTION_SCHEMA = {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "ceres.MotionSignals",
+    **object_schema({"frame_id": STRING, "tracked": BOOLEAN,
+        "position": object_schema({axis: PLOT_NUMBER for axis in "xyz"}),
+        "rotation": object_schema({axis: PLOT_NUMBER for axis in ("roll", "pitch", "yaw")})}),
+}
 HAND_SCHEMA = {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "ceres.HandJoints",
@@ -37,5 +48,6 @@ DIAGNOSTIC_SCHEMA = {
         **{f"{name}_pinch_m": OPTIONAL_NUMBER for name in ("left", "right")},
         "camera": object_schema({"side": STRING, "width": NUMBER, "height": NUMBER}, nullable=True),
         "camera_projection": STRING,
+        "process_cpu_percent": NUMBER, "process_rss_mb": OPTIONAL_NUMBER, "loop_ms": NUMBER,
     }),
 }

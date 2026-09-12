@@ -42,7 +42,9 @@ class Receiver:
         self.socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self.socket.settimeout(1)
         self.socket.connect(str(path))
-        self.stream = self.socket.makefile("rwb", buffering=0)
+        # Read complete response lines in blocks. Raw SocketIO.readline reads
+        # one byte per syscall and can expire poses when consumers run together.
+        self.stream = self.socket.makefile("rb", buffering=65_536)
         self.releases = []
         self.encoded_releases = []
         self.audio_releases = []

@@ -19,7 +19,8 @@ from foxglove.websocket import ServerListener
 
 from .client import Receiver
 from .foxglove_scene import NAMES, ORIGIN, StreamMetrics, camera_calibration, converted_pose, joints, scene, timestamp, transforms
-from .foxglove_schemas import DIAGNOSTIC_SCHEMA, HAND_SCHEMA
+from .foxglove_schemas import DIAGNOSTIC_SCHEMA, HAND_SCHEMA, MOTION_SCHEMA
+from .foxglove_signals import MotionSignals, ProcessMetrics
 from .foxglove_ui import LAYOUTS, connection_links, layout_bytes
 
 MAX_VIEWERS = 4
@@ -50,6 +51,7 @@ async def run(args):
     backend = foxglove.start_server(name="CERES Bridge", host="127.0.0.1", port=0, capabilities=[],
                                    message_backlog_size=16, server_listener=listener)
     hand_channels = {kind: foxglove.Channel(f"/ceres/{NAMES[kind]}/joints", schema=HAND_SCHEMA) for kind in ("2", "3")}
+    motion_channels = {kind: foxglove.Channel(f"/ceres/{name}/motion", schema=MOTION_SCHEMA) for kind, name in NAMES.items()}
     diagnostic_channel = foxglove.Channel("/ceres/diagnostics", schema=DIAGNOSTIC_SCHEMA)
     viewers = set()
     video_history = OrderedDict()
@@ -154,6 +156,18 @@ async def run(args):
             "Content-Disposition": f'attachment; filename="ceres-bridge-{name}"',
         })
     application.router.add_get("/layouts/{name}", download_layout)
+    if getattr(args, "robot", None):
+        from .robot_assets import asset_bytes
+
+        async def robot_asset(request):
+            try:
+                data = asset_bytes(request.match_info["name"])
+            except ValueError:
+                raise web.HTTPNotFound() from None
+            return web.Response(body=data, content_type="model/gltf-binary", headers={
+                "Access-Control-Allow-Origin": "*", "Cache-Control": "public, max-age=31536000, immutable"})
+
+        application.router.add_get("/assets/xlerobot/{name}", robot_asset)
     if asset_directory:
         async def quest_model(_request):
             return web.FileResponse(asset_directory / "quest-3.glb", headers={
@@ -166,17 +180,29 @@ async def run(args):
     last_scene = 0
     last_diagnostics = 0
     metrics = StreamMetrics()
+    motion = MotionSignals()
+    process = ProcessMetrics()
+    robot_task = None
     last_projection = 0
     try:
         links = connection_links(args.host, args.port)
+        if getattr(args, "robot", None):
+            from .foxglove_teleop import run_robot
+            robot_task = asyncio.create_task(run_robot(args, stop))
+            links["layout"] = links["layout"].replace("/layout.json", "/dual-arm-layout.json")
         print(f"Foxglove: {links['websocket']}", flush=True)
         print(f"Open in Foxglove: {links['open']}", flush=True)
         print(f"Import layout: {links['layout']}", flush=True)
         while not stop.is_set():
+            loop_started = time.monotonic_ns()
+            if robot_task is not None and robot_task.done():
+                robot_task.result()
             request_keyframe = listener.keyframe.is_set()
             listener.keyframe.clear()
             snapshot = await asyncio.to_thread(receiver.latest, keyframe=request_keyframe)
             now = time.time_ns()
+            for kind, signal in motion.observe(snapshot).items():
+                motion_channels[kind].log(signal, log_time=now)
             for kind in metrics.observe(snapshot):
                 component = snapshot["poses"][kind]
                 pose = component["pose"]
@@ -216,17 +242,23 @@ async def run(args):
                 foxglove.log("/ceres/scene", scene(snapshot, now, meshes, model_url), log_time=now)
                 last_scene = now
             if now - last_diagnostics >= 200_000_000:
-                diagnostic_channel.log(metrics.diagnostic(snapshot), log_time=now)
+                diagnostic_channel.log({**metrics.diagnostic(snapshot), **process.diagnostic()}, log_time=now)
                 for kind in ("2", "3"):
                     if not snapshot["poses"].get(kind, {}).get("tracked"):
                         hand_channels[kind].log(joints({}), log_time=now)
                 last_diagnostics = now
+            process.observe_loop(time.monotonic_ns() - loop_started)
             await asyncio.sleep(0.002)
     finally:
+        stop.set()
+        if robot_task is not None:
+            await asyncio.gather(robot_task, return_exceptions=True)
         receiver.close()
         await asyncio.gather(*(viewer.close() for viewer in list(viewers)), return_exceptions=True)
         await runner.cleanup()
         backend.stop()
         diagnostic_channel.close()
         for channel in hand_channels.values():
+            channel.close()
+        for channel in motion_channels.values():
             channel.close()
