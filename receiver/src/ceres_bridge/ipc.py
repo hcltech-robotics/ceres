@@ -15,6 +15,7 @@ from .state import LatestState, monotonic_us
 MAX_CONSUMERS = 8
 MAX_FRAME_BYTES = 640 * 1280 * 3
 MAX_ENCODED_BYTES = 256 * 1024
+MAX_AUDIO_BYTES = 48_000 * 2 * 120 // 1000
 MAX_MESSAGE_BYTES = 32_768
 IPC_TIMEOUT = 0.1
 
@@ -94,12 +95,27 @@ class EncodedMailbox(FrameMailbox):
         return True
 
 
+class AudioMailbox(FrameMailbox):
+    def __init__(self):
+        super().__init__(MAX_AUDIO_BYTES)
+
+    def publish_audio(self, data, received_us, epoch, pts_ns):
+        if not data or len(data) % 2 or len(data) > self.capacity:
+            self.drops += 1
+            return
+        generation = self.generation
+        super().publish(data, len(data) // 2, 1, len(data), received_us, epoch, pts_ns)
+        if self.generation != generation:
+            self.latest.update(format="S16LE", sample_rate=48_000, channels=1, samples=len(data) // 2)
+
+
 class Broker:
     def __init__(self, state: LatestState):
         self.state = state
         self.lock = threading.Lock()
         self.consumers: dict[int, FrameMailbox | None] = {}
         self.encoded: dict[int, EncodedMailbox] = {}
+        self.audio: dict[int, AudioMailbox] = {}
         self.request_keyframe = lambda: None
         self.serial = 0
 
@@ -114,7 +130,7 @@ class Broker:
 
     def reset(self):
         with self.lock:
-            for box in [*self.consumers.values(), *self.encoded.values()]:
+            for box in [*self.consumers.values(), *self.encoded.values(), *self.audio.values()]:
                 if box:
                     box.latest = None
                     if isinstance(box, EncodedMailbox):
@@ -128,6 +144,11 @@ class Broker:
                     request = True
         if request:
             self.request_keyframe()
+
+    def publish_audio(self, data, epoch, pts_ns):
+        with self.lock:
+            for box in self.audio.values():
+                box.publish_audio(data, monotonic_us(), epoch, pts_ns)
 
     async def handle(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         identity = None
@@ -163,9 +184,14 @@ class Broker:
                             self.encoded[identity] = EncodedMailbox()
                             self.request_keyframe()
                         encoded_box = self.encoded.get(identity)
+                        if message.get("audio") and identity not in self.audio:
+                            self.audio[identity] = AudioMailbox()
+                        audio_box = self.audio.get(identity)
                         result = {"version": 1, "path": box.path if box else None, "size": MAX_FRAME_BYTES * 2 if box else 0,
                                   "encoded_path": encoded_box.path if encoded_box else None,
-                                  "encoded_size": MAX_ENCODED_BYTES * 2 if encoded_box else 0}
+                                  "encoded_size": MAX_ENCODED_BYTES * 2 if encoded_box else 0,
+                                  "audio_path": audio_box.path if audio_box else None,
+                                  "audio_size": MAX_AUDIO_BYTES * 2 if audio_box else 0}
                     elif message.get("op") == "diagnostics":
                         result = self.state.diagnostics()
                     elif message.get("op") == "latest":
@@ -187,11 +213,19 @@ class Broker:
                         result = self.state.snapshot()
                         result["frame"] = box.acquire(monotonic_us()) if box else None
                         result["encoded"] = encoded_box.acquire(monotonic_us()) if encoded_box else None
+                        audio_release = message.get("audio_release", [])
+                        if not isinstance(audio_release, list) or len(audio_release) > 2 or any(type(i) is not int or i not in (0, 1) for i in audio_release):
+                            break
+                        audio_box = self.audio.get(identity)
+                        if audio_box:
+                            audio_box.leased.difference_update(audio_release)
+                        result["audio"] = audio_box.acquire(monotonic_us()) if audio_box else None
                         if encoded_box and encoded_box.needs_keyframe:
                             self.request_keyframe()
                         result["buffers"] = {"consumers": len(self.consumers),
                                              "raw_bytes": sum(MAX_FRAME_BYTES * 2 for b in self.consumers.values() if b),
                                              "encoded_bytes": len(self.encoded) * MAX_ENCODED_BYTES * 2,
+                                             "audio_bytes": len(self.audio) * MAX_AUDIO_BYTES * 2,
                                              "frame_drops": box.drops if box else 0}
                     else:
                         break
@@ -211,6 +245,9 @@ class Broker:
                     encoded_box = self.encoded.pop(identity, None)
                     if encoded_box:
                         encoded_box.close()
+                    audio_box = self.audio.pop(identity, None)
+                    if audio_box:
+                        audio_box.close()
             writer.close()
             try:
                 await writer.wait_closed()

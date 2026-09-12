@@ -29,6 +29,8 @@ Use `--bind-address <receiver-LAN-address>` to select a network interface. Use a
 
 The receiver remembers its paired headset. Restart `ceres-bridge listen` to reconnect without another code. In the headset, **Pause** suspends video and poses while keeping the connection, and **Exit** ends the stream. **Forget receiver** revokes pairing. On Linux, stop the worker, then run `ceres-bridge listen --forget` to revoke the headset pairing.
 
+The square microphone button beside **Start streaming** enables outgoing audio, which starts off. Local voice commands remain available with audio on or off. Pause also suspends outgoing audio. Python applications opt in with `Receiver(audio=True)` and read `latest()["audio"]` as a mono 48 kHz S16LE lease.
+
 ## Read the current observations
 
 Keep the receiver worker running in one terminal and run your application in another.

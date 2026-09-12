@@ -41,7 +41,7 @@ def main():
             asyncio.run(run(args))
         elif args.command == "doctor":
             from .media import Gst, GstWebRTC
-            required = ("webrtcbin", "nicesrc", "dtlssrtpdec", "sctpdec", "rtph264depay", "h264parse", "avdec_h264", "rtpvp8depay", "vp8dec", "videoconvert", "appsink")
+            required = ("webrtcbin", "nicesrc", "dtlssrtpdec", "sctpdec", "rtph264depay", "h264parse", "avdec_h264", "rtpvp8depay", "vp8dec", "videoconvert", "rtpopusdepay", "opusdec", "audioconvert", "audioresample", "appsink")
             missing = [name for name in required if not Gst.ElementFactory.find(name)]
             print(f"Linux {platform.machine()}, Python {platform.python_version()}, {Gst.version_string()}")
             if missing:

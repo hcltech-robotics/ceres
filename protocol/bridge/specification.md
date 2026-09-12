@@ -12,7 +12,7 @@ Bridge sends live Quest 3 observations to a Linux application on the same networ
 
 Bridge appears beside Duet and Solo on the capture page, through **Launch > Bridge mode** and at `/bridge/`. Switching modes opens the selected operating surface. Mode changes are locked while XR or a recording workflow is active.
 
-Bridge starts no recorder worker, recording journal, task service, microphone capture or dataset exporter. The receiver cannot control the headset or issue robot commands through this protocol.
+Bridge starts no recorder worker, recording journal, task service or dataset exporter. Its microphone feeds local voice commands independently of optional outgoing audio. The receiver cannot control the headset or issue robot commands through this protocol.
 
 ## Pairing and connection
 
@@ -31,6 +31,7 @@ The [wire protocol](README.md) defines CBR1 packets, metadata, clock exchange an
 | Stream | Contract |
 | --- | --- |
 | Video | One native camera track, scaled to 640 pixels wide with its aspect ratio and field of view preserved. H.264 is preferred, VP8 is supported and the initial encoder cap is 2 Mbit/s. |
+| Audio | Optional Opus track capped at 32 kbit/s, off on each page load. The receiver exposes mono 48 kHz S16LE samples through bounded leases. |
 | Head | Position and XYZW quaternion from each fresh XR observation. |
 | Hands | 25 named joints per hand, with position, XYZW quaternion, radius and validity mask. |
 | Timing | Separate observation and predicted XR display timestamps. Four-timestamp exchanges estimate clock rate, offset and uncertainty. |
@@ -53,7 +54,7 @@ The Linux worker owns GStreamer, WebRTC and one decoder. Applications use a priv
 
 Bridge retains the circular reticle and camera margin. Video FPS appears above the left side and motion FPS above the right. Connection status and the receiver name appear beneath the reticle. The task bar and coloured task markers are hidden.
 
-REC and a crossed-out red microphone occupy the upper left. Audio is off. Pause/resume is at the upper right and Exit at the lower left. Pause suspends video and poses while keeping the peer connection. REC pulses faintly during a pause. Exit closes XR and streaming while leaving the camera preview available.
+REC and the microphone status occupy the upper left. Audio starts off with a crossed-out red microphone. The square microphone button beside **Start streaming** changes outgoing audio without affecting local voice commands. Pause/resume is at the upper right and Exit at the lower left. Pause suspends video, audio and poses while keeping the peer connection and local voice control. REC pulses faintly during a pause. Exit closes XR and streaming while leaving the camera preview available.
 
 The four lower-right controls select hand appearance, shading, trails and HUD mode. They remain at 10% opacity when idle and become visible on hover.
 

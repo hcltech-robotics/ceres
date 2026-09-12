@@ -52,6 +52,10 @@ Video and poses arrive independently. RTP presentation time is not a calibrated 
 
 The Python client preserves raw WebXR coordinates: +X right, +Y up and -Z forward. The ROS adapter changes basis to X forward, Y left and Z up. No camera extrinsic transform is implied by the head pose.
 
+## Audio
+
+An optional send-only RTP audio transceiver negotiates Opus alongside video. Its source track is detached while audio is off or streaming is paused, so toggling audio requires no renegotiation. The encoder cap is 32 kbit/s. Local voice recognition keeps its own access to the live microphone regardless of the outgoing audio setting. The receiver decodes audio to mono 48 kHz S16LE and supplies the latest chunk through two private slots per audio subscriber.
+
 ## Fixtures and compatibility
 
 [poses.json](fixtures/poses.json) contains tracked/untracked head and hand packets, including sequence wrap and partial joint masks. Both the [TypeScript codec](../../shared/bridge-protocol.ts) and [Python codec](../../receiver/src/ceres_bridge/protocol.py) consume these fixtures.

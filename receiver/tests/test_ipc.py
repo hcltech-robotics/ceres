@@ -1,10 +1,34 @@
 import unittest
 
-from ceres_bridge.ipc import Broker, EncodedMailbox, FrameMailbox, MAX_FRAME_BYTES
+from ceres_bridge.ipc import AudioMailbox, Broker, EncodedMailbox, FrameMailbox, MAX_AUDIO_BYTES, MAX_FRAME_BYTES
 from ceres_bridge.state import LatestState
 
 
 class MailboxTests(unittest.TestCase):
+    def test_audio_leases_are_bounded_and_expire(self):
+        box = AudioMailbox()
+        try:
+            box.publish_audio(b"\x01\x00" * 960, 10, 1, 0)
+            first = box.acquire(10)
+            self.assertEqual(first["samples"], 960)
+            self.assertEqual(first["sample_rate"], 48_000)
+            self.assertEqual(first["format"], "S16LE")
+            box.publish_audio(b"\x02\x00" * 960, 20, 1, 1)
+            second = box.acquire(20)
+            box.publish_audio(b"\x03\x00" * 960, 30, 1, 2)
+            self.assertEqual(box.drops, 1)
+            self.assertEqual(box.memory[first["offset"]:first["offset"] + 2], b"\x01\x00")
+            self.assertEqual(len(box.memory), 2 * MAX_AUDIO_BYTES)
+            box.leased.remove(second["slot"])
+            box.publish_audio(b"\x04\x00" * 960, 40, 1, 3)
+            self.assertIsNone(box.acquire(100_041))
+            broker = Broker(LatestState())
+            broker.audio[1] = box
+            broker.reset()
+            self.assertIsNone(box.latest)
+        finally:
+            box.close()
+
     def test_two_leases_protect_frames_and_stall_is_private(self):
         broker = Broker(LatestState())
         first, second = FrameMailbox(), FrameMailbox()

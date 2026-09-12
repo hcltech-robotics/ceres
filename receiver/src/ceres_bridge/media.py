@@ -63,6 +63,7 @@ class MediaPeer:
         self.changed = asyncio.Event()
         self.error = None
         self.video_bin = None
+        self.audio_bin = None
         self.last_keyframe_request = 0
         self.broker.request_keyframe = self.request_keyframe
         self.pending_ice = []
@@ -250,6 +251,19 @@ class MediaPeer:
             caps = pad.get_current_caps() or pad.query_caps(None)
             structure = caps.get_structure(0)
             encoding = structure.get_string("encoding-name")
+            if structure.get_string("media") == "audio":
+                if encoding != "OPUS" or self.audio_bin:
+                    raise ValueError("Bridge accepts one Opus audio track")
+                self.audio_bin = Gst.parse_bin_from_description(
+                    "rtpopusdepay ! opusdec ! audioconvert ! audioresample ! "
+                    "audio/x-raw,format=S16LE,rate=48000,channels=1,layout=interleaved ! "
+                    "appsink name=audio emit-signals=true sync=false async=false max-buffers=1 drop=true wait-on-eos=false", True)
+                self.audio_bin.get_by_name("audio").connect("new-sample", self._audio)
+                self.pipeline.add(self.audio_bin)
+                if pad.link(self.audio_bin.get_static_pad("sink")) != Gst.PadLinkReturn.OK:
+                    raise RuntimeError("Cannot connect the audio decoder")
+                self.audio_bin.sync_state_with_parent()
+                return
             if structure.get_string("media") != "video" or encoding not in ("H264", "VP8") or self.video_bin:
                 raise ValueError("Bridge accepts one H.264 or VP8 video track")
             decoder = "rtph264depay wait-for-keyframe=true request-keyframe=true ! h264parse name=parsed_h264 config-interval=-1 ! video/x-h264,stream-format=byte-stream,alignment=au ! tee name=access_units ! queue max-size-buffers=2 max-size-bytes=524288 max-size-time=100000000 ! avdec_h264 max-threads=1" if encoding == "H264" else "rtpvp8depay ! vp8dec threads=1"
@@ -312,6 +326,20 @@ class MediaPeer:
         if success:
             try:
                 self.broker.publish_frame(mapped.data, info.width, info.height, info.stride[0], self.state.epoch,
+                                          None if buffer.pts == Gst.CLOCK_TIME_NONE else buffer.pts)
+            finally:
+                buffer.unmap(mapped)
+        return Gst.FlowReturn.OK
+
+    def _audio(self, sink):
+        sample = sink.emit("pull-sample")
+        if not sample or self.closed:
+            return Gst.FlowReturn.OK
+        buffer = sample.get_buffer()
+        success, mapped = buffer.map(Gst.MapFlags.READ)
+        if success:
+            try:
+                self.broker.publish_audio(mapped.data, self.state.epoch,
                                           None if buffer.pts == Gst.CLOCK_TIME_NONE else buffer.pts)
             finally:
                 buffer.unmap(mapped)

@@ -16,7 +16,7 @@ Pass `path="/path/to/receiver.sock"` when the worker uses a custom `--socket`. T
 
 ## Observations
 
-`latest()` returns `epoch`, `space_epoch`, `description`, `poses`, `frame`, `encoded`, `clock`, `counts`, `buffers` and `connection`. It returns immediately with available observations and does not wait for video and poses to align.
+`latest()` returns `epoch`, `space_epoch`, `description`, `poses`, `frame`, `encoded`, `audio`, `clock`, `counts`, `buffers` and `connection`. It returns immediately with available observations and does not wait for video, audio and poses to align.
 
 Each pose component reports `fresh`, `tracked`, `received_us`, `age_us` and `pose`. The pose contains a source sequence, connection/reference-space epochs, observation/predicted-display timestamps, validity mask and transform values. Head values contain position XYZ and quaternion XYZW. Hand values contain 25 groups of XYZ, XYZW and joint radius in metres.
 
@@ -50,3 +50,17 @@ with Receiver() as receiver:
 An optional `Receiver(video=False, encoded=True)` reserves two 256 KiB slots for Annex B H.264 access units. Read `observation["encoded"]` with the same lease interface. A dropped access unit puts that consumer into keyframe recovery, and `latest(keyframe=True)` requests a new decodable sequence. VP8 is available through decoded RGB frames.
 
 The worker never overwrites leased data. A slow consumer drops its own new frames, and each output has independent slots. IPC responses are capped at 32 KiB and a blocked response is disconnected after 100 ms. Raw pixel data and encoded access units remain in the private shared mappings.
+
+## Microphone audio
+
+Enable audio with the square microphone button beside **Start streaming** on the headset. Outgoing audio starts off and does not affect local voice commands. `Receiver(audio=True)` reserves two audio slots of 11,520 bytes each. `latest()["audio"]` is a lease containing mono 48 kHz S16LE samples. Its metadata includes `sample_rate`, `channels`, `samples`, `bytes`, `received_us`, `pts_ns` and `epoch`. Chunks older than 100 ms are unavailable.
+
+```python
+with Receiver(video=False, audio=True) as receiver:
+    audio = receiver.latest()["audio"]
+    if audio:
+        with audio:
+            pcm = bytes(audio.data)
+```
+
+Each call returns the latest available chunk. Release it before polling again. Pausing the headset stream suspends audio along with video and poses.
