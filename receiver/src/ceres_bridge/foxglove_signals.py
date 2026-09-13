@@ -25,7 +25,7 @@ class MotionSignals:
         self.tracked = {}
 
     def observe(self, snapshot):
-        epoch = (snapshot["epoch"], snapshot["space_epoch"])
+        epoch = (snapshot.get("ipc_generation"), snapshot["epoch"], snapshot["space_epoch"])
         if epoch != self.epoch:
             changed_origin = self.epoch is not None
             self.previous.clear()

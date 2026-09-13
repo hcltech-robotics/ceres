@@ -24,11 +24,12 @@ RPY = ((1.5708, 0, 0), (1.5708, 0, 0), (-1.5708, 0, 0),
 AXES = ((0, -1, 0), (-1, 0, 0), (1, 0, 0), (1, 0, 0), (0, -1, 0), (0, 0, 1))
 LOWER = np.array((-2.1, -.1, -.2, -1.8, -3.14159, 0.0))
 UPPER = np.array((2.1, 3.45, 3.14159, 1.8, 3.14159, 1.7))
-HOME = np.array((0.0, 1.0, 1.5, -.5, 0.0, .8))
+HOME = np.array((0.0, 1.3, 2.5, -1.2, 0.0, .8))
 TIP = np.array((.01, -.097, 0.0))
 # ROS-converted wrist +X points towards the fingers. Fixed_Jaw approaches along
-# -Y and closes along X. A local quarter turn aligns these tool and hand axes.
-HAND_FROM_TOOL = np.array(((0., -1., 0.), (1., 0., 0.), (0., 0., 1.)))
+# -Y and closes along X. A pronated hand has wrist +Z pointing upwards, so the
+# tool's closing axis points downwards and the fingers continue along wrist +X.
+HAND_FROM_TOOL = np.array(((0., -1., 0.), (0., 0., 1.), (-1., 0., 0.)))
 HAND_FROM_TOOL.setflags(write=False)
 
 
@@ -97,9 +98,7 @@ class ArmModel:
         self.joint_names = [name + self.suffix for name in JOINT_NAMES]
         self.base = transform((-.135, .133 if side == "left" else -.133, .760), (0, 0, 1.5708))
         self.origins = [transform(xyz, rpy) for xyz, rpy in zip(ORIGINS, RPY)]
-        self._position_target = None
-        self._best_position_error = math.inf
-        self._position_stationary = False
+        self._solver = None
 
     def forward(self, joints, *, jacobian=False):
         current = self.base.copy()
@@ -130,76 +129,12 @@ class ArmModel:
         result["Fixed_Jaw_tip" + self.suffix] = self.forward(joints)
         return result
 
-    def solve(self, target, seed, iterations=12):
-        """Fit position first, then fit rotation within the position null space."""
-        q = np.clip(np.asarray(seed, dtype=float), LOWER, UPPER).copy()
-        position_tolerance = .0002
-        if not np.array_equal(self._position_target, target[:3, 3]):
-            self._position_target = target[:3, 3].copy()
-            self._best_position_error = math.inf
-            self._position_stationary = False
-        for _ in range(iterations):
-            current, jacobian = self.forward(q, jacobian=True)
-            error = target[:3, 3] - current[:3, 3]
-            distance = np.linalg.norm(error)
-            self._best_position_error = min(self._best_position_error, distance)
-            jp, jr = jacobian[:3], jacobian[3:]
-            primary = jp.T @ np.linalg.solve(jp @ jp.T + .0001 * np.eye(3), error)
-            limit = (position_tolerance if self._best_position_error <= position_tolerance
-                     else self._best_position_error + position_tolerance)
-            candidate = None
-            if distance <= position_tolerance or self._position_stationary:
-                correction = np.zeros(5) if self._position_stationary else primary
-                candidate = self._rotation_candidate(target, q, current, jp, jr, correction, limit)
-            # Clipping a Newton step at a joint limit can spoil its descent
-            # direction. Projected gradient descent supplies a bounded fallback.
-            steps = (primary, jp.T @ error / max(np.sum(jp * jp), 1e-8))
-            for step in steps:
-                if candidate is not None:
-                    break
-                step *= min(1., .12 / max(np.max(np.abs(step)), 1e-12))
-                for scale in (1., .5, .25):
-                    trial = q.copy()
-                    trial[:5] = np.clip(q[:5] + scale * step, LOWER[:5], UPPER[:5])
-                    pose = self.forward(trial)
-                    next_distance = np.linalg.norm(target[:3, 3] - pose[:3, 3])
-                    if next_distance < distance - 1e-7:
-                        candidate = trial
-                        break
-            if candidate is None and distance > position_tolerance and not self._position_stationary:
-                # At the closest reachable pose, allow rotation within one fixed
-                # tolerance of the best position found for this held target.
-                # Changing only orientation does not replenish this allowance.
-                self._position_stationary = True
-                candidate = self._rotation_candidate(target, q, current, jp, jr, np.zeros(5), limit)
-            if candidate is None or candidate is q:
-                break
-            q = candidate
-        return q
-
-    def _rotation_candidate(self, target, q, current, jp, jr, primary, position_limit):
-        angular = rotation_vector(target[:3, :3] @ current[:3, :3].T)
-        angle = np.linalg.norm(angular)
-        if angle < .005:
-            return q if np.linalg.norm(target[:3, 3] - current[:3, 3]) <= position_limit else None
-        # An exact null space prevents an infeasible orientation from trading
-        # away wrist position on this five-joint arm.
-        _, singular, right = np.linalg.svd(jp, full_matrices=True)
-        rank = np.count_nonzero(singular > max(singular[0] * 1e-5, 1e-8))
-        null = right[rank:].T
-        jn = jr @ null
-        step = primary + null @ np.linalg.solve(
-            jn.T @ jn + .0001 * np.eye(null.shape[1]), jn.T @ (angular - jr @ primary))
-        step *= min(1., .12 / max(np.max(np.abs(step)), 1e-12))
-        for scale in (1., .5, .25):
-            candidate = q.copy()
-            candidate[:5] = np.clip(q[:5] + scale * step, LOWER[:5], UPPER[:5])
-            pose = self.forward(candidate)
-            distance = np.linalg.norm(target[:3, 3] - pose[:3, 3])
-            next_angle = np.linalg.norm(rotation_vector(target[:3, :3] @ pose[:3, :3].T))
-            if distance <= position_limit and next_angle < angle - 1e-8:
-                return candidate
-        return None
+    def solve(self, target, seed, iterations=8):
+        """Solve with the same persistent Placo backend used by the live servo."""
+        if self._solver is None:
+            from .teleop_solver import SO101Solver
+            self._solver = SO101Solver(self)
+        return self._solver.solve(target, seed, iterations=iterations)
 
 
 @lru_cache(maxsize=1)
@@ -210,7 +145,7 @@ def robot_urdf():
     use standard glTF Y-up coordinates, matching Foxglove's default mesh setting.
     The arm joints retain the upstream geometry, limits and independent jaws.
     """
-    from .robot_assets import asset_bytes, manifest
+    from .robot_assets import asset_bytes, manifest, visual_joint_origin
 
     robot = ET.fromstring(files("ceres_bridge").joinpath("data", "xlerobot", "xlerobot.urdf").read_bytes())
     robot.set("name", "ceres_xlerobot")
@@ -242,6 +177,18 @@ def robot_urdf():
     for joint in robot.findall("joint"):
         if joint.find("origin") is None:
             ET.SubElement(joint, "origin", xyz="0 0 0", rpy="0 0 0")
+        if joint.find("child").get("link") in {"Left_Arm_Camera", "Right_Arm_Camera"}:
+            origin = joint.find("origin")
+            mounted = visual_joint_origin(
+                joint.find("child").get("link"),
+                np.fromstring(origin.get("xyz", "0 0 0"), sep=" "),
+                np.fromstring(origin.get("rpy", "0 0 0"), sep=" "))
+            rotation = mounted[:3, :3]
+            rpy = (math.atan2(rotation[2, 1], rotation[2, 2]),
+                   math.atan2(-rotation[2, 0], math.hypot(rotation[0, 0], rotation[1, 0])),
+                   math.atan2(rotation[1, 0], rotation[0, 0]))
+            origin.set("xyz", " ".join(format(value, ".17g") for value in mounted[:3, 3]))
+            origin.set("rpy", " ".join(format(value, ".17g") for value in rpy))
         if joint.get("name") in stationary:
             joint.set("type", "fixed")
             for element in [*joint.findall("axis"), *joint.findall("limit"), *joint.findall("dynamics")]:

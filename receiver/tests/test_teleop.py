@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 
 from ceres_bridge.teleop import DualArmTeleop, wrist_transform
-from ceres_bridge.teleop_model import (ArmModel, HOME, LOWER, UPPER, axis_rotation,
+from ceres_bridge.teleop_model import (ArmModel, HAND_FROM_TOOL, HOME, LOWER, UPPER, axis_rotation,
                                       matrix_quaternion, quaternion_matrix, robot_urdf, rotation_vector, transform)
 
 
@@ -17,6 +17,63 @@ def snapshot(sequence=1, left=(0, 1, -.4), right=(.2, 1, -.4), quaternion=(0, 0,
         poses[kind] = {"fresh": True, "tracked": True, "pose": {
             "sequence": sequence, "joint_mask": 1, "values": values}}
     return {"epoch": 1, "space_epoch": 1, "connection": "connected", "poses": poses}
+
+
+def joint_goal_snapshot(q, sequence, *, ipc_generation=1, x_offset=0):
+    poses = {}
+    for side, kind in (("left", "2"), ("right", "3")):
+        target = ArmModel(side).forward(q)
+        target[0, 3] += x_offset
+        wrist_rotation = target[:3, :3] @ HAND_FROM_TOOL.T
+        quaternion = matrix_quaternion(wrist_rotation)
+        x, y, z = target[:3, 3]
+        values = [-y, z, -x, -quaternion[1], quaternion[2], -quaternion[0], quaternion[3], .01]
+        poses[kind] = {"fresh": True, "tracked": True, "pose": {
+            "sequence": sequence, "joint_mask": 1, "values": values}}
+    return {"connection": "connected", "epoch": 1, "space_epoch": 1,
+            "ipc_generation": ipc_generation, "poses": poses}
+
+
+def right_target_snapshot(target, sequence):
+    wrist_rotation = target[:3, :3] @ HAND_FROM_TOOL.T
+    q = matrix_quaternion(wrist_rotation)
+    x, y, z = target[:3, 3]
+    result = snapshot(sequence, right=(-y, z, -x), quaternion=(-q[1], q[2], -q[0], q[3]))
+    result["poses"].pop("2")
+    return result
+
+
+def assert_commanded_motion_bounds(results, teleop, dt=.02):
+    for side in ("left", "right"):
+        states = [result["arms"][side] for result in results]
+        q = np.array([state["joint_positions"] for state in states])
+        velocity = np.array([state["joint_velocities"] for state in states])
+        acceleration = np.array([state["joint_accelerations"] for state in states])
+        # Ruckig can represent an exact bound one floating-point ULP beyond it.
+        assert np.all(np.isfinite(q)) and np.all(q >= LOWER - 1e-10) and np.all(q <= UPPER + 1e-10)
+        assert np.max(np.abs(velocity)) <= teleop.max_joint_speed + 1e-8
+        assert np.max(np.abs(acceleration)) <= teleop.max_joint_acceleration + 1e-8
+        assert np.max(np.abs(np.diff(acceleration, axis=0) / dt)) <= teleop.max_joint_jerk + 1e-5
+        # These bounds concern positions actually sent to the consumer, as well
+        # as the trajectory generator's own velocity and acceleration state.
+        # Nanosecond rounding of a 60 Hz clock contributes under 1e-5 rad/s^2
+        # and 1e-3 rad/s^3 to the finite differences.
+        assert np.max(np.abs(np.diff(q, axis=0) / dt)) <= teleop.max_joint_speed + 1e-7
+        assert np.max(np.abs(np.diff(q, n=2, axis=0) / dt**2)) <= teleop.max_joint_acceleration + 1e-5
+        assert np.max(np.abs(np.diff(q, n=3, axis=0) / dt**3)) <= teleop.max_joint_jerk + 1e-3
+
+
+def assert_bilateral_symmetry(result):
+    left, right = (result["arms"][side] for side in ("left", "right"))
+    # Independently solved arms may choose slightly different numerical steps,
+    # but their physical wrist poses and corresponding joints remain aligned.
+    np.testing.assert_allclose(left["joint_positions"], right["joint_positions"], atol=.002, rtol=0)
+    left_position = np.array([left["current"]["position"][axis] for axis in "xyz"])
+    right_position = np.array([right["current"]["position"][axis] for axis in "xyz"])
+    np.testing.assert_allclose(left_position - right_position, (0, .266, 0), atol=.001, rtol=0)
+    left_rotation = quaternion_matrix([left["current"]["orientation"][axis] for axis in "xyzw"])
+    right_rotation = quaternion_matrix([right["current"]["orientation"][axis] for axis in "xyzw"])
+    assert np.linalg.norm(rotation_vector(left_rotation @ right_rotation.T)) < .002
 
 
 def test_rotation_half_turn_and_quaternion_sign_are_equivalent():
@@ -85,6 +142,24 @@ def test_ik_recovers_reachable_pose_and_respects_limits():
     assert np.all(solved >= LOWER) and np.all(solved <= UPPER)
 
 
+@pytest.mark.parametrize("side", ["left", "right"])
+def test_neutral_is_bent_pronated_and_has_forward_reach_reserve(side):
+    model = ArmModel(side)
+    neutral = model.forward(HOME)
+    extended = model.forward(np.zeros(6))
+    # Home leaves at least 10 cm of forward travel before full extension.
+    assert extended[0, 3] - neutral[0, 3] > .1
+    assert 2.2 < HOME[2] < 2.8
+    np.testing.assert_allclose(-neutral[:3, 1], (1, 0, 0), atol=1e-5)
+    np.testing.assert_allclose(neutral[:3, 0], (0, 0, -1), atol=1e-5)
+
+    goal = neutral.copy()
+    goal[0, 3] += .05
+    reached = model.forward(model.solve(goal, HOME, iterations=80))
+    assert np.linalg.norm(reached[:3, 3] - goal[:3, 3]) < .0005
+    assert np.linalg.norm(rotation_vector(goal[:3, :3] @ reached[:3, :3].T)) < .01
+
+
 def test_both_arms_follow_absolute_goals_and_continue_servo_between_samples():
     teleop = DualArmTeleop()
     initial = teleop.update(snapshot(), now_ns=1_000_000_000)
@@ -138,7 +213,7 @@ def test_gap_or_reset_preserves_absolute_target_mapping_and_limits_motion(gap):
     assert after["arms"]["left"]["status"] in ("tracking", "limited")
     wrist = wrist_transform(future["poses"]["2"]["pose"])
     wrist[:3, 3] *= teleop.position_scale
-    wrist[:3, :3] = wrist[:3, :3] @ axis_rotation((0, 0, 1), math.pi / 2)
+    wrist[:3, :3] = wrist[:3, :3] @ HAND_FROM_TOOL
     np.testing.assert_allclose(teleop.arms["left"].target, mapping @ wrist, atol=1e-10)
     difference = np.array(after["arms"]["left"]["joint_positions"]) - before["arms"]["left"]["joint_positions"]
     assert np.all(np.abs(difference) <= teleop.max_joint_speed * .05 + 1e-10)
@@ -158,14 +233,18 @@ def test_tracking_grace_continues_last_goal_then_both_arms_return_to_neutral():
         assert coast["arms"][side]["target"] == last["arms"][side]["target"]
     before = teleop.update(lost, now_ns=2_120_000_000)
     assert all(arm["status"] == "coasting" for arm in before["arms"].values())
+    returning = [before]
     for step in range(1, 201):
         result = teleop.update(lost, now_ns=2_120_000_000 + step * 20_000_000)
+        returning.append(result)
         for side in ("left", "right"):
             old = np.array(before["arms"][side]["joint_positions"])
             current = np.array(result["arms"][side]["joint_positions"])
             assert np.all(np.abs(current - old) <= teleop.max_joint_speed * .02 + 1e-10)
-            assert np.all(np.abs(current - HOME) <= np.abs(old - HOME) + 1e-10)
         before = result
+    # A moving joint brakes before reversing towards HOME. Its first return
+    # step may increase the distance, but acceleration and jerk stay bounded.
+    assert_commanded_motion_bounds(returning, teleop)
     for arm in result["arms"].values():
         np.testing.assert_allclose(arm["joint_positions"], HOME, atol=1e-10)
         assert arm["status"] == "neutral"
@@ -174,7 +253,7 @@ def test_tracking_grace_continues_last_goal_then_both_arms_return_to_neutral():
     for side, kind in (("left", "2"), ("right", "3")):
         expected = wrist_transform(resumed_sample["poses"][kind]["pose"])
         expected[:3, 3] *= teleop.position_scale
-        expected[:3, :3] = expected[:3, :3] @ axis_rotation((0, 0, 1), math.pi / 2)
+        expected[:3, :3] = expected[:3, :3] @ HAND_FROM_TOOL
         np.testing.assert_allclose(teleop.arms[side].target, expected, atol=1e-10)
         assert resumed["arms"][side]["tracked"]
 
@@ -190,6 +269,130 @@ def test_one_lost_hand_does_not_disengage_the_other_arm():
     assert result["arms"]["left"]["status"] in ("returning", "neutral")
     assert result["arms"]["right"]["tracked"]
     assert result["arms"]["right"]["status"] in ("tracking", "limited")
+
+
+@pytest.mark.parametrize("jitter_m", [0, 1e-6])
+def test_held_upward_pose_converges_symmetrically_without_target_jitter(jitter_m):
+    teleop = DualArmTeleop(position_scale=1)
+    goal_q = np.array((0., 2.8, 0., 0., 0., .8))
+    results = []
+    for frame in range(300):
+        sample = joint_goal_snapshot(goal_q, frame + 1, x_offset=jitter_m * (-1 if frame % 2 else 1))
+        result = teleop.update(sample, now_ns=1_000_000_000 + frame * 20_000_000)
+        results.append(result)
+        assert all(arm["tracked"] for arm in result["arms"].values())
+        assert_bilateral_symmetry(result)
+    assert_commanded_motion_bounds(results, teleop)
+    for side in ("left", "right"):
+        arm = results[-1]["arms"][side]
+        assert arm["position_error_m"] <= .0005
+        assert arm["rotation_error_rad"] < .01
+        if jitter_m == 0:
+            assert arm["status"] == "tracking"
+
+
+def test_motion_stays_continuous_across_tracking_loss_and_epoch_reacquisition():
+    teleop = DualArmTeleop(position_scale=1, tracking_grace=.5)
+    goal_q = np.array((0., 2.8, 0., 0., 0., .8))
+    expected = {side: ArmModel(side).forward(goal_q) for side in ("left", "right")}
+    results, statuses = [], set()
+    for frame in range(440):
+        generation = 2 if frame >= 95 else 1
+        # The same absolute target is reacquired during the neutral return.
+        # Generation then changes while the arm is moving towards that target.
+        sample = joint_goal_snapshot(goal_q, frame + 1, ipc_generation=generation)
+        if 35 <= frame < 85 or 95 <= frame < 100:
+            sample["poses"] = {}
+        if frame >= 95:
+            sample["epoch"] = sample["space_epoch"] = 2
+        result = teleop.update(sample, now_ns=1_000_000_000 + frame * 20_000_000)
+        results.append(result)
+        statuses.update(arm["status"] for arm in result["arms"].values())
+        if sample["poses"]:
+            for side in ("left", "right"):
+                assert result["arms"][side]["tracked"]
+                np.testing.assert_allclose(teleop.arms[side].target, expected[side], atol=1e-10)
+        assert_bilateral_symmetry(result)
+    assert {"coasting", "returning", "tracking"} <= statuses
+    assert_commanded_motion_bounds(results, teleop)
+    for arm in results[-1]["arms"].values():
+        assert arm["position_error_m"] <= .0005
+        assert arm["rotation_error_rad"] < .01
+        assert arm["status"] == "tracking"
+
+
+@pytest.mark.parametrize("axis,degrees", [((0, 1, 0), 20), ((1, 0, 0), 30)], ids=["pitch", "roll"])
+def test_fixed_wrist_rotation_moves_promptly_without_losing_commanded_position(axis, degrees):
+    pytest.importorskip("isaacteleop")
+    teleop = DualArmTeleop(position_scale=1, backend="isaacteleop")
+    model = ArmModel("right")
+    neutral = model.forward(HOME)
+    results = []
+    frame = 0
+
+    def step(target):
+        nonlocal frame
+        result = teleop.update(right_target_snapshot(target, frame + 1),
+                              now_ns=1_000_000_000 + round(frame * 1e9 / 60))
+        results.append(result)
+        frame += 1
+        return result["arms"]["right"]
+
+    for _ in range(30):
+        step(neutral)
+    # Both signs return to the same absolute neutral pose. Joint trajectories
+    # must progress together even when their requested angular distances differ.
+    for requested in (degrees, 0, -degrees, 0):
+        target = neutral.copy()
+        target[:3, :3] = axis_rotation(axis, math.radians(requested)) @ neutral[:3, :3]
+        before = model.forward(teleop.arms["right"].q)[:3, :3]
+        direction = np.sign(np.dot(rotation_vector(target[:3, :3] @ before.T), axis))
+        onset = None
+        for index in range(120):
+            arm = step(target)
+            actual = model.forward(arm["joint_positions"])
+            # Proportional joint progress for the +20-degree fixture deviates
+            # by 5.71 mm. Independent progress previously displaced it 55.85 mm.
+            assert np.linalg.norm(actual[:3, 3] - neutral[:3, 3]) < .01
+            progress = direction * np.dot(rotation_vector(actual[:3, :3] @ before.T), axis)
+            if onset is None and progress >= math.radians(2):
+                onset = (index + 1) / 60
+        assert onset is not None and onset <= .25
+        assert arm["position_error_m"] <= .0005
+        assert arm["rotation_error_rad"] <= math.radians(2)
+    assert_commanded_motion_bounds(results, teleop, dt=1 / 60)
+
+
+@pytest.mark.parametrize("jitter_degrees", [0, .25])
+def test_pronated_upward_return_recovers_the_same_absolute_home_orientation(jitter_degrees):
+    pytest.importorskip("isaacteleop")
+    teleop = DualArmTeleop(position_scale=1, backend="isaacteleop")
+    model = ArmModel("right")
+    neutral = model.forward(HOME)
+    destination = np.array((0., 2.8, 0., 0., 0., .8))
+    results, solutions = [], []
+    for frame in range(601):
+        target = neutral.copy()
+        if frame <= 480:
+            fraction = (1 - math.cos(2 * math.pi * frame / 480)) / 2
+            target = model.forward(HOME + fraction * (destination - HOME))
+            pitch = math.radians(jitter_degrees) * math.sin(2 * math.pi * 7 * frame / 60)
+            roll = math.radians(jitter_degrees) * math.sin(2 * math.pi * 9 * frame / 60)
+            target[:3, :3] = (axis_rotation((1, 0, 0), roll) @ axis_rotation((0, 1, 0), pitch)
+                              @ neutral[:3, :3])
+        result = teleop.update(right_target_snapshot(target, frame + 1),
+                              now_ns=1_000_000_000 + round(frame * 1e9 / 60))
+        results.append(result)
+        solutions.append(teleop.arms["right"].solver.solution.copy())
+        assert result["arms"]["right"]["tracked"]
+        assert result["arms"]["right"]["position_error_m"] < .05
+    # The final quaternion has not changed. Absolute orientation must still
+    # recover after translation leaves an orientation-infeasible workspace.
+    arm = results[-1]["arms"]["right"]
+    assert arm["position_error_m"] <= .0005
+    assert arm["rotation_error_rad"] <= math.radians(2)
+    assert np.max(np.abs(np.diff(solutions, axis=0) * 60)) <= 3
+    assert_commanded_motion_bounds(results, teleop, dt=1 / 60)
 
 
 def test_limits_and_speed_hold_for_large_translation_and_rotation():
@@ -215,13 +418,13 @@ def test_absolute_pose_uses_fixed_registration_on_first_sample_and_after_rotatio
     teleop.update(first, now_ns=1_000_000_000)
     first_wrist = wrist_transform(first["poses"]["2"]["pose"])
     first_wrist[:3, 3] *= .75
-    first_wrist[:3, :3] = first_wrist[:3, :3] @ axis_rotation((0, 0, 1), math.pi / 2)
+    first_wrist[:3, :3] = first_wrist[:3, :3] @ HAND_FROM_TOOL
     np.testing.assert_allclose(teleop.arms["left"].target, mapping @ first_wrist, atol=1e-10)
     initial_position = teleop.arms["left"].target[:3, 3].copy()
     teleop.update(second, now_ns=1_020_000_000)
     wrist = wrist_transform(second["poses"]["2"]["pose"])
     wrist[:3, 3] *= .75
-    wrist[:3, :3] = wrist[:3, :3] @ axis_rotation((0, 0, 1), math.pi / 2)
+    wrist[:3, :3] = wrist[:3, :3] @ HAND_FROM_TOOL
     np.testing.assert_allclose(teleop.arms["left"].target, mapping @ wrist, atol=1e-10)
     np.testing.assert_allclose(teleop.arms["left"].target[:3, 3], initial_position, atol=1e-10)
 
@@ -238,7 +441,8 @@ def test_same_absolute_wrist_pose_has_same_goal_regardless_of_motion_history():
         np.testing.assert_allclose(travelled.arms[side].target, direct.arms[side].target, atol=1e-10)
 
 
-@pytest.mark.parametrize("wrist_rpy", [(0, 0, 0), (.6, -.3, .4), (-.2, .7, -.5)])
+@pytest.mark.parametrize("wrist_rpy", [(0, 0, 0), (math.pi / 2, 0, 0), (-math.pi / 2, 0, 0),
+                                      (.6, -.3, .4), (-.2, .7, -.5)])
 def test_tool_approach_follows_fingers_without_rotating_the_position(wrist_rpy):
     wrist_rotation = transform(rpy=wrist_rpy)[:3, :3]
     q = matrix_quaternion(wrist_rotation)
@@ -252,7 +456,9 @@ def test_tool_approach_follows_fingers_without_rotating_the_position(wrist_rpy):
         target = teleop.arms[side].target
         # The actual tool approaches along -Y. The converted hand points +X.
         np.testing.assert_allclose(-target[:3, 1], mapping[:3, :3] @ wrist_rotation[:, 0], atol=1e-10)
-        np.testing.assert_allclose(target[:3, 2], mapping[:3, :3] @ wrist_rotation[:, 2], atol=1e-10)
+        # A palm-down hand opens vertically, with tool X along the outward palm normal.
+        np.testing.assert_allclose(target[:3, 0], -mapping[:3, :3] @ wrist_rotation[:, 2], atol=1e-10)
+        np.testing.assert_allclose(target[:3, 2], mapping[:3, :3] @ wrist_rotation[:, 1], atol=1e-10)
         measured = wrist_transform(sample["poses"][kind]["pose"])
         expected_position = mapping[:3, 3] + mapping[:3, :3] @ (teleop.position_scale * measured[:3, 3])
         np.testing.assert_allclose(target[:3, 3], expected_position, atol=1e-10)
@@ -275,6 +481,45 @@ def test_straight_outstretched_hand_keeps_the_right_shoulder_centred(roll):
     assert abs(arm.q[0]) < math.radians(3)
     assert np.linalg.norm(achieved[:3, 3] - forward_point) < .002
     assert float(-achieved[0, 1]) > .998
+
+
+def test_tracked_servo_returns_from_extended_rolled_pose_to_bent_pronated_goal():
+    teleop = DualArmTeleop(position_scale=1)
+    model = ArmModel("right")
+    target = model.forward(np.zeros(6))
+    target[0, 3] += .03
+    sequence = 0
+
+    def follow(goal, frames):
+        nonlocal sequence
+        wrist_rotation = goal[:3, :3] @ HAND_FROM_TOOL.T
+        q = matrix_quaternion(wrist_rotation)
+        xr_quaternion = (-q[1], q[2], -q[0], q[3])
+        x, y, z = goal[:3, 3]
+        previous = teleop.arms["right"].q.copy()
+        for _ in range(frames):
+            sequence += 1
+            sample = snapshot(sequence, right=(-y, z, -x), quaternion=xr_quaternion)
+            sample["poses"].pop("2")
+            result = teleop.update(sample, now_ns=1_000_000_000 + sequence * 20_000_000)
+            current = teleop.arms["right"].q
+            assert result["arms"]["right"]["tracked"]
+            assert np.all(np.abs(current - previous) <= .04 + 1e-10)
+            assert np.all(current >= LOWER) and np.all(current <= UPPER)
+            previous = current.copy()
+        return result
+
+    follow(target, 70)
+    target[:3, :3] = axis_rotation((1, 0, 0), math.pi / 6) @ target[:3, :3]
+    extended = follow(target, 50)
+    assert extended["arms"]["right"]["position_error_m"] > .02
+
+    goal = model.forward(HOME)
+    returned = follow(goal, 150)
+    arm = returned["arms"]["right"]
+    assert arm["position_error_m"] <= .0002
+    assert arm["rotation_error_rad"] < .01
+    assert arm["status"] == "tracking"
 
 
 @pytest.mark.parametrize("mapping", [np.eye(3), np.zeros((4, 4)), np.diag((2, 1, 1, 1)),

@@ -9,7 +9,7 @@ ORIGIN = "ceres_origin"
 NAMES = {"1": "head", "2": "left", "3": "right"}
 COLOURS = {"1": (0.8, 0.85, 0.94), "2": (0.28, 0.64, 1), "3": (1, 0.48, 0.72)}
 SCENE_LIFETIME_NS = 250_000_000
-HEADSET_MODEL_YAW = (0, 0, -math.sqrt(0.5), math.sqrt(0.5))
+HEADSET_MODEL_ROTATION = (-math.sqrt(0.5), 0, 0, math.sqrt(0.5))
 HEADSET_VISUAL_SCALE = 0.6
 
 
@@ -35,10 +35,10 @@ def converted_pose(values):
 
 
 def headset_model_pose(values):
-    # Align the mesh by a clockwise quarter turn about its body-basis Z axis.
-    # Right composition keeps this visual correction attached to the headset.
+    # The prepared GLB already uses body axes: +X forward and +Z up. Cancel
+    # Foxglove's default glTF Y-up-to-Z-up rotation only at the visual layer.
     p = ros_position(values)
-    q = quaternion_product(ros_orientation(values[3:7]), HEADSET_MODEL_YAW)
+    q = quaternion_product(ros_orientation(values[3:7]), HEADSET_MODEL_ROTATION)
     return m.Pose(position=vector(p), orientation=m.Quaternion(x=q[0], y=q[1], z=q[2], w=q[3]))
 
 
@@ -177,8 +177,10 @@ class StreamMetrics:
         self.rates = dict.fromkeys(("video_fps", "motion_fps", "left_fps", "right_fps", "video_mbps"), 0.0)
 
     def observe(self, snapshot):
-        epoch = (snapshot["epoch"], snapshot["space_epoch"])
+        epoch = (snapshot.get("ipc_generation"), snapshot["epoch"], snapshot["space_epoch"])
         if epoch != self.epoch:
+            if self.epoch is not None and epoch[0] != self.epoch[0]:
+                self.__init__()
             self.previous.clear()
             self.epoch = epoch
         changed = []
