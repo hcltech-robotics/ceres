@@ -38,7 +38,7 @@ jobs:
           rustup override set 1.91.0
           cargo install wasm-bindgen-cli --version 0.2.127 --locked
           python -m venv .venv
-          .venv/bin/python -m pip install './receiver[worker,foxglove,test]' 'datasets==3.6.0' build
+          .venv/bin/python -m pip install './receiver[worker,foxglove,teleop,test]' 'datasets==3.6.0' build
           echo "$GITHUB_WORKSPACE/.venv/bin" >> "$GITHUB_PATH"
           npx playwright install --with-deps chromium
       - name: Check public source

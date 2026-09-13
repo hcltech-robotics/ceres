@@ -42,6 +42,12 @@ def main():
                          help="Fixed CERES-to-robot rotation about Z, in degrees (default: 0)")
     foxglove.add_argument("--tracking-grace", type=float, default=0.5,
                          help="Seconds to continue towards the last target after tracking loss before returning to neutral (default: 0.5)")
+    foxglove.add_argument("--max-joint-speed", type=float, default=2.0,
+                         help="Maximum joint speed in radians per second (default: 2)")
+    foxglove.add_argument("--max-joint-acceleration", type=float, default=8.0,
+                         help="Maximum joint acceleration in radians per second squared (default: 8)")
+    foxglove.add_argument("--max-joint-jerk", type=float, default=80.0,
+                         help="Maximum joint jerk in radians per second cubed (default: 80)")
     commands.add_parser("doctor", help="Check the Linux media runtime")
     args = parser.parse_args()
     if sys.platform != "linux":

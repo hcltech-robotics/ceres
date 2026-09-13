@@ -22,6 +22,21 @@ from google.protobuf import descriptor_pb2, descriptor_pool, message_factory
 from ceres_bridge import foxglove_output, foxglove_teleop
 
 
+def test_keyframes_are_requested_for_new_video_subscriptions_and_resubscriptions():
+    channels = {1: "/ceres/head/pose", 2: "/ceres/camera/video"}
+    subscriptions = {}
+    head = {"op": "subscribe", "subscriptions": [{"id": 10, "channelId": 1}]}
+    video = {"op": "subscribe", "subscriptions": [{"id": 20, "channelId": 2}]}
+    update = foxglove_output._update_subscriptions
+    assert not update(head, channels, subscriptions)
+    assert update(video, channels, subscriptions)
+    assert not update(video, channels, subscriptions)
+    assert not update({"op": "unsubscribe", "subscriptionIds": [20]}, channels, subscriptions)
+    assert update(video, channels, subscriptions)
+    assert subscriptions == {10: "/ceres/head/pose", 20: "/ceres/camera/video"}
+    assert update(video, channels, {}), "Each new viewer needs its own starting keyframe"
+
+
 class _Frame:
     def __init__(self, number, now_us):
         self.metadata = {"width": 96, "height": 64, "stride": 288,
@@ -179,7 +194,14 @@ async def _assert_robot_models(session, endpoint, geometry):
 
 
 @pytest.mark.skipif(sys.platform != "linux", reason="The Bridge receiver runtime uses Linux")
-def test_dual_arm_dashboard_streams_moving_waveforms_geometry_and_measured_load(monkeypatch):
+@pytest.mark.parametrize("run_index", range(2))
+def test_dual_arm_dashboard_streams_moving_waveforms_geometry_and_measured_load(monkeypatch, run_index):
+    from foxglove.channel import _foxglove
+
+    def global_lookup(_topic):
+        raise AssertionError("Dashboard logging must not acquire the SDK global context lookup lock")
+
+    monkeypatch.setattr(_foxglove, "get_channel_for_topic", global_lookup)
     consumers = []
 
     def receiver(*args, **kwargs):
@@ -245,7 +267,11 @@ def test_dual_arm_dashboard_streams_moving_waveforms_geometry_and_measured_load(
 
                     for side in ("left", "right"):
                         motion = messages[f"/ceres/{side}/motion"]
-                        gaps = [index for index, sample in enumerate(motion) if not sample["tracked"]]
+                        first_tracked = next(index for index, sample in enumerate(motion) if sample["tracked"])
+                        # Connection startup may publish an initial waiting gap.
+                        # Prove a tracked -> lost -> tracked cycle after acquisition.
+                        gaps = [index for index, sample in enumerate(motion)
+                                if index > first_tracked and not sample["tracked"]]
                         assert gaps, f"{side} tracking loss did not reach the motion topic"
                         gap_index = gaps[0]
                         assert any(sample["tracked"] for sample in motion[:gap_index])

@@ -24,12 +24,22 @@ def asset_bytes(name):
 
 @lru_cache(maxsize=1)
 def _joint_origins():
-    return {joint["child"]: (joint["parent"], transform(joint["xyz"], joint["rpy"]))
+    return {joint["child"]: (joint["parent"], visual_joint_origin(joint["child"], joint["xyz"], joint["rpy"]))
             for joint in manifest()["joints"]}
 
 
+def visual_joint_origin(child, xyz, rpy):
+    """Place wrist cameras above the jaws using their original camera meshes."""
+    origin = transform(xyz, rpy)
+    if child in {"Left_Arm_Camera", "Right_Arm_Camera"}:
+        # Rotate the attachment around tool -Y without rolling the jaw with it.
+        # The camera sits above a pronated gripper and looks forward/downwards.
+        origin = transform(rpy=(0, -np.pi / 2, 0)) @ origin
+    return origin
+
+
 def model_poses(links):
-    """Use commanded arm FK and the upstream zero poses for accessory joints."""
+    """Use commanded arm FK with top-mounted cameras and fixed base/head joints."""
     matrices = {"root": np.eye(4)}
 
     def resolve(name):

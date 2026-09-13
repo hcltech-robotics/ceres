@@ -13,7 +13,7 @@ dependencies = []
 
 [project.optional-dependencies]
 worker = ["aiohttp>=3.9,<4", "qrcode>=7.4,<9"]
-teleop = ["numpy>=1.26,<3"]
+teleop = ["numpy>=1.26,<3", "placo==0.9.15", "cmeel-urdfdom>=4,<5", "cmeel-tinyxml2<11", "ruckig==0.19.4"]
 foxglove = ["foxglove-sdk>=0.27,<0.28", "aiohttp>=3.9,<4", "numpy>=1.26,<3", "Pillow>=10,<13"]
 test = ["pytest>=8,<10", "build>=1,<2", "protobuf>=5,<8"]
 

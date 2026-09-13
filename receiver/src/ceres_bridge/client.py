@@ -7,6 +7,10 @@ import socket
 import time
 
 
+class IPCProtocolError(ConnectionError):
+    """An IPC response is malformed rather than a disconnected transport."""
+
+
 class Frame:
     def __init__(self, receiver, metadata, encoded=False, audio=False):
         self.receiver, self.metadata = receiver, metadata
@@ -34,17 +38,30 @@ class Frame:
         self.release()
 
 
+def expire_snapshot(snapshot, now_us=None):
+    """Expire observations at delivery and report a discarded encoded lease."""
+    now = time.monotonic_ns() // 1000 if now_us is None else now_us
+    for component in snapshot["poses"].values():
+        if now - snapshot["now_us"] + (component.get("age_us") or 0) + (snapshot.get("clock") or {}).get("uncertainty_us", 0) > 50_000:
+            component.update(pose=None, fresh=False, tracked=False)
+    keyframe = False
+    for kind in ("frame", "encoded", "audio"):
+        frame = snapshot.get(kind)
+        if frame is not None and (now - frame.metadata["received_us"] > 100_000
+                                  or frame.metadata.get("epoch", snapshot["epoch"]) != snapshot["epoch"]):
+            with frame:
+                pass
+            snapshot[kind] = None
+            keyframe |= kind == "encoded"
+    return keyframe
+
+
 class Receiver:
     def __init__(self, path: str | Path | None = None, *, video: bool = True, encoded: bool = False, audio: bool = False):
         if path is None:
             from .ipc import runtime_dir
             path = runtime_dir() / "receiver.sock"
-        self.socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        self.socket.settimeout(1)
-        self.socket.connect(str(path))
-        # Read complete response lines in blocks. Raw SocketIO.readline reads
-        # one byte per syscall and can expire poses when consumers run together.
-        self.stream = self.socket.makefile("rb", buffering=65_536)
+        self.socket = self.stream = None
         self.releases = []
         self.encoded_releases = []
         self.audio_releases = []
@@ -55,23 +72,37 @@ class Receiver:
         self.needs_keyframe = False
         self.memory = None
         self.mapping_file = None
-        result = self._request({"op": "subscribe", "video": video, "encoded": encoded, "audio": audio})
-        if result["path"]:
-            self.mapping_file = open(result["path"], "rb")
-            self.memory = mmap.mmap(self.mapping_file.fileno(), result["size"], access=mmap.ACCESS_READ)
-        if result["encoded_path"]:
-            self.encoded_file = open(result["encoded_path"], "rb")
-            self.encoded_memory = mmap.mmap(self.encoded_file.fileno(), result["encoded_size"], access=mmap.ACCESS_READ)
-        if result.get("audio_path"):
-            self.audio_file = open(result["audio_path"], "rb")
-            self.audio_memory = mmap.mmap(self.audio_file.fileno(), result["audio_size"], access=mmap.ACCESS_READ)
+        try:
+            self.socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            self.socket.settimeout(1)
+            self.socket.connect(str(path))
+            # Read complete response lines in blocks. Raw SocketIO.readline reads
+            # one byte per syscall and can expire poses when consumers run together.
+            self.stream = self.socket.makefile("rb", buffering=65_536)
+            result = self._request({"op": "subscribe", "video": video, "encoded": encoded, "audio": audio})
+            if result["path"]:
+                self.mapping_file = open(result["path"], "rb")
+                self.memory = mmap.mmap(self.mapping_file.fileno(), result["size"], access=mmap.ACCESS_READ)
+            if result["encoded_path"]:
+                self.encoded_file = open(result["encoded_path"], "rb")
+                self.encoded_memory = mmap.mmap(self.encoded_file.fileno(), result["encoded_size"], access=mmap.ACCESS_READ)
+            if result.get("audio_path"):
+                self.audio_file = open(result["audio_path"], "rb")
+                self.audio_memory = mmap.mmap(self.audio_file.fileno(), result["audio_size"], access=mmap.ACCESS_READ)
+        except BaseException:
+            self.close()
+            raise
 
     def _request(self, message):
         self.socket.sendall(json.dumps({"version": 1, **message}, separators=(",", ":")).encode() + b"\n")
         raw = self.stream.readline(32_769)
-        if not raw.endswith(b"\n") or len(raw) > 32_768:
+        if not raw or (len(raw) <= 32_768 and not raw.endswith(b"\n")):
             raise ConnectionError("Bridge receiver closed the IPC connection")
+        if len(raw) > 32_768:
+            raise IPCProtocolError("Bridge receiver closed the IPC connection with an invalid response boundary")
         response = json.loads(raw)
+        if not isinstance(response, dict):
+            raise IPCProtocolError("Bridge IPC response must be an object")
         if response.get("version") != 1:
             raise ValueError("Incompatible Bridge IPC version")
         return response
@@ -84,47 +115,25 @@ class Receiver:
         self.releases.clear()
         self.encoded_releases.clear()
         self.audio_releases.clear()
-        # The application may have stalled after the worker wrote its response.
-        now = time.monotonic_ns() // 1000
-        for component in result["poses"].values():
-            if now - result["now_us"] + (component["age_us"] or 0) + (result["clock"] or {}).get("uncertainty_us", 0) > 50_000:
-                component.update(pose=None, fresh=False, tracked=False)
         frame = result["frame"]
-        if frame and (frame["epoch"] != result["epoch"] or now - frame["received_us"] > 100_000):
-            self.releases.append(frame["slot"])
-            frame = None
         result["frame"] = Frame(self, frame) if frame else None
         encoded = result["encoded"]
-        if encoded and (encoded["epoch"] != result["epoch"] or now - encoded["received_us"] > 100_000):
-            self.encoded_releases.append(encoded["slot"])
-            self.needs_keyframe = True
-            encoded = None
         result["encoded"] = Frame(self, encoded, True) if encoded else None
         audio = result.get("audio")
-        if audio and (audio["epoch"] != result["epoch"] or now - audio["received_us"] > 100_000):
-            self.audio_releases.append(audio["slot"])
-            audio = None
         result["audio"] = Frame(self, audio, audio=True) if audio else None
+        self.needs_keyframe = expire_snapshot(result)
         return result
 
     def diagnostics(self):
         return self._request({"op": "diagnostics"})
 
     def close(self):
-        self.stream.close()
-        self.socket.close()
-        if self.memory:
-            self.memory.close()
-        if self.mapping_file:
-            self.mapping_file.close()
-        if self.encoded_memory:
-            self.encoded_memory.close()
-        if self.encoded_file:
-            self.encoded_file.close()
-        if self.audio_memory:
-            self.audio_memory.close()
-        if self.audio_file:
-            self.audio_file.close()
+        for name in ("stream", "socket", "memory", "mapping_file", "encoded_memory",
+                     "encoded_file", "audio_memory", "audio_file"):
+            resource = getattr(self, name, None)
+            if resource is not None:
+                resource.close()
+                setattr(self, name, None)
 
     def __enter__(self):
         return self

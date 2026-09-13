@@ -64,7 +64,8 @@ def test_moving_reachable_targets_keep_pan_and_roll_continuous_with_default_budg
 
 def test_unreachable_position_stays_within_one_tolerance_of_its_best_pose():
     model = ArmModel("right")
-    target = model.forward(HOME)
+    # Keep the held world target independent of the starting neutral posture.
+    target = model.forward(np.array((0., 1., 1.5, -.5, 0., .8)))
     target[:3, 3] += [1, 0, 0]
     target[:3, :3] = axis_rotation((0, 1, 0), math.pi)
     q = HOME.copy()

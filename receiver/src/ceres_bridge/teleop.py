@@ -1,4 +1,4 @@
-"""Latest-sample, CPU retargeting of two tracked wrists to XLeRobot arms."""
+"""Absolute hand retargeting with Placo IK and smooth XLeRobot joint trajectories."""
 
 import math
 import time
@@ -9,6 +9,8 @@ from .coordinates import ros_orientation, ros_position
 from .protocol import newer_sequence
 from .teleop_model import (ArmModel, HAND_FROM_TOOL, HOME, LOWER, UPPER, pose_dict, quaternion_matrix,
                            robot_urdf, rotation_vector)
+from .teleop_motion import JointMotion
+from .teleop_solver import SO101Solver
 
 
 def wrist_transform(pose):
@@ -40,8 +42,11 @@ def gripper_position(pose, previous):
 
 
 class _ArmState:
-    def __init__(self, side):
+    def __init__(self, side, max_speed, max_acceleration, max_jerk):
         self.model = ArmModel(side)
+        self.solver = SO101Solver(self.model)
+        self.motion = JointMotion(HOME, LOWER, UPPER, max_speed, max_acceleration, max_jerk,
+                                  independent_joints=(5,))
         self.q = HOME.copy()
         self.target = self.model.forward(self.q)
         self.neutral_target = self.target.copy()
@@ -52,12 +57,15 @@ class _ArmState:
         self.status = "neutral"
         self.tracked = False
         self.solve_ms = 0.0
+        self.ik_active = False
 
     def reset(self):
         self.target = self.neutral_target.copy()
         self.gripper_target = HOME[5]
-        self.sequence = self.last_ns = None
+        self.sequence = None
         self.last_tracked_ns = None
+        self.solver.reset(self.q)
+        self.ik_active = False
         self.status = "neutral" if np.allclose(self.q, HOME, atol=1e-10, rtol=0) else "returning"
         self.tracked = False
 
@@ -65,6 +73,8 @@ class _ArmState:
         current = self.model.forward(self.q)
         return {"status": self.status, "tracked": self.tracked,
                 "joint_names": self.model.joint_names, "joint_positions": self.q.tolist(),
+                "joint_velocities": self.motion.velocity.tolist(),
+                "joint_accelerations": self.motion.acceleration.tolist(),
                 "target": pose_dict(self.target), "current": pose_dict(current),
                 "position_error_m": float(np.linalg.norm(self.target[:3, 3] - current[:3, 3])),
                 "rotation_error_rad": float(np.linalg.norm(rotation_vector(self.target[:3, :3] @ current[:3, :3].T))),
@@ -77,16 +87,21 @@ class DualArmTeleop:
     Absolute wrist poses map through one fixed transform into the robot base.
     Each new source sequence replaces the absolute goal. The servo continues
     towards that goal during brief tracking gaps and returns to neutral after
-    the grace period. Joint angles remain inside the URDF limits and change by
-    at most the configured radians per second, with each step capped at 50 ms.
+    the grace period. Placo warm-starts from its previous IK solution. Ruckig
+    carries joint velocity and acceleration between updates, including neutral
+    returns and reacquisition, and bounds velocity, acceleration and jerk.
     """
 
     def __init__(self, *, position_scale=.6, max_joint_speed=2.0, backend="cpu", robot_from_ceres=None,
-                 tracking_grace=.5):
+                 tracking_grace=.5, max_joint_acceleration=8.0, max_joint_jerk=80.0):
         if not math.isfinite(position_scale) or not 0 < position_scale <= 2:
             raise ValueError("position_scale must be between 0 and 2")
         if not math.isfinite(max_joint_speed) or not 0 < max_joint_speed <= 10:
             raise ValueError("max_joint_speed must be between 0 and 10 radians per second")
+        if not math.isfinite(max_joint_acceleration) or max_joint_acceleration <= 0:
+            raise ValueError("max_joint_acceleration must be finite and positive")
+        if not math.isfinite(max_joint_jerk) or max_joint_jerk <= 0:
+            raise ValueError("max_joint_jerk must be finite and positive")
         if backend not in ("cpu", "isaacteleop"):
             raise ValueError("backend must be cpu or isaacteleop")
         if not math.isfinite(tracking_grace) or not 0 <= tracking_grace <= 10:
@@ -101,8 +116,10 @@ class DualArmTeleop:
         mapping.setflags(write=False)
         self.robot_from_ceres = mapping
         self.position_scale, self.max_joint_speed = position_scale, max_joint_speed
+        self.max_joint_acceleration, self.max_joint_jerk = max_joint_acceleration, max_joint_jerk
         self.backend = backend
-        self.arms = {side: _ArmState(side) for side in ("left", "right")}
+        self.arms = {side: _ArmState(side, max_joint_speed, max_joint_acceleration, max_joint_jerk)
+                     for side in ("left", "right")}
         self._epoch = None
         self._adapter = None
         if backend == "isaacteleop":
@@ -125,7 +142,7 @@ class DualArmTeleop:
 
     def update(self, snapshot, now_ns=None):
         now_ns = time.monotonic_ns() if now_ns is None else now_ns
-        epoch = (snapshot.get("epoch"), snapshot.get("space_epoch"))
+        epoch = (snapshot.get("ipc_generation"), snapshot.get("epoch"), snapshot.get("space_epoch"))
         if epoch != self._epoch:
             self.reset()
             self._epoch = epoch
@@ -134,6 +151,7 @@ class DualArmTeleop:
             arm.solve_ms = 0.0
             if arm.last_ns is not None and now_ns < arm.last_ns:
                 arm.reset()
+                arm.last_ns = None
             elapsed = None if arm.last_ns is None else (now_ns - arm.last_ns) / 1e9
             dt = 1 / 60 if elapsed is None or elapsed > .1 else min(.05, elapsed)
             arm.last_ns = now_ns
@@ -159,11 +177,13 @@ class DualArmTeleop:
                 arm.target = arm.neutral_target.copy()
                 arm.gripper_target = HOME[5]
             started = time.perf_counter_ns()
-            solved = arm.model.solve(arm.target, arm.q) if active else HOME.copy()
+            if active and not arm.ik_active:
+                arm.solver.reset(arm.q)
+            solved = arm.solver.solve(arm.target, arm.q) if active else HOME.copy()
+            arm.ik_active = active
             solved[5] = arm.gripper_target
-            step = self.max_joint_speed * dt
-            limited = np.any(np.abs(solved - arm.q) > step + 1e-10)
-            next_q = np.clip(arm.q + np.clip(solved - arm.q, -step, step), LOWER, UPPER)
+            next_q = arm.motion.step(solved, dt, coordinate=active and arm.solver.position_held)
+            limited = not arm.motion.settled
             updated |= active or not np.array_equal(next_q, arm.q)
             arm.q = next_q
             arm.solve_ms = (time.perf_counter_ns() - started) / 1e6 if active else 0.0
@@ -176,7 +196,7 @@ class DualArmTeleop:
             else:
                 arm.status = "limited" if limited or residual > .015 else "tracking"
         summaries = {side: arm.summary() for side, arm in self.arms.items()}
-        return {"model": "xlerobot", "frame_id": "ceres_robot_base", "backend": self.backend,
+        return {"model": "xlerobot", "frame_id": "ceres_robot_base", "backend": self.backend, "solver": "placo",
                 "joint_names": [name for arm in self.arms.values() for name in arm.model.joint_names],
                 "joint_positions": [float(q) for arm in self.arms.values() for q in arm.q],
                 "solve_ms": sum(arm.solve_ms for arm in self.arms.values()),
