@@ -67,7 +67,7 @@ raw payload bytes to the end of the MCAP message
 
 The header includes `kind`, `session_receive_us`, `session_time_us`, `epoch`, `space_epoch`, `stream` and `keyframe`. Original receiver and sender timestamps remain in the recording. Pose messages contain the original CBR1 packet. Video messages contain one complete Annex B H264 access unit with increasing presentation timestamps. A video epoch begins at its first keyframe and the Ceres low-latency stream has no B frames.
 
-The helper memory-maps the MCAP and streams packet payloads into temporary per-epoch files. It retains timestamp/offset indexes rather than complete tracking or video payloads in memory. Parquet output is buffered in 512-row groups, while FFmpeg decoding and encoding use frame pipes.
+The helper memory-maps the MCAP and streams packet payloads into temporary per-epoch files. It retains timestamp/offset indexes rather than complete tracking or video payloads in memory. Parquet output is buffered in 512-row groups, while FFmpeg decoding and encoding use frame pipes. Each FFmpeg decoder, encoder and filter graph uses at most two worker threads, and export uses CPU codecs so the viewer retains the GPU.
 
 ## Observation semantics
 

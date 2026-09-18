@@ -10,6 +10,14 @@ use std::{
 struct ManagedChild(Child);
 fn ffmpeg_command(path: &Path) -> Command {
     let mut command = Command::new(path);
+    command.args([
+        "-threads",
+        "2",
+        "-filter_threads",
+        "2",
+        "-filter_complex_threads",
+        "2",
+    ]);
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -50,7 +58,9 @@ impl Decoder {
             .arg(input)
             .args(["-an", "-fps_mode", "passthrough", "-vf"])
             .arg(format!("scale={}:{}", job.video.width, job.video.height))
-            .args(["-pix_fmt", "rgb24", "-f", "rawvideo", "pipe:1"])
+            .args([
+                "-threads", "2", "-pix_fmt", "rgb24", "-f", "rawvideo", "pipe:1",
+            ])
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(File::create(errors)?)
@@ -112,6 +122,8 @@ impl Encoder {
                 "-an",
                 "-c:v",
                 "libx264",
+                "-threads",
+                "2",
                 "-preset",
                 "fast",
                 "-crf",

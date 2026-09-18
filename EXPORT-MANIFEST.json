@@ -2,7 +2,7 @@
   "version": 2,
   "packageVersion": "1.1.0",
   "generator": "ceres-public-core/2",
-  "treeDigest": "f1b995a2657977f4493ad4d0f3d54a51f40e40ea7a0b582fc144731849243669",
+  "treeDigest": "eb91ea85ea644afb39f46005620eda7131e804bc823c06cb2758c40bb87f6009",
   "files": {
     ".dockerignore": {
       "sha256": "f4f0799e0c8f318b0d36a430909ba9dcb3eeca1d1b0ae8b3b7907b44cc2bedca",
@@ -125,8 +125,8 @@
       "mode": "100644"
     },
     "native/lerobot-exporter/README.md": {
-      "sha256": "435382eb8d3fb8f37f65e9979896be690824dbe9256facd6241a983bab2c1d85",
-      "bytes": 6131,
+      "sha256": "fbb027e3263fe6fc27695ec5c2dd972b76f2550cc980ebb6af9ddc69e2b6118b",
+      "bytes": 6268,
       "mode": "100644"
     },
     "native/lerobot-exporter/src/dataset.rs": {
@@ -150,8 +150,8 @@
       "mode": "100644"
     },
     "native/lerobot-exporter/src/video.rs": {
-      "sha256": "678d225ff9d76ecbd267977cb9cc209bce8069e46c4053044d68aacb4acc6ec2",
-      "bytes": 4739,
+      "sha256": "f8589bff128f13d652b9369fccca492afe3c4d5754a68d07051ab4e1de8a8b61",
+      "bytes": 4984,
       "mode": "100644"
     },
     "native/lerobot-exporter/tests/session_export.rs": {
