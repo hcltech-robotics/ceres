@@ -1,3 +1,4 @@
+mod compatibility;
 mod dataset;
 mod session;
 mod video;
@@ -11,6 +12,23 @@ use std::{
 
 pub const STATE_DIM: usize = 410;
 pub const VALID_DIM: usize = 51;
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+pub enum ExportProfile {
+    #[default]
+    #[serde(rename = "ceres-bridge-lerobot3-v1")]
+    Ceres,
+    #[serde(rename = "ceres-bridge-observation-v1")]
+    Observation,
+}
+impl ExportProfile {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Ceres => "ceres-bridge-lerobot3-v1",
+            Self::Observation => "ceres-bridge-observation-v1",
+        }
+    }
+}
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -50,6 +68,8 @@ pub struct ExportJob {
     pub version: u32,
     pub session: PathBuf,
     pub output: PathBuf,
+    #[serde(default)]
+    pub profile: ExportProfile,
     #[serde(default = "default_fps")]
     pub fps: u32,
     #[serde(default = "default_ffmpeg")]

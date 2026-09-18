@@ -1,4 +1,6 @@
-use arrow_array::{Array, BooleanArray, FixedSizeListArray, Float32Array};
+use arrow_array::{
+    Array, BooleanArray, FixedSizeListArray, Float32Array, Float64Array, Int64Array,
+};
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use serde_json::{Value, json};
 use std::{
@@ -67,9 +69,42 @@ fn write_header_event(
         .unwrap();
 }
 fn fixture(root: &Path) -> PathBuf {
-    fixture_with_asset(root, None)
+    fixture_with_options(root, None, false)
 }
 fn fixture_with_asset(root: &Path, asset_bytes: Option<usize>) -> PathBuf {
+    fixture_with_options(root, asset_bytes, false)
+}
+fn hand(epoch: u32, sequence: u32, time: i64, right: bool, tips: bool) -> Vec<u8> {
+    let mut bytes = vec![0; 844];
+    bytes[..40].copy_from_slice(&head(epoch, sequence, time)[..40]);
+    bytes[5] = if right { 3 } else { 2 };
+    bytes[20..24].copy_from_slice(&804_u32.to_le_bytes());
+    // Preserve independently observed sender clocks and the later predicted pose target.
+    bytes[24..32].copy_from_slice(&(time as u64 + if right { 17 } else { 11 }).to_le_bytes());
+    bytes[32..40].copy_from_slice(&(time as u64 + 5000).to_le_bytes());
+    let mask = (1_u32 << 4) | if tips { 1 << 9 } else { 0 };
+    bytes[40..44].copy_from_slice(&mask.to_le_bytes());
+    for joint in [4, 9] {
+        if mask & (1 << joint) == 0 {
+            continue;
+        }
+        let offset = 44 + joint * 32;
+        let position = if joint == 4 {
+            [1.0_f32, 0.0, 0.0]
+        } else if right {
+            [1.0, 0.02, 0.0]
+        } else {
+            [1.03, 0.04, 0.0]
+        };
+        for (axis, value) in position.into_iter().enumerate() {
+            bytes[offset + axis * 4..offset + axis * 4 + 4].copy_from_slice(&value.to_le_bytes());
+        }
+        bytes[offset + 24..offset + 28].copy_from_slice(&1.0_f32.to_le_bytes());
+        bytes[offset + 28..offset + 32].copy_from_slice(&0.01_f32.to_le_bytes());
+    }
+    bytes
+}
+fn fixture_with_options(root: &Path, asset_bytes: Option<usize>, with_hands: bool) -> PathBuf {
     let ffmpeg = std::env::var("FFMPEG").unwrap_or_else(|_| "ffmpeg".into());
     let source = root.join("source.h264");
     let result = Command::new(&ffmpeg)
@@ -136,6 +171,14 @@ fn fixture_with_asset(root: &Path, asset_bytes: Option<usize>) -> PathBuf {
         &json!({"version":1,"kind":"calibration","receive_us":1_000_000,"time_us":1_000_000,"session_receive_us":0,"session_time_us":0,"epoch":1,"space_epoch":0,"sequence":42,"rtp_timestamp":0,"stream":"video","attributes":{"fx":600.0,"fy":610.0,"head_from_camera":[0.02,0.01,-0.03,0,0,0,1],"name":"Measured camera"},"extension":{"preserve":true}}),
         b"calibration-payload-is-not-provenance",
     );
+    if with_hands {
+        write_header_event(
+            &mut writer,
+            channel,
+            &json!({"version":1,"kind":"metadata","receive_us":1_000_000,"time_us":1_000_000,"session_receive_us":0,"session_time_us":0,"epoch":1,"space_epoch":0,"sequence":0,"attributes":{"camera":{"width":16,"height":16,"fps":30,"side":"left","label":"Passthrough left"}}}),
+            &[],
+        );
+    }
     for (sequence, time) in [0, 33_333, 100_000].into_iter().enumerate() {
         write_event(
             &mut writer,
@@ -146,6 +189,19 @@ fn fixture_with_asset(root: &Path, asset_bytes: Option<usize>) -> PathBuf {
             sequence as u32,
             &head(1, sequence as u32, time),
         );
+        if with_hands {
+            for right in [false, true] {
+                write_event(
+                    &mut writer,
+                    channel,
+                    "pose",
+                    time,
+                    1,
+                    sequence as u32,
+                    &hand(1, sequence as u32, time, right, sequence != 1 || right),
+                );
+            }
+        }
         write_event(
             &mut writer,
             channel,
@@ -166,13 +222,195 @@ fn fixture_with_asset(root: &Path, asset_bytes: Option<usize>) -> PathBuf {
         0,
         &head(2, 0, 150_000),
     );
+    if with_hands {
+        for right in [false, true] {
+            write_event(
+                &mut writer,
+                channel,
+                "pose",
+                150_000,
+                2,
+                0,
+                &hand(2, 0, 150_000, right, true),
+            );
+        }
+    }
     write_event(&mut writer, channel, "video", 150_000, 2, 0, units[0]);
     write_event(&mut writer, channel, "metadata", 200_000, 2, 0, b"{}");
     writer.finish().unwrap();
     drop(writer);
     let job = root.join("job.json");
-    fs::write(&job,serde_json::to_vec_pretty(&json!({"schema":"ceres-native-export","version":1,"session":"session.mcap","output":"dataset","fps":30,"ffmpeg":ffmpeg,"episodes":[{"start_us":0,"end_us":200_000,"task":"Move the tracked head"}],"video":{"stream":"video","width":16,"height":16}})).unwrap()).unwrap();
+    let mut document = json!({"schema":"ceres-native-export","version":1,"session":"session.mcap","output":"dataset","fps":30,"ffmpeg":ffmpeg,"episodes":[{"start_us":0,"end_us":200_000,"task":"Move the tracked head"}],"video":{"stream":"video","width":16,"height":16}});
+    if with_hands {
+        document["episodes"] = json!([{"start_us":0,"end_us":150_000,"task":"Pinch the left hand"},{"start_us":150_000,"end_us":200_000,"task":"Pinch both hands"}]);
+    } else {
+        document["profile"] = json!("ceres-bridge-observation-v1");
+    }
+    fs::write(&job, serde_json::to_vec_pretty(&document).unwrap()).unwrap();
     job
+}
+
+#[test]
+fn default_ceres_profile_exports_two_shards_and_genuine_pinch_actions() {
+    let temporary = tempfile::tempdir().unwrap();
+    let saved = std::env::var_os("CERES_EXPORT_CERES_ORACLE_DIR").map(PathBuf::from);
+    let root = saved.as_deref().unwrap_or(temporary.path());
+    fs::create_dir_all(root).unwrap();
+    let job = fixture_with_options(root, None, true);
+    ceres_native_exporter::run(&job).unwrap();
+    let output = root.join("dataset");
+    let read_json =
+        |path: &Path| -> Value { serde_json::from_reader(File::open(path).unwrap()).unwrap() };
+    let info = read_json(&output.join("meta/info.json"));
+    assert_eq!(info["ceres_profile"], "ceres-bridge-lerobot3-v1");
+    assert_eq!(
+        info["features"]["action"]["names"],
+        json!(["left_hand.pinch_distance", "right_hand.pinch_distance"])
+    );
+    assert_eq!(
+        info["features"]["ceres.source_timestamp"]["shape"],
+        json!([1])
+    );
+    assert_eq!(
+        info["features"]["ceres.sender_timestamp"]["shape"],
+        json!([3])
+    );
+    assert_eq!(info["total_episodes"], 2);
+    assert_eq!(info["total_tasks"], 2);
+    for (episode, count, from, start) in [(0, 5, 0, 0.0), (1, 2, 5, 0.15)] {
+        let shard = output.join(format!("shards/episode-{episode:06}"));
+        let suffix = format!("chunk-000/file-{episode:03}");
+        for relative in [
+            format!("data/{suffix}.parquet"),
+            format!("meta/episodes/{suffix}.parquet"),
+            format!("videos/observation.images.passthrough/{suffix}.mp4"),
+            "meta/tasks.parquet".into(),
+        ] {
+            assert_eq!(
+                fs::read(output.join(&relative)).unwrap(),
+                fs::read(shard.join(relative)).unwrap()
+            );
+        }
+        let batch = ParquetRecordBatchReaderBuilder::try_new(
+            File::open(shard.join(format!("data/{suffix}.parquet"))).unwrap(),
+        )
+        .unwrap()
+        .build()
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap();
+        assert_eq!(batch.num_rows(), count);
+        let column = |key: &str| batch.column_by_name(key).unwrap();
+        let integers = |key: &str| column(key).as_any().downcast_ref::<Int64Array>().unwrap();
+        let sources = column("ceres.source_timestamp")
+            .as_any()
+            .downcast_ref::<Float64Array>()
+            .unwrap();
+        let gaps = column("ceres.source_gap")
+            .as_any()
+            .downcast_ref::<BooleanArray>()
+            .unwrap();
+        let actions = column("action")
+            .as_any()
+            .downcast_ref::<FixedSizeListArray>()
+            .unwrap();
+        let actions_valid = column("action.valid")
+            .as_any()
+            .downcast_ref::<FixedSizeListArray>()
+            .unwrap();
+        let sender = column("ceres.sender_timestamp")
+            .as_any()
+            .downcast_ref::<FixedSizeListArray>()
+            .unwrap();
+        let targets = column("ceres.sender_target_timestamp")
+            .as_any()
+            .downcast_ref::<FixedSizeListArray>()
+            .unwrap();
+        let sequences = column("ceres.sender_sequence")
+            .as_any()
+            .downcast_ref::<FixedSizeListArray>()
+            .unwrap();
+        for frame in 0..count {
+            let gap = if episode == 0 {
+                frame == 2 || frame == 4
+            } else {
+                frame == 1
+            };
+            assert_eq!(gaps.value(frame), gap);
+            assert_eq!(integers("episode_index").value(frame), episode);
+            assert_eq!(integers("task_index").value(frame), episode);
+            assert_eq!(integers("index").value(frame), from + frame as i64);
+            assert_eq!(
+                integers("ceres.source_frame_index").value(frame),
+                (start * 30.0_f64).floor() as i64 + frame as i64
+            );
+            assert!((sources.value(frame) - (start + frame as f64 / 30.0)).abs() < 1e-12);
+            let action = actions.value(frame);
+            let action = action.as_any().downcast_ref::<Float32Array>().unwrap();
+            let valid = actions_valid.value(frame);
+            let valid = valid.as_any().downcast_ref::<BooleanArray>().unwrap();
+            let partial = episode == 0 && frame == 1;
+            assert_eq!(valid.value(0), !gap && !partial);
+            assert_eq!(valid.value(1), !gap);
+            assert!((action.value(0) - if gap || partial { 0.0 } else { 0.05 }).abs() < 1e-6);
+            assert!((action.value(1) - if gap { 0.0 } else { 0.02 }).abs() < 1e-6);
+            let observed = sender.value(frame);
+            let observed = observed.as_any().downcast_ref::<Float64Array>().unwrap();
+            let target = targets.value(frame);
+            let target = target.as_any().downcast_ref::<Float64Array>().unwrap();
+            let sequence = sequences.value(frame);
+            let sequence = sequence.as_any().downcast_ref::<Int64Array>().unwrap();
+            if gap {
+                assert_eq!(observed.values().as_ref(), &[-1.0; 3]);
+                assert_eq!(target.values().as_ref(), &[-1.0; 3]);
+                assert_eq!(sequence.values().as_ref(), &[-1; 3]);
+            } else {
+                assert!((observed.value(1) - observed.value(0) - 0.000011).abs() < 1e-12);
+                assert!((observed.value(2) - observed.value(0) - 0.000017).abs() < 1e-12);
+                assert!((target.value(1) - observed.value(0) - 0.005).abs() < 1e-12);
+                assert_eq!(
+                    sequence.value(0),
+                    if episode == 1 {
+                        0
+                    } else if frame == 3 {
+                        2
+                    } else {
+                        frame as i64
+                    }
+                );
+            }
+        }
+        let metadata = read_json(&shard.join("ceres/episode-metadata.json"));
+        assert_eq!(metadata["episodeIndex"], episode);
+        assert_eq!(metadata["captureMetadata"]["camera"]["width"]["value"], 16);
+        assert_eq!(
+            metadata["captureMetadata"]["camera"]["calibration"]["availability"],
+            "unknown"
+        );
+        if episode == 0 {
+            assert_eq!(
+                metadata["captureMetadata"]["camera"]["selection"]["value"]["side"],
+                "left"
+            );
+            assert_eq!(metadata["bridge"]["capture"]["calibration"]["fx"], 600.0);
+        }
+        let metrics = read_json(&shard.join("ceres/metrics.json"));
+        assert_eq!(metrics["frames"], count);
+        assert_eq!(
+            metrics["source_frame_gaps"],
+            if episode == 0 { 2 } else { 1 }
+        );
+        assert!(metrics["input_bytes"].as_u64().unwrap() > 0);
+        let shard_info = read_json(&shard.join("meta/info.json"));
+        assert_eq!(shard_info["total_episodes"], episode + 1);
+        assert_eq!(shard_info["total_frames"], from + count as i64);
+    }
+    assert!(
+        fs::read_to_string(output.join("README.md"))
+            .unwrap()
+            .contains("path: data/**/*.parquet")
+    );
 }
 
 #[test]

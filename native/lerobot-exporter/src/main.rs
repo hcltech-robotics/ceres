@@ -10,7 +10,7 @@ fn main() {
         Some("--capabilities") => {
             println!(
                 "{}",
-                serde_json::json!({"schema":"ceres-native-export-capabilities","version":1,"job_version":1,"session_encoding":"ceres-session-v1","lerobot":"v3.0","oracle":"0.6.1","state_dimension":410,"validity_dimension":51,"actions":false})
+                serde_json::json!({"schema":"ceres-native-export-capabilities","version":1,"job_version":1,"session_encoding":"ceres-session-v1","lerobot":"v3.0","oracle":"0.6.1","state_dimension":410,"validity_dimension":51,"actions":true,"action_dimension":2,"default_profile":"ceres-bridge-lerobot3-v1","profiles":["ceres-bridge-lerobot3-v1","ceres-bridge-observation-v1"],"ceres_episode_shards":true})
             );
             return;
         }

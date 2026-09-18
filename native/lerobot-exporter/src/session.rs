@@ -174,6 +174,7 @@ pub struct Epoch {
     pub end_us: i64,
     pub poses: [Samples; 3],
     pub video_times: Vec<i64>,
+    pub video_bytes: Vec<usize>,
     pub video_path: PathBuf,
     pub video_keyframes: Vec<(usize, u64)>,
     pub video_reconfigurations: Vec<usize>,
@@ -183,6 +184,7 @@ pub struct Epoch {
 pub struct SessionIndex {
     pub epochs: Vec<Epoch>,
     pub dimensions: Vec<CameraDimensions>,
+    pub capture_events: Vec<serde_json::Value>,
 }
 #[derive(Debug)]
 pub struct CameraDimensions {
@@ -255,6 +257,7 @@ impl SessionIndex {
 }
 
 pub fn index(job: &ExportJob, spool: &Path) -> Result<SessionIndex> {
+    let mut capture_events = Vec::new();
     let source = File::open(&job.session).context("open session MCAP")?;
     // The file remains open and immutable throughout this read-only mapping.
     let map = unsafe { memmap2::Mmap::map(&source)? };
@@ -291,6 +294,11 @@ pub fn index(job: &ExportJob, spool: &Path) -> Result<SessionIndex> {
         serde_json::to_writer(&mut source_events, &original_header)?;
         source_events.write_all(b"\n")?;
         let attributes = &original_header["attributes"];
+        if header.kind == "calibration"
+            || (header.kind == "metadata" && attributes.get("camera").is_some())
+        {
+            capture_events.push(original_header.clone());
+        }
         let camera = if header.kind == "metadata" {
             attributes.get("camera")
         } else if header.kind == "video" {
@@ -345,6 +353,7 @@ pub fn index(job: &ExportJob, spool: &Path) -> Result<SessionIndex> {
                     end_us: i64::MAX,
                     poses,
                     video_times: vec![],
+                    video_bytes: vec![],
                     video_path,
                     video_keyframes: vec![],
                     video_reconfigurations: vec![],
@@ -396,6 +405,7 @@ pub fn index(job: &ExportJob, spool: &Path) -> Result<SessionIndex> {
             }
             files[idx].1.write_all(payload)?;
             epoch.video_times.push(header.session_time_us);
+            epoch.video_bytes.push(payload.len());
         }
     }
     source_events
@@ -425,7 +435,11 @@ pub fn index(job: &ExportJob, spool: &Path) -> Result<SessionIndex> {
             && later.width == earlier.width
             && later.height == earlier.height
     });
-    Ok(SessionIndex { epochs, dimensions })
+    Ok(SessionIndex {
+        epochs,
+        dimensions,
+        capture_events,
+    })
 }
 
 fn sps_signature(bytes: &[u8]) -> Vec<u8> {
@@ -520,12 +534,19 @@ fn f32_at(bytes: &[u8], at: usize) -> f32 {
     f32::from_le_bytes(bytes[at..at + 4].try_into().unwrap())
 }
 
+pub struct PoseSource {
+    pub observed: f64,
+    pub target: f64,
+    pub sequence: i64,
+    pub bytes: usize,
+}
+
 pub fn read_pose(
     file: &mut File,
     offset: u64,
     state: &mut [f32; STATE_DIM],
     valid: &mut [bool; VALID_DIM],
-) -> Result<f64> {
+) -> Result<PoseSource> {
     file.seek(SeekFrom::Start(offset))?;
     let mut length = [0; 4];
     file.read_exact(&mut length)?;
@@ -551,7 +572,12 @@ pub fn read_pose(
             valid[valid_at + i] = mask & (1 << i) != 0;
         }
     }
-    Ok(u64::from_le_bytes(bytes[24..32].try_into()?) as f64 / 1_000_000.0)
+    Ok(PoseSource {
+        observed: u64::from_le_bytes(bytes[24..32].try_into()?) as f64 / 1_000_000.0,
+        target: u64::from_le_bytes(bytes[32..40].try_into()?) as f64 / 1_000_000.0,
+        sequence: i64::from(u32_at(&bytes, 16)),
+        bytes: bytes.len(),
+    })
 }
 
 #[cfg(test)]
@@ -677,6 +703,7 @@ mod tests {
             end_us,
             poses: std::array::from_fn(|_| Samples::new(PathBuf::new())),
             video_times: vec![],
+            video_bytes: vec![],
             video_path: PathBuf::new(),
             video_keyframes: vec![],
             video_reconfigurations: vec![],
@@ -685,6 +712,7 @@ mod tests {
         let index = SessionIndex {
             epochs: vec![epoch(0, 0, 50), epoch(1, 50, 100)],
             dimensions: vec![],
+            capture_events: vec![],
         };
         let segments = index
             .split_ranges(&[EpisodeRange {

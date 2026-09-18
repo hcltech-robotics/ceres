@@ -1,5 +1,5 @@
 use crate::{
-    ExportJob, STATE_DIM, VALID_DIM, nearest, progress,
+    ExportJob, ExportProfile, STATE_DIM, VALID_DIM, compatibility, nearest, progress,
     session::{self, Segment, SessionIndex},
     video::{Decoder, Encoder},
 };
@@ -119,7 +119,7 @@ impl FeatureStats {
     }
 }
 type Stats = BTreeMap<String, FeatureStats>;
-fn stats_new(key: &str) -> Stats {
+fn stats_new(job: &ExportJob) -> Stats {
     let mut result = BTreeMap::new();
     for (key, dim) in [
         ("observation.state", STATE_DIM),
@@ -130,14 +130,30 @@ fn stats_new(key: &str) -> Stats {
         ("episode_index", 1),
         ("index", 1),
         ("task_index", 1),
-        ("ceres.source_timestamp", 3),
         ("ceres.video_timestamp", 1),
         ("ceres.connection_epoch", 1),
         ("ceres.space_epoch", 1),
     ] {
         result.insert(key.into(), FeatureStats::new(dim, false));
     }
-    result.insert(key.into(), FeatureStats::new(3, true));
+    let dimensions: &[(&str, usize)] = if job.profile == ExportProfile::Ceres {
+        &[
+            ("action", 2),
+            ("action.valid", 2),
+            ("ceres.source_timestamp", 1),
+            ("ceres.source_frame_index", 1),
+            ("ceres.source_gap", 1),
+            ("ceres.sender_timestamp", 3),
+            ("ceres.sender_target_timestamp", 3),
+            ("ceres.sender_sequence", 3),
+        ]
+    } else {
+        &[("ceres.source_timestamp", 3)]
+    };
+    for &(name, dimensions) in dimensions {
+        result.insert(name.into(), FeatureStats::new(dimensions, false));
+    }
+    result.insert(job.video.key.clone(), FeatureStats::new(3, true));
     result
 }
 fn merge_stats(total: &mut Stats, episode: &Stats) {
@@ -159,11 +175,18 @@ struct Row {
     global: i64,
     task: i64,
     source: [f64; 3],
+    source_target: [f64; 3],
+    source_sequence: [i64; 3],
+    source_grid: f64,
+    source_frame: i64,
+    source_gap: bool,
+    action: [f32; 2],
+    action_valid: [bool; 2],
     video_time: f64,
     epoch: i64,
     space: i64,
 }
-fn add_stats(stats: &mut Stats, row: &Row, key: &str, rgb: &[u8]) {
+fn add_stats(stats: &mut Stats, row: &Row, job: &ExportJob, rgb: &[u8]) {
     stats
         .get_mut("observation.state")
         .unwrap()
@@ -172,10 +195,45 @@ fn add_stats(stats: &mut Stats, row: &Row, key: &str, rgb: &[u8]) {
         .get_mut("observation.valid")
         .unwrap()
         .add(row.valid.iter().map(|&v| f64::from(u8::from(v))));
-    stats
-        .get_mut("ceres.source_timestamp")
-        .unwrap()
-        .add(row.source);
+    if job.profile == ExportProfile::Ceres {
+        stats
+            .get_mut("action")
+            .unwrap()
+            .add(row.action.map(f64::from));
+        stats
+            .get_mut("action.valid")
+            .unwrap()
+            .add(row.action_valid.map(|v| f64::from(u8::from(v))));
+        stats
+            .get_mut("ceres.source_timestamp")
+            .unwrap()
+            .add([row.source_grid]);
+        stats
+            .get_mut("ceres.source_frame_index")
+            .unwrap()
+            .add([row.source_frame as f64]);
+        stats
+            .get_mut("ceres.source_gap")
+            .unwrap()
+            .add([f64::from(u8::from(row.source_gap))]);
+        stats
+            .get_mut("ceres.sender_timestamp")
+            .unwrap()
+            .add(row.source);
+        stats
+            .get_mut("ceres.sender_target_timestamp")
+            .unwrap()
+            .add(row.source_target);
+        stats
+            .get_mut("ceres.sender_sequence")
+            .unwrap()
+            .add(row.source_sequence.map(|v| v as f64));
+    } else {
+        stats
+            .get_mut("ceres.source_timestamp")
+            .unwrap()
+            .add(row.source);
+    }
     for (key, value) in [
         (
             "observation.video_valid",
@@ -192,7 +250,7 @@ fn add_stats(stats: &mut Stats, row: &Row, key: &str, rgb: &[u8]) {
     ] {
         stats.get_mut(key).unwrap().add([value]);
     }
-    stats.get_mut(key).unwrap().add_image(rgb);
+    stats.get_mut(&job.video.key).unwrap().add_image(rgb);
 }
 fn fixed(values: ArrayRef, dim: usize) -> ArrayRef {
     Arc::new(FixedSizeListArray::new(
@@ -202,8 +260,8 @@ fn fixed(values: ArrayRef, dim: usize) -> ArrayRef {
         None,
     ))
 }
-fn rows_batch(rows: &[Row]) -> Result<RecordBatch> {
-    let arrays: Vec<(&str, ArrayRef)> = vec![
+fn rows_batch(rows: &[Row], profile: ExportProfile) -> Result<RecordBatch> {
+    let mut arrays: Vec<(&str, ArrayRef)> = vec![
         (
             "observation.state",
             fixed(
@@ -259,7 +317,11 @@ fn rows_batch(rows: &[Row]) -> Result<RecordBatch> {
             )),
         ),
         (
-            "ceres.source_timestamp",
+            if profile == ExportProfile::Ceres {
+                "ceres.sender_timestamp"
+            } else {
+                "ceres.source_timestamp"
+            },
             fixed(
                 Arc::new(Float64Array::from(
                     rows.iter().flat_map(|r| r.source).collect::<Vec<_>>(),
@@ -286,6 +348,68 @@ fn rows_batch(rows: &[Row]) -> Result<RecordBatch> {
             )),
         ),
     ];
+    if profile == ExportProfile::Ceres {
+        arrays.extend([
+            (
+                "action",
+                fixed(
+                    Arc::new(Float32Array::from(
+                        rows.iter().flat_map(|r| r.action).collect::<Vec<_>>(),
+                    )),
+                    2,
+                ),
+            ),
+            (
+                "action.valid",
+                fixed(
+                    Arc::new(BooleanArray::from(
+                        rows.iter().flat_map(|r| r.action_valid).collect::<Vec<_>>(),
+                    )),
+                    2,
+                ),
+            ),
+            (
+                "ceres.source_timestamp",
+                Arc::new(Float64Array::from(
+                    rows.iter().map(|r| r.source_grid).collect::<Vec<_>>(),
+                )) as ArrayRef,
+            ),
+            (
+                "ceres.source_frame_index",
+                Arc::new(Int64Array::from(
+                    rows.iter().map(|r| r.source_frame).collect::<Vec<_>>(),
+                )),
+            ),
+            (
+                "ceres.source_gap",
+                Arc::new(BooleanArray::from(
+                    rows.iter().map(|r| r.source_gap).collect::<Vec<_>>(),
+                )),
+            ),
+            (
+                "ceres.sender_target_timestamp",
+                fixed(
+                    Arc::new(Float64Array::from(
+                        rows.iter()
+                            .flat_map(|r| r.source_target)
+                            .collect::<Vec<_>>(),
+                    )),
+                    3,
+                ),
+            ),
+            (
+                "ceres.sender_sequence",
+                fixed(
+                    Arc::new(Int64Array::from(
+                        rows.iter()
+                            .flat_map(|r| r.source_sequence)
+                            .collect::<Vec<_>>(),
+                    )),
+                    3,
+                ),
+            ),
+        ]);
+    }
     let fields = arrays
         .iter()
         .map(|(name, array)| Field::new(*name, array.data_type().clone(), false))
@@ -330,7 +454,8 @@ pub fn export(
     spool: &Path,
 ) -> Result<()> {
     let mut tasks = Vec::<String>::new();
-    let mut total_stats = stats_new(&job.video.key);
+    let mut total_stats = stats_new(job);
+    let mut shard_details = Vec::new();
     let mut global = 0_i64;
     for (number, segment) in episodes.iter().enumerate() {
         job.check_cancelled()?;
@@ -372,11 +497,14 @@ pub fn export(
         )?;
         let mut pixels = vec![0; (job.video.width as usize) * (job.video.height as usize) * 3];
         let mut rows = Vec::with_capacity(ROW_GROUP);
-        let empty = rows_batch(&[])?;
+        let empty = rows_batch(&[], job.profile)?;
         let data_path = path_for(root, "data", number, "parquet")?;
         let mut writer =
             ArrowWriter::try_new(File::create(data_path)?, empty.schema(), Some(properties()))?;
-        let mut stats = stats_new(&job.video.key);
+        let mut stats = stats_new(job);
+        let mut input_bytes = 0_u64;
+        let mut source_gaps = 0_u64;
+        let mut video_gaps = 0_u64;
         let from = global;
         for frame in 0..frames {
             job.check_cancelled()?;
@@ -392,6 +520,15 @@ pub fn export(
                 global,
                 task,
                 source: [-1.0; 3],
+                source_target: [-1.0; 3],
+                source_sequence: [-1; 3],
+                source_grid: slot as f64 / f64::from(job.fps) / 1_000_000.0,
+                source_frame: ((i128::from(segment.start_us) * i128::from(job.fps)) / 1_000_000)
+                    as i64
+                    + frame,
+                source_gap: false,
+                action: [0.0; 2],
+                action_valid: [false; 2],
                 video_time: -1.0,
                 epoch: epoch.epoch as i64,
                 space: epoch.space_epoch as i64,
@@ -404,14 +541,21 @@ pub fn export(
                     job.fps,
                 ) {
                     let sample = sample + pose_bounds[part].0;
-                    row.source[part] = session::read_pose(
+                    let source = session::read_pose(
                         &mut pose_files[part],
                         epoch.poses[part].offsets[sample],
                         &mut row.state,
                         &mut row.valid,
                     )?;
+                    row.source[part] = source.observed;
+                    row.source_target[part] = source.target;
+                    row.source_sequence[part] = source.sequence;
+                    input_bytes += source.bytes as u64;
                 }
             }
+            (row.action, row.action_valid) = compatibility::pinch_distances(&row.state, &row.valid);
+            row.source_gap = row.source_sequence.iter().all(|&sequence| sequence < 0);
+            source_gaps += u64::from(row.source_gap);
             pixels.fill(0);
             if let Some(sample) = nearest(
                 &epoch.video_times[video_begin..video_end],
@@ -443,23 +587,38 @@ pub fn export(
                 decoder.as_mut().unwrap().read_frame(sample, &mut pixels)?;
                 row.video_valid = true;
                 row.video_time = time as f64 / 1_000_000.0;
+                input_bytes += epoch.video_bytes[sample] as u64;
             }
+            video_gaps += u64::from(!row.video_valid);
             encoder.write_frame(&pixels)?;
-            add_stats(&mut stats, &row, &job.video.key, &pixels);
+            add_stats(&mut stats, &row, job, &pixels);
             rows.push(row);
             global += 1;
             if rows.len() == ROW_GROUP {
-                writer.write(&rows_batch(&rows)?)?;
+                writer.write(&rows_batch(&rows, job.profile)?)?;
                 rows.clear();
                 progress("frames", frame as u64 + 1, frames as u64);
             }
         }
         if !rows.is_empty() {
-            writer.write(&rows_batch(&rows)?)?;
+            writer.write(&rows_batch(&rows, job.profile)?)?;
         }
         writer.close()?;
         encoder.finish()?;
         episode_metadata(job, root, number, segment, frames, from, &stats)?;
+        shard_details.push(compatibility::ShardDetails {
+            number,
+            frames,
+            from,
+            input_bytes,
+            source_gaps,
+            video_gaps,
+            row_groups: (frames as u64).div_ceil(ROW_GROUP as u64),
+            stats: stats
+                .iter()
+                .map(|(key, value)| (key.clone(), value.document()))
+                .collect(),
+        });
         merge_stats(&mut total_stats, &stats);
     }
     fs::create_dir_all(root.join("meta"))?;
@@ -482,6 +641,7 @@ pub fn export(
             &json!({"schema":"ceres-native-export-provenance","version":1,"exporter_version":env!("CARGO_PKG_VERSION"),"lerobot_oracle":"0.6.1","session":job.session,"job":job,"source_events":{"path":"meta/ceres-source-events.jsonl","format":"jsonl","coverage":"all recorded Ceres event headers","payloads":false},"resampling":"nearest unused within half a slot, earlier sample on ties","pose_time":"receiver-mapped observed time, arrival time when clock mapping is unavailable","video_time":"receiver-anchored RTP presentation time","invalid_observation":"zero with validity false","invalid_video":"black with video_valid false"}),
         )?,
     )?;
+    compatibility::write(job, index, episodes, root, &shard_details)?;
     Ok(())
 }
 
@@ -501,9 +661,34 @@ fn info(job: &ExportJob, frames: i64, episodes: usize, tasks: usize) -> Value {
         json!({"dtype":"bool","shape":[VALID_DIM],"names":names}),
     );
     features.insert(
-        "ceres.source_timestamp".into(),
+        if job.profile == ExportProfile::Ceres {
+            "ceres.sender_timestamp"
+        } else {
+            "ceres.source_timestamp"
+        }
+        .into(),
         json!({"dtype":"float64","shape":[3],"names":["head","left_hand","right_hand"]}),
     );
+    if job.profile == ExportProfile::Ceres {
+        features.insert("action".into(), json!({"dtype":"float32","shape":[2],"names":ceres_lerobot_exporter::CERES_ACTION_NAMES}));
+        features.insert("action.valid".into(), json!({"dtype":"bool","shape":[2],"names":["left_hand.pinch_distance","right_hand.pinch_distance"]}));
+        for (name, dtype) in [
+            ("ceres.source_timestamp", "float64"),
+            ("ceres.source_frame_index", "int64"),
+            ("ceres.source_gap", "bool"),
+        ] {
+            features.insert(name.into(), json!({"dtype":dtype,"shape":[1],"names":null}));
+        }
+        for (name, dtype) in [
+            ("ceres.sender_target_timestamp", "float64"),
+            ("ceres.sender_sequence", "int64"),
+        ] {
+            features.insert(
+                name.into(),
+                json!({"dtype":dtype,"shape":[3],"names":["head","left_hand","right_hand"]}),
+            );
+        }
+    }
     for (name, dtype) in [
         ("observation.video_valid", "bool"),
         ("timestamp", "float32"),
@@ -518,7 +703,7 @@ fn info(job: &ExportJob, frames: i64, episodes: usize, tasks: usize) -> Value {
         features.insert(name.into(), json!({"dtype":dtype,"shape":[1],"names":null}));
     }
     features.insert(job.video.key.clone(),json!({"dtype":"video","shape":[job.video.height,job.video.width,3],"names":["height","width","channels"],"info":{"video.height":job.video.height,"video.width":job.video.width,"video.codec":"h264","video.pix_fmt":"yuv420p","video.is_depth_map":false,"video.fps":job.fps,"video.channels":3,"has_audio":false}}));
-    json!({"codebase_version":"v3.0","robot_type":"ceres_observation","fps":job.fps,"features":features,"total_episodes":episodes,"total_frames":frames,"total_tasks":tasks,"chunks_size":1000,"data_files_size_in_mb":100,"video_files_size_in_mb":200,"data_path":"data/chunk-{chunk_index:03d}/file-{file_index:03d}.parquet","video_path":"videos/{video_key}/chunk-{chunk_index:03d}/file-{file_index:03d}.mp4","splits":{"train":format!("0:{episodes}")}})
+    json!({"codebase_version":"v3.0","robot_type":if job.profile == ExportProfile::Ceres {"ceres"} else {"ceres_observation"},"ceres_profile":job.profile.name(),"fps":job.fps,"features":features,"total_episodes":episodes,"total_frames":frames,"total_tasks":tasks,"chunks_size":1000,"data_files_size_in_mb":100,"video_files_size_in_mb":200,"data_path":"data/chunk-{chunk_index:03d}/file-{file_index:03d}.parquet","video_path":"videos/{video_key}/chunk-{chunk_index:03d}/file-{file_index:03d}.mp4","splits":{"train":format!("0:{episodes}")}})
 }
 fn list_f64(values: &[f64], image: bool) -> ArrayRef {
     if image {
