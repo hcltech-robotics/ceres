@@ -12,7 +12,7 @@ requires-python = ">=3.12"
 dependencies = []
 
 [project.optional-dependencies]
-worker = ["aiohttp>=3.9,<4", "qrcode>=7.4,<9"]
+worker = ["aiohttp>=3.9,<4", "qrcode>=7.4,<9", "PyGObject<3.52"]
 teleop = ["numpy>=1.26,<3"]
 foxglove = ["foxglove-sdk>=0.27,<0.28", "aiohttp>=3.9,<4", "numpy>=1.26,<3", "Pillow>=10,<13"]
 test = ["pytest>=8,<10", "build>=1,<2", "protobuf>=5,<8"]
