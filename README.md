@@ -71,7 +71,7 @@ and [review and export guide](https://ceres.cam/documentation/review-and-export/
 | --- | --- | --- |
 | **Solo** | Configure, record, review and export a run entirely on the headset. | `/launch/capture/?mode=solo` |
 | **Duet** | Prepare tasks and supervise a demonstrator from another browser. | `/monitor/` |
-| **Bridge** | Stream live video, head pose and both hands to a Linux application. | `/bridge/` |
+| **Bridge** | Stream live video, head pose and both hands to a Linux or macOS application. | `/bridge/` |
 
 **Solo** keeps task selection, recording, review and export on the headset.
 **Duet** gives a capture director a separate view of readiness, task progress and
@@ -102,7 +102,7 @@ acquisition, alongside live video, wrist position and rotation waveforms, arm
 joint plots, frame rates and process load. It runs without Isaac Sim. The Python
 API exposes the joint targets and link transforms for application integration.
 
-From the `receiver` directory in an Ubuntu 24.04 Python 3.12 environment:
+Follow the [receiver installation guide](receiver/README.md) for Ubuntu or macOS, then run these commands from the `receiver` directory:
 
 ```sh
 python -m pip install '.[worker,foxglove,teleop]'

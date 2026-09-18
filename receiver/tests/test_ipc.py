@@ -1,9 +1,19 @@
 import unittest
 import asyncio
+import errno
+import json
+import mmap
+import os
 from pathlib import Path
+import socket
+import stat
+import sys
 import tempfile
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
-from ceres_bridge.ipc import AudioMailbox, Broker, EncodedMailbox, FrameMailbox, MAX_AUDIO_BYTES, MAX_FRAME_BYTES
+from ceres_bridge import ipc
+from ceres_bridge.ipc import AudioMailbox, Broker, EncodedMailbox, FrameMailbox, MAX_AUDIO_BYTES, MAX_FRAME_BYTES, peer_uid
 from ceres_bridge.client import Receiver
 from ceres_bridge.state import LatestState
 
@@ -137,7 +147,7 @@ class CameraSubscriptionTests(unittest.IsolatedAsyncioTestCase):
         broker = Broker(state)
         keyframe_requests = []
         broker.request_keyframe = keyframe_requests.append
-        with tempfile.TemporaryDirectory(prefix="ceres-camera-") as directory:
+        with tempfile.TemporaryDirectory(prefix="ceres-camera-", dir="/tmp") as directory:
             path = str(Path(directory) / "receiver.sock")
             server = await asyncio.start_unix_server(broker.handle, path)
             primary = left = None
@@ -170,6 +180,182 @@ class CameraSubscriptionTests(unittest.IsolatedAsyncioTestCase):
     def test_invalid_camera_is_rejected_before_connecting(self):
         with self.assertRaisesRegex(ValueError, "primary, left or right"):
             Receiver("/does-not-exist", camera="both")
+
+
+class PortableMailboxTests(unittest.TestCase):
+    def named_mailbox(self, directory):
+        with patch("ceres_bridge.ipc.sys.platform", "darwin"), patch(
+                "ceres_bridge.ipc.runtime_dir", return_value=Path(directory)):
+            return FrameMailbox(capacity=16)
+
+    def test_named_mapping_is_private_and_survives_unlink(self):
+        with tempfile.TemporaryDirectory(prefix="ceres-map-", dir="/tmp") as directory:
+            box = self.named_mailbox(directory)
+            path = Path(box.path)
+            try:
+                self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+                self.assertEqual(path.stat().st_uid, os.getuid())
+                with open(path, "rb") as client_file, mmap.mmap(
+                        client_file.fileno(), 32, access=mmap.ACCESS_READ) as client_memory:
+                    box.unlink()
+                    self.assertFalse(path.exists())
+                    box.publish(b"rgb", 1, 1, 3, 1, 1, 0)
+                    self.assertEqual(client_memory[:3], b"rgb")
+                    box.close()
+                    self.assertEqual(client_memory[:3], b"rgb")
+            finally:
+                box.close()
+            self.assertEqual(list(Path(directory).iterdir()), [])
+
+    def test_close_removes_a_mapping_before_client_acknowledgement(self):
+        with tempfile.TemporaryDirectory(prefix="ceres-map-", dir="/tmp") as directory:
+            box = self.named_mailbox(directory)
+            path = Path(box.path)
+            self.assertTrue(path.exists())
+            box.close()
+            self.assertFalse(path.exists())
+
+    def test_failed_mapping_allocation_removes_its_file(self):
+        with tempfile.TemporaryDirectory(prefix="ceres-map-", dir="/tmp") as directory:
+            with patch("ceres_bridge.ipc.mmap.mmap", side_effect=OSError("mapping failed")):
+                with self.assertRaisesRegex(OSError, "mapping failed"):
+                    self.named_mailbox(directory)
+            self.assertEqual(list(Path(directory).iterdir()), [])
+
+    def test_native_peer_credentials_match_the_connected_user(self):
+        first, second = socket.socketpair()
+        with first, second:
+            self.assertEqual(peer_uid(first), os.getuid())
+            self.assertEqual(peer_uid(second), os.getuid())
+
+    def test_macos_credential_failure_keeps_the_native_error(self):
+        getpeereid = Mock(return_value=-1)
+        with patch("ceres_bridge.ipc.sys.platform", "darwin"), patch(
+                "ceres_bridge.ipc.ctypes.CDLL", return_value=SimpleNamespace(getpeereid=getpeereid)), patch(
+                "ceres_bridge.ipc.ctypes.get_errno", return_value=errno.EBADF):
+            with self.assertRaises(OSError) as caught:
+                peer_uid(Mock())
+        self.assertEqual(caught.exception.errno, errno.EBADF)
+
+
+PROCESS_CLIENT = r'''
+import json
+import sys
+from ceres_bridge.client import Receiver
+
+def contents(bundle):
+    return {kind: bytes(frame.data).hex() for kind, frame in bundle.items()}
+
+with Receiver(sys.argv[1], encoded=True, audio=True) as receiver:
+    leases = []
+    print(json.dumps({"ready": True}), flush=True)
+    for line in sys.stdin:
+        operation = json.loads(line)
+        if operation == "take":
+            sample = receiver.latest()
+            bundle = {kind: sample[kind] for kind in ("frame", "encoded", "audio")}
+            leases.append(bundle)
+            result = contents(bundle)
+        elif operation == "inspect":
+            result = [contents(bundle) for bundle in leases]
+        elif operation == "release":
+            for bundle in leases:
+                for frame in bundle.values():
+                    frame.release()
+            leases.clear()
+            receiver.latest()
+            result = {"released": True}
+        print(json.dumps(result), flush=True)
+'''
+
+
+class PortableBrokerTests(unittest.IsolatedAsyncioTestCase):
+    async def test_foreign_user_is_rejected_before_subscription(self):
+        broker = Broker(LatestState())
+        with tempfile.TemporaryDirectory(prefix="ceres-auth-", dir="/tmp") as directory:
+            path = str(Path(directory) / "receiver.sock")
+            server = await asyncio.start_unix_server(broker.handle, path)
+            try:
+                with patch("ceres_bridge.ipc.peer_uid", return_value=os.getuid() + 1):
+                    reader, writer = await asyncio.open_unix_connection(path)
+                    try:
+                        self.assertEqual(await asyncio.wait_for(reader.read(), 2), b"")
+                        self.assertEqual(broker.consumers, {})
+                    finally:
+                        writer.close()
+                        await writer.wait_closed()
+            finally:
+                server.close()
+                await server.wait_closed()
+
+    async def test_independent_process_maps_leases_and_disconnect_cleanup(self):
+        state = LatestState()
+        state.reset(1)
+        broker = Broker(state)
+        with tempfile.TemporaryDirectory(prefix="ceres-process-", dir="/tmp") as directory:
+            path = str(Path(directory) / "receiver.sock")
+            server = await asyncio.start_unix_server(broker.handle, path)
+            environment = {**os.environ, "PYTHONPATH": str(Path(ipc.__file__).resolve().parents[1])}
+            process = None
+            try:
+                process = await asyncio.create_subprocess_exec(
+                    sys.executable, "-c", PROCESS_CLIENT, path, env=environment,
+                    stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+
+                async def response():
+                    line = await asyncio.wait_for(process.stdout.readline(), 5)
+                    if not line:
+                        self.fail((await process.stderr.read()).decode())
+                    return json.loads(line)
+
+                async def exchange(operation):
+                    process.stdin.write(json.dumps(operation).encode() + b"\n")
+                    await process.stdin.drain()
+                    return await response()
+
+                self.assertEqual(await response(), {"ready": True})
+                boxes = [*broker.consumers.values(), *broker.encoded.values(), *broker.audio.values()]
+                if sys.platform == "darwin":
+                    self.assertTrue(all(box.named_path is None and not Path(box.path).exists() for box in boxes))
+                expected = []
+                for data, audio in ((b"abc", b"\x01\x00"), (b"def", b"\x02\x00")):
+                    broker.publish_frame(data, 1, 1, 3, 1)
+                    broker.publish_encoded(data, True, 1, 0)
+                    broker.publish_audio(audio, 1, 0)
+                    result = {"frame": data.hex(), "encoded": data.hex(), "audio": audio.hex()}
+                    self.assertEqual(await exchange("take"), result)
+                    expected.append(result)
+                broker.publish_frame(b"xyz", 1, 1, 3, 1)
+                broker.publish_encoded(b"xyz", True, 1, 0)
+                broker.publish_audio(b"\x03\x00", 1, 0)
+                self.assertTrue(all(box.drops == 1 for box in boxes))
+                self.assertEqual(await exchange("inspect"), expected)
+                self.assertEqual(await exchange("release"), {"released": True})
+                self.assertTrue(all(not box.leased for box in boxes))
+                broker.publish_frame(b"new", 1, 1, 3, 1)
+                broker.publish_encoded(b"new", True, 1, 0)
+                broker.publish_audio(b"\x04\x00", 1, 0)
+                self.assertEqual(await exchange("take"), {
+                    "frame": b"new".hex(), "encoded": b"new".hex(), "audio": "0400"})
+                process.kill()
+                await asyncio.wait_for(process.wait(), 5)
+
+                async def disconnected():
+                    while broker.consumers:
+                        await asyncio.sleep(0.01)
+
+                await asyncio.wait_for(disconnected(), 2)
+                self.assertEqual(broker.encoded, {})
+                self.assertEqual(broker.audio, {})
+                self.assertTrue(all(box.file.closed and box.memory.closed for box in boxes))
+                self.assertTrue(all(not Path(box.path).exists() for box in boxes))
+            finally:
+                if process is not None and process.returncode is None:
+                    process.kill()
+                    await process.wait()
+                server.close()
+                await server.wait_closed()
+                await asyncio.sleep(0)
 
 
 if __name__ == "__main__":

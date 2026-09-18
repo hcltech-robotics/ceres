@@ -1,8 +1,10 @@
 """Scalar pose signals and measured process load for the live dashboards."""
 
+import ctypes
 import math
 import os
 from pathlib import Path
+import sys
 import time
 
 from .coordinates import ros_orientation, ros_position
@@ -76,6 +78,34 @@ class MotionSignals:
         return result
 
 
+_PROC_PIDTASKINFO = 4
+
+
+class _ProcTaskInfo(ctypes.Structure):
+    # macOS <sys/proc_info.h>, PROC_PIDTASKINFO. Resident size is in bytes.
+    # https://github.com/apple-oss-distributions/xnu/blob/main/bsd/sys/proc_info.h
+    _fields_ = [
+        ("pti_virtual_size", ctypes.c_uint64),
+        ("pti_resident_size", ctypes.c_uint64),
+        ("pti_total_user", ctypes.c_uint64),
+        ("pti_total_system", ctypes.c_uint64),
+        ("pti_threads_user", ctypes.c_uint64),
+        ("pti_threads_system", ctypes.c_uint64),
+        ("pti_policy", ctypes.c_int32),
+        ("pti_faults", ctypes.c_int32),
+        ("pti_pageins", ctypes.c_int32),
+        ("pti_cow_faults", ctypes.c_int32),
+        ("pti_messages_sent", ctypes.c_int32),
+        ("pti_messages_received", ctypes.c_int32),
+        ("pti_syscalls_mach", ctypes.c_int32),
+        ("pti_syscalls_unix", ctypes.c_int32),
+        ("pti_csw", ctypes.c_int32),
+        ("pti_threadnum", ctypes.c_int32),
+        ("pti_numrunning", ctypes.c_int32),
+        ("pti_priority", ctypes.c_int32),
+    ]
+
+
 class ProcessMetrics:
     """CPU uses one core as 100 percent and RSS is current resident memory."""
 
@@ -84,9 +114,31 @@ class ProcessMetrics:
         self.cpu = time.process_time_ns()
         self.cpu_percent = 0.0
         self.loop_ms = 0.0
+        self._proc_pidinfo = None
+        if sys.platform == "darwin":
+            try:
+                proc_pidinfo = ctypes.CDLL("/usr/lib/libproc.dylib").proc_pidinfo
+                proc_pidinfo.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_uint64,
+                                        ctypes.c_void_p, ctypes.c_int]
+                proc_pidinfo.restype = ctypes.c_int
+                self._proc_pidinfo = proc_pidinfo
+            except (OSError, AttributeError):
+                pass
 
     def observe_loop(self, elapsed_ns):
         self.loop_ms = elapsed_ns / 1e6
+
+    def _resident_memory_mb(self):
+        if sys.platform == "darwin":
+            if self._proc_pidinfo is None:
+                return None
+            info = _ProcTaskInfo()
+            size = ctypes.sizeof(info)
+            if self._proc_pidinfo(os.getpid(), _PROC_PIDTASKINFO, 0, ctypes.byref(info), size) != size:
+                return None
+            return info.pti_resident_size / 1024**2
+        pages = int(Path("/proc/self/statm").read_text(encoding="ascii").split()[1])
+        return pages * os.sysconf("SC_PAGE_SIZE") / 1024**2
 
     def diagnostic(self):
         now, cpu = time.monotonic_ns(), time.process_time_ns()
@@ -94,8 +146,7 @@ class ProcessMetrics:
             self.cpu_percent = max(0.0, 100 * (cpu-self.cpu) / (now-self.wall))
         self.wall, self.cpu = now, cpu
         try:
-            pages = int(Path("/proc/self/statm").read_text(encoding="ascii").split()[1])
-            rss_mb = pages * os.sysconf("SC_PAGE_SIZE") / 1024**2
+            rss_mb = self._resident_memory_mb()
         except (OSError, ValueError, IndexError, AttributeError):
             rss_mb = None
         return {"process_cpu_percent": self.cpu_percent, "process_rss_mb": rss_mb,

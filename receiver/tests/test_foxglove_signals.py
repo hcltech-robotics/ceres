@@ -1,8 +1,16 @@
+import ctypes
 import json
 import math
+import mmap
+import os
+import struct
+import sys
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 
+from ceres_bridge import foxglove_signals
 from ceres_bridge.foxglove_signals import MotionSignals, ProcessMetrics
 from ceres_bridge.foxglove_schemas import MOTION_SCHEMA
 
@@ -98,4 +106,65 @@ def test_process_metrics_report_measured_duration_and_nonnegative_cpu():
     data = metrics.diagnostic()
     assert data["loop_ms"] == 2.5
     assert math.isfinite(data["process_cpu_percent"]) and data["process_cpu_percent"] >= 0
-    assert data["process_rss_mb"] is None or data["process_rss_mb"] > 0
+    if sys.platform in ("linux", "darwin"):
+        assert data["process_rss_mb"] > 0
+    else:
+        assert data["process_rss_mb"] is None or data["process_rss_mb"] > 0
+
+
+@pytest.mark.skipif(sys.platform not in ("linux", "darwin"), reason="RSS uses Linux or macOS process metrics")
+def test_process_metrics_rss_falls_when_resident_memory_is_released():
+    metrics = ProcessMetrics()
+    before = metrics.diagnostic()["process_rss_mb"]
+    with mmap.mmap(-1, 32 * 1024**2) as allocation:
+        for offset in range(0, len(allocation), mmap.PAGESIZE):
+            allocation[offset] = 1
+        allocated = metrics.diagnostic()["process_rss_mb"]
+    released = metrics.diagnostic()["process_rss_mb"]
+    assert allocated >= before + 24
+    assert released <= allocated - 24
+
+
+def test_macos_metrics_read_current_resident_bytes_and_load_libproc_once(monkeypatch):
+    resident_bytes = iter((80 * 1024**2, 40 * 1024**2))
+
+    def proc_pidinfo(pid, flavour, arg, buffer, size):
+        assert (pid, flavour, arg, size) == (os.getpid(), 4, 0, 96)
+        info = struct.pack("=6Q12i", 1 << 36, next(resident_bytes), *([0] * 16))
+        ctypes.memmove(buffer, info, len(info))
+        return len(info)
+
+    libproc = Mock(return_value=SimpleNamespace(proc_pidinfo=proc_pidinfo))
+    monkeypatch.setattr(foxglove_signals.sys, "platform", "darwin")
+    monkeypatch.setattr(foxglove_signals.ctypes, "CDLL", libproc)
+    metrics = ProcessMetrics()
+    assert metrics.diagnostic()["process_rss_mb"] == 80
+    assert metrics.diagnostic()["process_rss_mb"] == 40
+    libproc.assert_called_once_with("/usr/lib/libproc.dylib")
+    assert proc_pidinfo.argtypes == [ctypes.c_int, ctypes.c_int, ctypes.c_uint64,
+                                    ctypes.c_void_p, ctypes.c_int]
+    assert proc_pidinfo.restype is ctypes.c_int
+
+
+@pytest.mark.parametrize("returned_bytes", [0, -1, 95])
+def test_macos_metrics_do_not_publish_failed_or_incomplete_native_reads(monkeypatch, returned_bytes):
+    proc_pidinfo = Mock(return_value=returned_bytes)
+    monkeypatch.setattr(foxglove_signals.sys, "platform", "darwin")
+    monkeypatch.setattr(foxglove_signals.ctypes, "CDLL",
+                        Mock(return_value=SimpleNamespace(proc_pidinfo=proc_pidinfo)))
+    assert ProcessMetrics().diagnostic()["process_rss_mb"] is None
+
+
+def test_macos_metrics_continue_when_libproc_cannot_be_loaded(monkeypatch):
+    monkeypatch.setattr(foxglove_signals.sys, "platform", "darwin")
+    monkeypatch.setattr(foxglove_signals.ctypes, "CDLL", Mock(side_effect=OSError))
+    data = ProcessMetrics().diagnostic()
+    assert data["process_rss_mb"] is None
+    assert data["process_cpu_percent"] >= 0
+
+
+def test_linux_metrics_convert_resident_pages_using_the_native_page_size(monkeypatch):
+    monkeypatch.setattr(foxglove_signals.sys, "platform", "linux")
+    monkeypatch.setattr(foxglove_signals.Path, "read_text", Mock(return_value="9999 256 0"))
+    monkeypatch.setattr(foxglove_signals.os, "sysconf", Mock(return_value=16384), raising=False)
+    assert ProcessMetrics().diagnostic()["process_rss_mb"] == 4
