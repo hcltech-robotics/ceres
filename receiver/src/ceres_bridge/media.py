@@ -16,7 +16,7 @@ from gi.repository import GLib, Gst, GstSdp, GstVideo, GstWebRTC
 from .protocol import parse_metadata
 from .state import monotonic_us
 
-Gst.init(None)
+Gst.init([])
 
 
 class MediaPeer:
