@@ -2,7 +2,7 @@
   "version": 2,
   "packageVersion": "1.1.0",
   "generator": "ceres-public-core/2",
-  "treeDigest": "e040a98b8328e17c3925ec6cd576ddab337938ded6b050a85f60be62feebef03",
+  "treeDigest": "d1f7929a5a046d77b0aee9e26b8e022e07063c0b3d512ed4a885f7c77d05bca8",
   "files": {
     ".dockerignore": {
       "sha256": "f4f0799e0c8f318b0d36a430909ba9dcb3eeca1d1b0ae8b3b7907b44cc2bedca",
@@ -665,8 +665,8 @@
       "mode": "100644"
     },
     "receiver/tests/test_media_cameras.py": {
-      "sha256": "8b028bd2c341243747844dabde1b7382ac8167a27cbb159bf2ef1c0458066e5b",
-      "bytes": 9138,
+      "sha256": "e92c7dd037b22da86109256b25bbbbf31afe96e211aa6c200c5865739fc92e07",
+      "bytes": 9251,
       "mode": "100644"
     },
     "receiver/tests/test_protocol.py": {
@@ -685,8 +685,8 @@
       "mode": "100644"
     },
     "receiver/tests/test_teleop_solver.py": {
-      "sha256": "b8917cd3fe6623e3dd5771a262d7ecc58488520689620095a03bff5589bdb8fe",
-      "bytes": 5524,
+      "sha256": "654d4e10a86709ecb17d98dd2c578a28146ff447ed8f686aef4570a414314d23",
+      "bytes": 5966,
       "mode": "100644"
     },
     "rust-toolchain.toml": {

@@ -62,20 +62,25 @@ def test_moving_reachable_targets_keep_pan_and_roll_continuous_with_default_budg
     assert q[4] == pytest.approx(.25, abs=.005)
 
 
-def test_unreachable_position_stays_within_one_tolerance_of_its_best_pose():
+@pytest.mark.parametrize("pitch", [math.pi - 1e-12, math.pi, math.pi + 1e-12])
+def test_unreachable_position_stays_within_one_tolerance_of_its_best_pose(pitch):
     model = ArmModel("right")
     target = model.forward(HOME)
     target[:3, 3] += [1, 0, 0]
-    target[:3, :3] = axis_rotation((0, 1, 0), math.pi)
+    target[:3, :3] = axis_rotation((0, 1, 0), pitch)
     q = HOME.copy()
     best_error = np.linalg.norm(model.forward(q)[:3, 3] - target[:3, 3])
-    for _ in range(20):
+    initial_angle = np.linalg.norm(rotation_vector(target[:3, :3] @ model.forward(q)[:3, :3].T))
+    # Equivalent pan/roll solutions can differ around the half turn. Continue
+    # through convergence and check the wrist allowance for every solution.
+    for _ in range(120):
         q = model.solve(target, q)
         error = np.linalg.norm(model.forward(q)[:3, 3] - target[:3, 3])
         assert error <= best_error + .0002
         assert np.all(q >= LOWER) and np.all(q <= UPPER)
+        assert q[5] == HOME[5]
         best_error = min(best_error, error)
-    assert abs(q[0]) < .02
+    assert np.linalg.norm(rotation_vector(target[:3, :3] @ model.forward(q)[:3, :3].T)) < initial_angle
     assert best_error < .97
 
 

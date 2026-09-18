@@ -138,7 +138,8 @@ class CameraDecodeTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNone(peer.error)
             self.assertTrue(peer.acknowledged)
             for _ in range(100):
-                if all(box.generation > 2 for box in broker.consumers.values()):
+                if (all(box.generation > 2 for box in broker.consumers.values())
+                        and (encoding != "H264" or all(box.generation > 0 for box in broker.encoded.values()))):
                     break
                 await asyncio.sleep(.01)
             self.assertIsNone(peer.error)
