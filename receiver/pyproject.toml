@@ -10,9 +10,19 @@ readme = "README.md"
 license = {file = "LICENCE.md"}
 requires-python = ">=3.12"
 dependencies = []
+classifiers = [
+  "Operating System :: MacOS :: MacOS X",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+]
 
 [project.optional-dependencies]
-worker = ["aiohttp>=3.9,<4", "qrcode>=7.4,<9"]
+worker = [
+  "aiohttp>=3.9,<4",
+  "qrcode>=7.4,<9",
+  "gstreamer-bundle>=1.28.7,<1.29; sys_platform == 'darwin'",
+]
 teleop = ["numpy>=1.26,<3"]
 foxglove = ["foxglove-sdk>=0.27,<0.28", "aiohttp>=3.9,<4", "numpy>=1.26,<3", "Pillow>=10,<13"]
 test = ["pytest>=8,<10", "build>=1,<2", "protobuf>=5,<8"]

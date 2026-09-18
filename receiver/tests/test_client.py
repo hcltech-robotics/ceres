@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 import json
 import socket
+import tempfile
 import time
 
 import pytest
@@ -16,9 +17,10 @@ def encoded(value):
 
 
 @contextmanager
-def receiver_peer(tmp_path, exchange):
-    path = str(tmp_path / "receiver.sock")
-    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as listener:
+def receiver_peer(exchange):
+    # macOS Unix socket paths are limited to 104 bytes, including the terminator.
+    with tempfile.TemporaryDirectory(dir="/tmp") as directory, socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as listener:
+        path = directory + "/receiver.sock"
         listener.bind(path)
         listener.listen(1)
         listener.settimeout(2)
@@ -50,7 +52,7 @@ class CountingSocket(socket.socket):
         return super().recv_into(*args, **kwargs)
 
 
-def test_full_size_response_uses_block_reads_and_preserves_the_next_frame(tmp_path, monkeypatch):
+def test_full_size_response_uses_block_reads_and_preserves_the_next_frame(monkeypatch):
     response = {"version": 1, "padding": ""}
     response["padding"] = "x" * (32_768 - len(encoded(response)))
     wire = encoded(response)
@@ -62,7 +64,7 @@ def test_full_size_response_uses_block_reads_and_preserves_the_next_frame(tmp_pa
         assert json.loads(requests.readline())["op"] == "diagnostics"
 
     monkeypatch.setattr(client.socket, "socket", CountingSocket)
-    with receiver_peer(tmp_path, exchange) as receiver:
+    with receiver_peer(exchange) as receiver:
         previous = receiver.socket.reads
         assert receiver.diagnostics() == response
         # A full payload must not require one recv syscall per byte. This checks
@@ -71,7 +73,7 @@ def test_full_size_response_uses_block_reads_and_preserves_the_next_frame(tmp_pa
         assert receiver.diagnostics() == following
 
 
-def test_fragmented_response_reassembles_one_json_line(tmp_path):
+def test_fragmented_response_reassembles_one_json_line():
     response = {"version": 1, "message": "pose" * 2048}
     wire = encoded(response)
 
@@ -80,7 +82,7 @@ def test_fragmented_response_reassembles_one_json_line(tmp_path):
             connection.sendall(part)
             time.sleep(.002)
 
-    with receiver_peer(tmp_path, exchange) as receiver:
+    with receiver_peer(exchange) as receiver:
         assert receiver.diagnostics() == response
 
 
@@ -88,11 +90,11 @@ def test_fragmented_response_reassembles_one_json_line(tmp_path):
     encoded({"version": 1, "padding": "x" * 32_768}),
     b'{"version":1}',
 ], ids=("oversized", "unterminated"))
-def test_invalid_response_boundaries_remain_rejected(tmp_path, wire):
+def test_invalid_response_boundaries_remain_rejected(wire):
     def exchange(connection, _requests):
         connection.sendall(wire)
         connection.shutdown(socket.SHUT_WR)
 
-    with receiver_peer(tmp_path, exchange) as receiver:
+    with receiver_peer(exchange) as receiver:
         with pytest.raises(ConnectionError, match="closed the IPC connection"):
             receiver.diagnostics()

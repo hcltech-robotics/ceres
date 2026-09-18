@@ -182,7 +182,7 @@ async def _assert_robot_models(session, endpoint, geometry):
             assert response.status == 404
 
 
-@pytest.mark.skipif(sys.platform != "linux", reason="The Bridge receiver runtime uses Linux")
+@pytest.mark.skipif(sys.platform not in ("linux", "darwin"), reason="The Bridge receiver uses Linux or macOS")
 @pytest.mark.parametrize("_run", range(3))
 def test_dual_arm_dashboard_streams_moving_waveforms_geometry_and_measured_load(monkeypatch, _run):
     consumers = []

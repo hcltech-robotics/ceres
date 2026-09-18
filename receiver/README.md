@@ -1,6 +1,7 @@
 # CERES Bridge
 
-Python receiver for CERES video, audio and poses, with ROS 2 and Foxglove adapters.
+Python receiver for CERES video, audio and poses on Linux and macOS, with
+Foxglove visualisation and a ROS 2 adapter for Ubuntu.
 
 ```sh
 python -m pip install ".[worker]"
@@ -9,6 +10,27 @@ ceres-bridge listen --app-origin https://ceres.example.org
 
 Licensed under MIT. Please cite CERES using the repository's CITATION.cff.
 [Documentation](https://ceres.cam/documentation/)
+
+## Install on macOS
+
+Use Python 3.12 or newer on an Apple Silicon or Intel Mac. The `worker` extra
+installs the [official GStreamer Python bundle](https://gstreamer.freedesktop.org/download/)
+with its media plugins and Python bindings. From the repository's `receiver` directory:
+
+```sh
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install '.[worker]'
+ceres-bridge doctor
+ceres-bridge listen --app-origin https://ceres.example.org
+```
+
+Replace `https://ceres.example.org` with your CERES installation's HTTPS origin.
+Use a Python interpreter matching the Mac's native architecture. When macOS
+asks, allow Python access to the local network and incoming connections so the
+Quest can reach the receiver.
+
+## Read the stream
 
 The [dual-arm example](examples/dual_arm.py) maps Quest wrists to the XLeRobot arm
 models with CPU inverse kinematics and an optional IsaacTeleop adapter. Foxglove

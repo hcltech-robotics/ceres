@@ -2,7 +2,7 @@
   "version": 2,
   "packageVersion": "1.1.0",
   "generator": "ceres-public-core/2",
-  "treeDigest": "9fd00f57c2a7fee286cc08cc419033fd4228e47cc481b0b460bebe973e74231b",
+  "treeDigest": "e040a98b8328e17c3925ec6cd576ddab337938ded6b050a85f60be62feebef03",
   "files": {
     ".dockerignore": {
       "sha256": "f4f0799e0c8f318b0d36a430909ba9dcb3eeca1d1b0ae8b3b7907b44cc2bedca",
@@ -10,8 +10,13 @@
       "mode": "100644"
     },
     ".gitattributes": {
-      "sha256": "4acf122dc7322fe126a0f44592ce3e1fe8df39822ea0ad7b5cb990d8c2cc5aa7",
-      "bytes": 215,
+      "sha256": "9f1e321b7e96b317e77279935c28a7b85263ae928144b95bd3b9fd2076efc388",
+      "bytes": 221,
+      "mode": "100644"
+    },
+    ".github/workflows/bridge-receiver.yml": {
+      "sha256": "5fb6733bb5f55278f21d22926c61d2075db4237da7067541cfbbbe8a4fe515fe",
+      "bytes": 2356,
       "mode": "100644"
     },
     ".github/workflows/release.yml": {
@@ -45,8 +50,8 @@
       "mode": "100644"
     },
     "README.md": {
-      "sha256": "87bae87e190d3f854a9adcb54b48813d42064771795200956715bb2948899087",
-      "bytes": 10877,
+      "sha256": "436664464117d8d965e235c7b8d740a5bbbd436ff2f9f990a73bbef11df3a5cc",
+      "bytes": 10949,
       "mode": "100644"
     },
     "RELEASE.md": {
@@ -215,8 +220,8 @@
       "mode": "100644"
     },
     "receiver/README.md": {
-      "sha256": "fbbbe12891d8fc07b82524e0247691d039fc7ceacab824702b70e87fda6842f4",
-      "bytes": 2130,
+      "sha256": "0f879bf0f83c1c2e06764089ac6faacbb470e16e35029d830ca2642ff97d3fcd",
+      "bytes": 2915,
       "mode": "100644"
     },
     "receiver/THIRD-PARTY.md": {
@@ -295,8 +300,8 @@
       "mode": "100644"
     },
     "receiver/pyproject.toml": {
-      "sha256": "23297d80fc83fc7df044206fdc8633255785da61b0b36047295d1b0be67c83a2",
-      "bytes": 1084,
+      "sha256": "93cdf7abcd117483286e938dd02e3ff6a9b1255417250191b43b267418d2745e",
+      "bytes": 1343,
       "mode": "100644"
     },
     "receiver/ros2/ceres_bridge_msgs/CMakeLists.txt": {
@@ -365,13 +370,13 @@
       "mode": "100644"
     },
     "receiver/src/ceres_bridge/cli.py": {
-      "sha256": "aec2ab3a1b63edf71d6bd88cd87f8cb7c7d6b571f6e5dd33823dea9cea539836",
-      "bytes": 4413,
+      "sha256": "d7d9dca64bb8189c0b0f4d89a583be59861cbbc3852a68e643b05a5779bfe77c",
+      "bytes": 4514,
       "mode": "100644"
     },
     "receiver/src/ceres_bridge/client.py": {
-      "sha256": "805be87fe006643af187ce3f66821657f09940e3fbc681ce3768325b0e61bb65",
-      "bytes": 6102,
+      "sha256": "af6a4c24f56edc16cd8ea595217bcc81fee53eb40b07e081220c25bfdc584ee2",
+      "bytes": 6264,
       "mode": "100644"
     },
     "receiver/src/ceres_bridge/coordinates.py": {
@@ -520,8 +525,8 @@
       "mode": "100644"
     },
     "receiver/src/ceres_bridge/foxglove_signals.py": {
-      "sha256": "28aa99e0d259f91b5e329a8c3a675e855371bc9a2b7c4a7ab7e4bba1a0cdda8b",
-      "bytes": 4148,
+      "sha256": "a8bdd996cbdffff130f92847ffd4bd7f448011055d1135a615ee612026e45294",
+      "bytes": 6162,
       "mode": "100644"
     },
     "receiver/src/ceres_bridge/foxglove_teleop.py": {
@@ -535,8 +540,8 @@
       "mode": "100644"
     },
     "receiver/src/ceres_bridge/ipc.py": {
-      "sha256": "b8b149d352dc542be8c4266d3da5693f555201a78918bc8173d46998f7aac9b4",
-      "bytes": 12737,
+      "sha256": "c3187c553f61b0150233c07a32a18fd04c1abce68df0d3aefba829abc79a145f",
+      "bytes": 14604,
       "mode": "100644"
     },
     "receiver/src/ceres_bridge/media.py": {
@@ -604,9 +609,14 @@
       "bytes": 1393,
       "mode": "100644"
     },
+    "receiver/tests/test_cli.py": {
+      "sha256": "01c420392efae8371aa44a9d0d964506feb8747ec355abd8535a19e12583dc04",
+      "bytes": 2629,
+      "mode": "100644"
+    },
     "receiver/tests/test_client.py": {
-      "sha256": "65abae35adf9bc8d0e49b7a4737a73f73301775420750b60f3e3d8ee88715305",
-      "bytes": 3492,
+      "sha256": "86ba779a956197e45189c226140493a12c89f92e408179e4d3018dcacb873b97",
+      "bytes": 3577,
       "mode": "100644"
     },
     "receiver/tests/test_coordinates.py": {
@@ -620,8 +630,8 @@
       "mode": "100644"
     },
     "receiver/tests/test_foxglove_demo.py": {
-      "sha256": "5947b2c52891eabb0d4280712d9fa4fd350474bf37bbd79d2778e2511a5cb411",
-      "bytes": 16641,
+      "sha256": "eb423ef2c2c52f37f9f70ce01e1888fb2c586e4545a99f1a2da585f26499e235",
+      "bytes": 16658,
       "mode": "100644"
     },
     "receiver/tests/test_foxglove_scene.py": {
@@ -630,8 +640,8 @@
       "mode": "100644"
     },
     "receiver/tests/test_foxglove_signals.py": {
-      "sha256": "0b7db45fd878f986b0b5226a9ef093a9e7c162de153865454c05fba5e962778b",
-      "bytes": 4228,
+      "sha256": "479e13f3a03d54a84ed4489d22b11d7ebf826b1fdf9558426161d8e20630fb24",
+      "bytes": 7396,
       "mode": "100644"
     },
     "receiver/tests/test_foxglove_teleop.py": {
@@ -645,8 +655,8 @@
       "mode": "100644"
     },
     "receiver/tests/test_ipc.py": {
-      "sha256": "292dd3b8894abfc980afc94e72fd8427196c76d450913b7410b3f6a240388234",
-      "bytes": 8706,
+      "sha256": "f9462a4f40bf3aa4459033f5860d4bf6e7f1309f5bf12c0aeda9173cc1f828e3",
+      "bytes": 17451,
       "mode": "100644"
     },
     "receiver/tests/test_media_audio.py": {
@@ -655,8 +665,8 @@
       "mode": "100644"
     },
     "receiver/tests/test_media_cameras.py": {
-      "sha256": "05c045613c4e8c144adc3c28014032d7fa1dc2ae428e5ad8112f8aee6da69b90",
-      "bytes": 8953,
+      "sha256": "8b028bd2c341243747844dabde1b7382ac8167a27cbb159bf2ef1c0458066e5b",
+      "bytes": 9138,
       "mode": "100644"
     },
     "receiver/tests/test_protocol.py": {

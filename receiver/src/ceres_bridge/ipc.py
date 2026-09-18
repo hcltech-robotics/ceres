@@ -1,12 +1,14 @@
 """Private Unix IPC with two leased RGB frame slots per subscribing process."""
 
 import asyncio
+import ctypes
 import json
 import mmap
 import os
 from pathlib import Path
 import socket
 import struct
+import sys
 import tempfile
 import threading
 
@@ -28,13 +30,39 @@ def runtime_dir() -> Path:
     return path
 
 
+def peer_uid(peer) -> int:
+    """Read the connected Unix peer's user identity from the operating system."""
+    if sys.platform == "darwin":
+        getpeereid = ctypes.CDLL(None, use_errno=True).getpeereid
+        getpeereid.argtypes = (ctypes.c_int, ctypes.POINTER(ctypes.c_uint32), ctypes.POINTER(ctypes.c_uint32))
+        getpeereid.restype = ctypes.c_int
+        uid, gid = ctypes.c_uint32(), ctypes.c_uint32()
+        if getpeereid(peer.fileno(), ctypes.byref(uid), ctypes.byref(gid)) != 0:
+            error = ctypes.get_errno()
+            raise OSError(error, os.strerror(error))
+        return uid.value
+    _, uid, _ = struct.unpack("3i", peer.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))
+    return uid
+
+
 class FrameMailbox:
     def __init__(self, capacity=MAX_FRAME_BYTES):
         self.capacity = capacity
-        self.file = tempfile.TemporaryFile(prefix="ceres-frame-", dir="/dev/shm")
-        self.file.truncate(capacity * 2)
-        self.memory = mmap.mmap(self.file.fileno(), capacity * 2)
-        self.path = f"/proc/{os.getpid()}/fd/{self.file.fileno()}"
+        self.named_path = None
+        if sys.platform == "darwin":
+            self.file = tempfile.NamedTemporaryFile(prefix="ceres-frame-", dir=runtime_dir(), delete=False)
+            self.path = self.file.name
+            self.named_path = Path(self.path)
+        else:
+            self.file = tempfile.TemporaryFile(prefix="ceres-frame-", dir="/dev/shm")
+            self.path = f"/proc/{os.getpid()}/fd/{self.file.fileno()}"
+        try:
+            self.file.truncate(capacity * 2)
+            self.memory = mmap.mmap(self.file.fileno(), capacity * 2)
+        except BaseException:
+            self.file.close()
+            self.unlink()
+            raise
         self.leased: set[int] = set()
         self.latest = None
         self.generation = 0
@@ -65,9 +93,20 @@ class FrameMailbox:
         self.latest = None
         return result
 
+    def unlink(self):
+        # Both processes retain their mappings after the macOS filename is removed.
+        if self.named_path is not None:
+            self.named_path.unlink(missing_ok=True)
+            self.named_path = None
+
     def close(self):
-        self.memory.close()
-        self.file.close()
+        try:
+            self.memory.close()
+        finally:
+            try:
+                self.file.close()
+            finally:
+                self.unlink()
 
 
 class EncodedMailbox(FrameMailbox):
@@ -164,8 +203,7 @@ class Broker:
         identity = None
         try:
             peer = writer.get_extra_info("socket")
-            _, uid, _ = struct.unpack("3i", peer.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))
-            if uid != os.getuid():
+            if peer_uid(peer) != os.getuid():
                 return
             with self.lock:
                 if len(self.consumers) >= MAX_CONSUMERS:
@@ -208,6 +246,13 @@ class Broker:
                                   "encoded_size": MAX_ENCODED_BYTES * 2 if encoded_box else 0,
                                   "audio_path": audio_box.path if audio_box else None,
                                   "audio_size": MAX_AUDIO_BYTES * 2 if audio_box else 0}
+                        if any(item and item.named_path is not None for item in (box, encoded_box, audio_box)):
+                            result["unlink_on_map"] = True
+                    elif message.get("op") == "mapped":
+                        for item in (box, self.encoded.get(identity), self.audio.get(identity)):
+                            if item:
+                                item.unlink()
+                        result = {"version": 1}
                     elif message.get("op") == "diagnostics":
                         result = self.state.diagnostics()
                     elif message.get("op") == "latest":

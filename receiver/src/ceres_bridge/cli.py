@@ -42,10 +42,10 @@ def main():
                          help="Fixed CERES-to-robot rotation about Z, in degrees (default: 0)")
     foxglove.add_argument("--tracking-grace", type=float, default=0.5,
                          help="Seconds to continue towards the last target after tracking loss before returning to neutral (default: 0.5)")
-    commands.add_parser("doctor", help="Check the Linux media runtime")
+    commands.add_parser("doctor", help="Check the receiver media runtime")
     args = parser.parse_args()
-    if sys.platform != "linux":
-        parser.error("Run the receiver on Linux")
+    if sys.platform not in ("linux", "darwin"):
+        parser.error("Run the receiver on Linux or macOS")
     try:
         if args.command == "listen":
             args.relay = args.relay or args.app_origin
@@ -58,7 +58,8 @@ def main():
             from .media import Gst, GstWebRTC
             required = ("webrtcbin", "nicesrc", "dtlssrtpdec", "sctpdec", "rtph264depay", "h264parse", "avdec_h264", "rtpvp8depay", "vp8dec", "videoconvert", "rtpopusdepay", "opusdec", "audioconvert", "audioresample", "appsink")
             missing = [name for name in required if not Gst.ElementFactory.find(name)]
-            print(f"Linux {platform.machine()}, Python {platform.python_version()}, {Gst.version_string()}")
+            system = "macOS" if sys.platform == "darwin" else "Linux"
+            print(f"{system} {platform.machine()}, Python {platform.python_version()}, {Gst.version_string()}")
             if missing:
                 raise RuntimeError("Missing GStreamer plugins: " + ", ".join(missing))
             print("Receiver media dependencies are ready")

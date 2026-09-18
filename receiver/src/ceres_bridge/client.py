@@ -58,20 +58,24 @@ class Receiver:
         self.needs_keyframe = False
         self.memory = None
         self.mapping_file = None
-        result = self._request({"op": "subscribe", "video": video, "encoded": encoded, "audio": audio, "camera": camera})
-        if camera != "primary" and result.get("camera") != camera:
-            self.stream.close()
-            self.socket.close()
-            raise ValueError("This Bridge worker does not support camera selection")
-        if result["path"]:
-            self.mapping_file = open(result["path"], "rb")
-            self.memory = mmap.mmap(self.mapping_file.fileno(), result["size"], access=mmap.ACCESS_READ)
-        if result["encoded_path"]:
-            self.encoded_file = open(result["encoded_path"], "rb")
-            self.encoded_memory = mmap.mmap(self.encoded_file.fileno(), result["encoded_size"], access=mmap.ACCESS_READ)
-        if result.get("audio_path"):
-            self.audio_file = open(result["audio_path"], "rb")
-            self.audio_memory = mmap.mmap(self.audio_file.fileno(), result["audio_size"], access=mmap.ACCESS_READ)
+        try:
+            result = self._request({"op": "subscribe", "video": video, "encoded": encoded, "audio": audio, "camera": camera})
+            if camera != "primary" and result.get("camera") != camera:
+                raise ValueError("This Bridge worker does not support camera selection")
+            if result["path"]:
+                self.mapping_file = open(result["path"], "rb")
+                self.memory = mmap.mmap(self.mapping_file.fileno(), result["size"], access=mmap.ACCESS_READ)
+            if result["encoded_path"]:
+                self.encoded_file = open(result["encoded_path"], "rb")
+                self.encoded_memory = mmap.mmap(self.encoded_file.fileno(), result["encoded_size"], access=mmap.ACCESS_READ)
+            if result.get("audio_path"):
+                self.audio_file = open(result["audio_path"], "rb")
+                self.audio_memory = mmap.mmap(self.audio_file.fileno(), result["audio_size"], access=mmap.ACCESS_READ)
+            if result.get("unlink_on_map"):
+                self._request({"op": "mapped"})
+        except BaseException:
+            self.close()
+            raise
 
     def _request(self, message):
         self.socket.sendall(json.dumps({"version": 1, **message}, separators=(",", ":")).encode() + b"\n")

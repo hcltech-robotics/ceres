@@ -99,8 +99,12 @@ class CameraDecodeTests(unittest.IsolatedAsyncioTestCase):
             peer.close()
 
     def source(self, peer, mid, encoding, colour):
-        encoder = ("openh264enc gop-size=5 ! rtph264pay config-interval=-1"
-                   if encoding == "H264" else "vp8enc deadline=1 keyframe-max-dist=5 ! rtpvp8pay")
+        if encoding == "H264":
+            h264 = ("openh264enc gop-size=5" if Gst.ElementFactory.find("openh264enc")
+                    else "x264enc tune=zerolatency speed-preset=ultrafast key-int-max=5")
+            encoder = f"{h264} ! rtph264pay config-interval=-1"
+        else:
+            encoder = "vp8enc deadline=1 keyframe-max-dist=5 ! rtpvp8pay"
         source = Gst.parse_bin_from_description(
             f"videotestsrc is-live=true pattern=solid-color foreground-color={colour} ! "
             f"video/x-raw,width=64,height=48,framerate=30/1 ! videoconvert ! {encoder} ! "
