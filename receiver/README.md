@@ -7,6 +7,19 @@ python -m pip install ".[worker]"
 ceres-bridge listen --app-origin https://ceres.example.org
 ```
 
+The `worker` extra streams Bridge video over WebRTC through GStreamer via
+GObject introspection (`gi`). Install the system GStreamer/GI packages before
+`pip install`, so `PyGObject` has something to build and load against:
+
+```sh
+sudo apt install libgirepository1.0-dev pkg-config libcairo2-dev \
+    gir1.2-gstreamer-1.0 gir1.2-gst-plugins-base-1.0 gir1.2-gst-plugins-bad-1.0
+```
+
+`PyGObject` is pinned below 3.52 so it still builds against the older
+`girepository-1.0` on systems (e.g. Ubuntu 22.04, JetPack) that don't ship
+`girepository-2.0`.
+
 Licensed under MIT. Please cite CERES using the repository's CITATION.cff.
 [Documentation](https://ceres.cam/documentation/)
 
