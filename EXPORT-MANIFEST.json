@@ -2,7 +2,7 @@
   "version": 2,
   "packageVersion": "1.1.0",
   "generator": "ceres-public-core/2",
-  "treeDigest": "d1f7929a5a046d77b0aee9e26b8e022e07063c0b3d512ed4a885f7c77d05bca8",
+  "treeDigest": "661c42415c596ed282cbf094a3c8f016002fe60c3274a0de388ff3b4b8247396",
   "files": {
     ".dockerignore": {
       "sha256": "f4f0799e0c8f318b0d36a430909ba9dcb3eeca1d1b0ae8b3b7907b44cc2bedca",
@@ -545,8 +545,8 @@
       "mode": "100644"
     },
     "receiver/src/ceres_bridge/media.py": {
-      "sha256": "d91bdcd8fe4b9456642b0721f8733c074e706c787ec548bdf554e84c146a4260",
-      "bytes": 20631,
+      "sha256": "8c8c5149a722b361779cc9dcfe3cd10d86b59cd90ebad9aa08915dda73e7477e",
+      "bytes": 20629,
       "mode": "100644"
     },
     "receiver/src/ceres_bridge/protocol.py": {
