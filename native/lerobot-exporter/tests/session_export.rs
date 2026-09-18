@@ -67,6 +67,9 @@ fn write_header_event(
         .unwrap();
 }
 fn fixture(root: &Path) -> PathBuf {
+    fixture_with_asset(root, None)
+}
+fn fixture_with_asset(root: &Path, asset_bytes: Option<usize>) -> PathBuf {
     let ffmpeg = std::env::var("FFMPEG").unwrap_or_else(|_| "ffmpeg".into());
     let source = root.join("source.h264");
     let result = Command::new(&ffmpeg)
@@ -109,10 +112,24 @@ fn fixture(root: &Path) -> PathBuf {
         .map(|pair| &bytes[pair[0]..pair[1]])
         .collect();
     let session = root.join("session.mcap");
-    let mut writer = mcap::Writer::new(File::create(&session).unwrap()).unwrap();
+    let mut options = mcap::WriteOptions::default();
+    if asset_bytes.is_some() {
+        options = options.compression(None).chunk_size(Some(4 * 1024 * 1024));
+    }
+    let mut writer = options.create(File::create(&session).unwrap()).unwrap();
     let channel = writer
         .add_channel(0, "ceres/events", "ceres-session-v1", &BTreeMap::new())
         .unwrap();
+    if let Some(length) = asset_bytes {
+        let mut payload = vec![0x51; length];
+        payload[..4].copy_from_slice(b"CQM1");
+        write_header_event(
+            &mut writer,
+            channel,
+            &json!({"version":1,"kind":"asset","receive_us":1_000_000,"time_us":1_000_000,"session_receive_us":0,"session_time_us":0,"epoch":99,"space_epoch":0,"sequence":71,"stream":"headset-rig","attributes":{"schema":"ceres-quest-model","version":1,"name":"Quest headset","payload_bytes":length},"extension":{"preserve":"large asset"}}),
+            &payload,
+        );
+    }
     write_header_event(
         &mut writer,
         channel,
@@ -317,6 +334,52 @@ fn export_preserves_source_headers_calibration_and_image_head_associations() {
         "meta/ceres-source-events.jsonl"
     );
     assert_eq!(provenance["source_events"]["payloads"], false);
+}
+
+#[test]
+fn exports_large_uncompressed_asset_and_preserves_only_its_header() {
+    let root = tempfile::tempdir().unwrap();
+    let size = 56 * 1024 * 1024;
+    let job = fixture_with_asset(root.path(), Some(size));
+    let source = File::open(root.path().join("session.mcap")).unwrap();
+    let map = unsafe { memmap2::Mmap::map(&source).unwrap() };
+    let mut large_chunk = false;
+    for record in mcap::read::LinearReader::new(&map).unwrap() {
+        if let mcap::records::Record::Chunk { header, .. } = record.unwrap() {
+            assert!(header.compression.is_empty());
+            large_chunk |= header.uncompressed_size > size as u64;
+        }
+    }
+    assert!(
+        large_chunk,
+        "fixture did not exceed the ordinary 4 MiB chunk target"
+    );
+    ceres_native_exporter::run(&job).unwrap();
+    let output = root.path().join("dataset");
+    let info: Value =
+        serde_json::from_reader(File::open(output.join("meta/info.json")).unwrap()).unwrap();
+    assert_eq!(info["total_frames"], 7);
+    assert_eq!(info["total_episodes"], 2);
+    let text = fs::read_to_string(output.join("meta/ceres-source-events.jsonl")).unwrap();
+    assert!(
+        text.len() < 32 * 1024,
+        "asset payload was copied into provenance"
+    );
+    let headers: Vec<Value> = text
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    let assets: Vec<_> = headers
+        .iter()
+        .filter(|header| header["kind"] == "asset")
+        .collect();
+    assert_eq!(assets.len(), 1);
+    assert_eq!(assets[0]["stream"], "headset-rig");
+    assert_eq!(assets[0]["sequence"], 71);
+    assert_eq!(assets[0]["epoch"], 99);
+    assert_eq!(assets[0]["attributes"]["payload_bytes"], size);
+    assert_eq!(assets[0]["extension"]["preserve"], "large asset");
+    assert!(assets[0].get("payload").is_none());
 }
 
 fn changing_resolution_fixture(root: &Path, include_dimensions: bool) -> PathBuf {

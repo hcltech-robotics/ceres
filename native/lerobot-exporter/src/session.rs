@@ -9,6 +9,109 @@ use std::{
 };
 
 pub const SOURCE_EVENTS_FILE: &str = "ceres-source-events.jsonl";
+const MAX_ENVELOPE_BYTES: usize = 128 * 1024 * 1024;
+const MAX_RECORD_BYTES: usize = MAX_ENVELOPE_BYTES + 64 * 1024;
+// A writer may exceed its normal 4 MiB target by one maximal event plus framing.
+const MAX_CHUNK_BYTES: usize = 136 * 1024 * 1024;
+
+fn split_record(bytes: &[u8], limit: usize) -> Result<(u8, &[u8], &[u8])> {
+    ensure!(bytes.len() >= 9, "truncated MCAP record header");
+    let length = u64::from_le_bytes(bytes[1..9].try_into()?);
+    ensure!(
+        length <= limit as u64,
+        "MCAP record exceeds {limit} byte limit"
+    );
+    let length = length as usize;
+    ensure!(length <= bytes.len() - 9, "truncated MCAP record body");
+    Ok((bytes[0], &bytes[9..9 + length], &bytes[9 + length..]))
+}
+
+fn validate_compressed_chunk(
+    mut bytes: &[u8],
+    check_cancelled: &mut impl FnMut() -> Result<()>,
+) -> Result<()> {
+    use mcap::sans_io::{LinearReadEvent, LinearReader, LinearReaderOptions};
+    let mut reader = LinearReader::new_with_options(
+        LinearReaderOptions::default()
+            .with_skip_start_magic(true)
+            .with_skip_end_magic(true)
+            .with_record_length_limit(MAX_RECORD_BYTES)
+            .with_validate_chunk_crcs(true),
+    );
+    while let Some(event) = reader.next_event() {
+        check_cancelled()?;
+        if let LinearReadEvent::ReadRequest(wanted) = event? {
+            let count = wanted.min(bytes.len()).min(64 * 1024);
+            reader.insert(count).copy_from_slice(&bytes[..count]);
+            reader.notify_read(count);
+            bytes = &bytes[count..];
+        }
+    }
+    Ok(())
+}
+
+fn validated_messages(
+    bytes: &[u8],
+    mut check_cancelled: impl FnMut() -> Result<()>,
+) -> Result<mcap::read::RawMessageStream<'_>> {
+    ensure!(
+        bytes.len() >= 16 && bytes.starts_with(mcap::MAGIC) && bytes.ends_with(mcap::MAGIC),
+        "invalid or incomplete MCAP framing"
+    );
+    let mut remaining = &bytes[8..bytes.len() - 8];
+    while !remaining.is_empty() {
+        check_cancelled()?;
+        let chunk = remaining[0] == mcap::records::op::CHUNK;
+        let limit = if chunk {
+            MAX_CHUNK_BYTES
+        } else {
+            MAX_RECORD_BYTES
+        };
+        let (_, body, next) = split_record(remaining, limit)?;
+        if chunk {
+            ensure!(body.len() >= 40, "truncated MCAP chunk header");
+            let uncompressed = u64::from_le_bytes(body[16..24].try_into()?);
+            ensure!(
+                uncompressed <= MAX_CHUNK_BYTES as u64,
+                "MCAP chunk exceeds {MAX_CHUNK_BYTES} byte uncompressed limit"
+            );
+            let compression_length = u32::from_le_bytes(body[28..32].try_into()?) as usize;
+            ensure!(
+                compression_length <= 16 && body.len() >= 40 + compression_length,
+                "invalid MCAP chunk compression field"
+            );
+            let records_start = 40 + compression_length;
+            let compressed = u64::from_le_bytes(body[records_start - 8..records_start].try_into()?);
+            ensure!(
+                compressed <= MAX_CHUNK_BYTES as u64
+                    && compressed <= (body.len() - records_start) as u64,
+                "invalid or oversized MCAP chunk data"
+            );
+            if compression_length == 0 {
+                ensure!(
+                    uncompressed == compressed,
+                    "uncompressed MCAP chunk lengths differ"
+                );
+                let mut records = &body[records_start..records_start + compressed as usize];
+                while !records.is_empty() {
+                    check_cancelled()?;
+                    let (opcode, _, rest) = split_record(records, MAX_RECORD_BYTES)?;
+                    ensure!(
+                        opcode != mcap::records::op::CHUNK,
+                        "nested MCAP chunks are unsupported"
+                    );
+                    records = rest;
+                }
+            } else {
+                // The mapped reader does not expose record limits. Validate compressed
+                // records with the bounded reader before it can allocate a decoded record.
+                validate_compressed_chunk(&remaining[..9 + body.len()], &mut check_cancelled)?;
+            }
+        }
+        remaining = next;
+    }
+    Ok(mcap::read::RawMessageStream::new(bytes)?)
+}
 
 #[derive(Debug, Deserialize)]
 pub struct Header {
@@ -25,7 +128,7 @@ pub struct Header {
 
 pub fn envelope(data: &[u8]) -> Result<(Header, &[u8])> {
     ensure!(
-        data.len() >= 8 && &data[..4] == b"CSE1",
+        data.len() >= 8 && data.len() <= MAX_ENVELOPE_BYTES && &data[..4] == b"CSE1",
         "invalid CSE1 session envelope"
     );
     let length = u32::from_le_bytes(data[4..8].try_into()?) as usize;
@@ -169,10 +272,14 @@ pub fn index(job: &ExportJob, spool: &Path) -> Result<SessionIndex> {
     } else {
         Some(job.video.stream.clone())
     };
-    for message in mcap::MessageStream::new(&map)? {
+    let mut messages = validated_messages(&map, || job.check_cancelled())?;
+    while let Some(message) = messages.next() {
         job.check_cancelled()?;
         let message = message?;
-        if message.channel.message_encoding != "ceres-session-v1" {
+        let channel = messages
+            .get_channel(message.header.channel_id)
+            .context("message references an unknown MCAP channel")?;
+        if channel.message_encoding != "ceres-session-v1" {
             continue;
         }
         let (header, payload) = envelope(&message.data)?;
@@ -450,6 +557,70 @@ pub fn read_pose(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn bounded_validation_preserves_uncompressed_message_bytes() {
+        let mut bytes = std::io::Cursor::new(Vec::new());
+        {
+            let mut writer = mcap::WriteOptions::default()
+                .compression(None)
+                .create(&mut bytes)
+                .unwrap();
+            let channel = writer
+                .add_channel(0, "ceres/events", "ceres-session-v1", &BTreeMap::new())
+                .unwrap();
+            writer
+                .write_to_known_channel(
+                    &mcap::records::MessageHeader {
+                        channel_id: channel,
+                        sequence: 1,
+                        log_time: 0,
+                        publish_time: 0,
+                    },
+                    &[0x51; 8192],
+                )
+                .unwrap();
+            writer.finish().unwrap();
+        }
+        let data = bytes.into_inner();
+        let message = validated_messages(&data, || Ok(()))
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap();
+        assert_eq!(message.data.as_ref(), &[0x51; 8192]);
+    }
+    #[test]
+    fn oversized_record_and_chunk_declarations_are_rejected_before_reading() {
+        let mut record = vec![mcap::records::op::MESSAGE];
+        record.extend_from_slice(&((MAX_RECORD_BYTES + 1) as u64).to_le_bytes());
+        assert!(
+            split_record(&record, MAX_RECORD_BYTES)
+                .unwrap_err()
+                .to_string()
+                .contains("limit")
+        );
+
+        let mut body = vec![0; 40];
+        body[16..24].copy_from_slice(&((MAX_CHUNK_BYTES + 1) as u64).to_le_bytes());
+        let mut bytes = mcap::MAGIC.to_vec();
+        bytes.push(mcap::records::op::CHUNK);
+        bytes.extend_from_slice(&(body.len() as u64).to_le_bytes());
+        bytes.extend_from_slice(&body);
+        bytes.extend_from_slice(mcap::MAGIC);
+        let error = validated_messages(&bytes, || Ok(())).err().unwrap();
+        assert!(error.to_string().contains("uncompressed limit"));
+
+        body[16..24].copy_from_slice(&(record.len() as u64).to_le_bytes());
+        body[32..40].copy_from_slice(&(record.len() as u64).to_le_bytes());
+        body.extend(record);
+        let mut nested = mcap::MAGIC.to_vec();
+        nested.push(mcap::records::op::CHUNK);
+        nested.extend_from_slice(&(body.len() as u64).to_le_bytes());
+        nested.extend(body);
+        nested.extend_from_slice(mcap::MAGIC);
+        let error = validated_messages(&nested, || Ok(())).err().unwrap();
+        assert!(error.to_string().contains("limit"));
+    }
     #[test]
     fn envelope_rejects_truncation_and_missing_relative_time() {
         assert!(envelope(b"CSE1\xff\xff\xff\xff").is_err());
