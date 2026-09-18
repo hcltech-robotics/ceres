@@ -2,7 +2,7 @@
   "version": 2,
   "packageVersion": "1.1.0",
   "generator": "ceres-public-core/2",
-  "treeDigest": "c1ac61a1e5f5554f89bbd55358b98575ac6c3f6e7a9f006f86049c5c38ae60e4",
+  "treeDigest": "b562f505cec0a6882bcf7bdd10b6d05d0e576b6bdc40e9d461426f9d8890eb77",
   "files": {
     ".dockerignore": {
       "sha256": "f4f0799e0c8f318b0d36a430909ba9dcb3eeca1d1b0ae8b3b7907b44cc2bedca",
@@ -12,6 +12,11 @@
     ".gitattributes": {
       "sha256": "4acf122dc7322fe126a0f44592ce3e1fe8df39822ea0ad7b5cb990d8c2cc5aa7",
       "bytes": 215,
+      "mode": "100644"
+    },
+    ".github/workflows/native-exporter.yml": {
+      "sha256": "0e12ddabdd98dd18763ba362f63c4e2a1621077bb103aa66a43c04e0f019ba6b",
+      "bytes": 2105,
       "mode": "100644"
     },
     ".github/workflows/release.yml": {
@@ -102,6 +107,61 @@
     "monitor/index.html": {
       "sha256": "9104b9dbaa0e918657e6b35d71c1d50ca672843f3e0a35375baf0ccb0c104a84",
       "bytes": 371,
+      "mode": "100644"
+    },
+    "native/lerobot-exporter/.gitignore": {
+      "sha256": "306fd52e74fca6746e12acc750f232de15e71da917756a1270d74c91f5eb7368",
+      "bytes": 9,
+      "mode": "100644"
+    },
+    "native/lerobot-exporter/Cargo.lock": {
+      "sha256": "5980f010f3439a60187704a5b7d6b5c5e6aff982eb4b9968a6cffba533973ab6",
+      "bytes": 28394,
+      "mode": "100644"
+    },
+    "native/lerobot-exporter/Cargo.toml": {
+      "sha256": "fffd76ae1a89a6ce25e5453a7780ccf5232544a8ba26544a7d05222b2aede235",
+      "bytes": 644,
+      "mode": "100644"
+    },
+    "native/lerobot-exporter/README.md": {
+      "sha256": "daa3aa95fa469a29e2cdbd2371985fab1a0e4bf8b9d92a439fd84df9cc7a2c30",
+      "bytes": 7334,
+      "mode": "100644"
+    },
+    "native/lerobot-exporter/src/dataset.rs": {
+      "sha256": "dd09422867ea574c948582dffb9329418c7ea324765d6c55f2e5135195715ce2",
+      "bytes": 23205,
+      "mode": "100644"
+    },
+    "native/lerobot-exporter/src/lib.rs": {
+      "sha256": "b4b36dc3682ca57f4f1f71ae8867c1da36e07682fc669a3823fbbb13df4ab63b",
+      "bytes": 7030,
+      "mode": "100644"
+    },
+    "native/lerobot-exporter/src/main.rs": {
+      "sha256": "7624a60c45315d146fa1248fc42d838ad859a2babf59af880d0d18f977d456cd",
+      "bytes": 1127,
+      "mode": "100644"
+    },
+    "native/lerobot-exporter/src/session.rs": {
+      "sha256": "1114e305c0c7a58822af0c2eb2503d49e3848c955096ea3ef6b7fdccd976779a",
+      "bytes": 18762,
+      "mode": "100644"
+    },
+    "native/lerobot-exporter/src/video.rs": {
+      "sha256": "225bbfbe88944d6cc25116946abc72e17c4148061dd61bb330a7c3d225802617",
+      "bytes": 7505,
+      "mode": "100644"
+    },
+    "native/lerobot-exporter/tests/session_export.rs": {
+      "sha256": "95c35d4011a979269139f72a56d0307f833f97ba7bdb28030e5c12def3cac2fd",
+      "bytes": 18555,
+      "mode": "100644"
+    },
+    "native/lerobot-exporter/tests/verify_lerobot.py": {
+      "sha256": "571be859d60e1d4fdfc6ac43af587ad0c4907f6ed8c8f5356845d94ba4824b3c",
+      "bytes": 1714,
       "mode": "100644"
     },
     "package-lock.json": {
