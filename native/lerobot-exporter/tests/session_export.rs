@@ -318,3 +318,159 @@ fn export_preserves_source_headers_calibration_and_image_head_associations() {
     );
     assert_eq!(provenance["source_events"]["payloads"], false);
 }
+
+fn changing_resolution_fixture(root: &Path, include_dimensions: bool) -> PathBuf {
+    let ffmpeg = std::env::var("FFMPEG").unwrap_or_else(|_| "ffmpeg".into());
+    let session = root.join("changing.mcap");
+    let mut writer = mcap::Writer::new(File::create(&session).unwrap()).unwrap();
+    let channel = writer
+        .add_channel(0, "ceres/events", "ceres-session-v1", &BTreeMap::new())
+        .unwrap();
+    for (part, width) in [16, 32].into_iter().enumerate() {
+        let source = root.join(format!("source-{width}.h264"));
+        assert!(
+            Command::new(&ffmpeg)
+                .args(["-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i"])
+                .arg(format!("testsrc=size={width}x16:rate=30"))
+                .args([
+                    "-frames:v",
+                    "2",
+                    "-c:v",
+                    "libx264",
+                    "-threads",
+                    "2",
+                    "-pix_fmt",
+                    "yuv420p",
+                    "-bf",
+                    "0",
+                    "-x264-params",
+                    "aud=1:keyint=1:repeat-headers=1",
+                    "-f",
+                    "h264"
+                ])
+                .arg(&source)
+                .status()
+                .unwrap()
+                .success()
+        );
+        let bytes = fs::read(&source).unwrap();
+        let mut starts = Vec::new();
+        for i in 0..bytes.len().saturating_sub(5) {
+            if bytes[i..].starts_with(&[0, 0, 0, 1]) && bytes[i + 4] & 31 == 9 {
+                starts.push(i);
+            }
+        }
+        assert_eq!(starts.len(), 2);
+        starts.push(bytes.len());
+        let start = part as i64 * 66_666;
+        let attributes = if include_dimensions {
+            json!({"type":"description","camera":{"width":width,"height":16}})
+        } else {
+            json!({})
+        };
+        write_header_event(
+            &mut writer,
+            channel,
+            &json!({"kind":"metadata","session_receive_us":start,"session_time_us":start,"receive_us":1_000_000+start,"time_us":1_000_000+start,"epoch":1,"space_epoch":0,"sequence":0,"attributes":attributes}),
+            &[],
+        );
+        for (frame, bounds) in starts.windows(2).enumerate() {
+            write_event(
+                &mut writer,
+                channel,
+                "video",
+                start + frame as i64 * 33_333,
+                1,
+                (part * 2 + frame) as u32,
+                &bytes[bounds[0]..bounds[1]],
+            );
+        }
+    }
+    write_event(&mut writer, channel, "metadata", 133_333, 1, 0, &[]);
+    writer.finish().unwrap();
+    drop(writer);
+    let job = root.join("job.json");
+    fs::write(&job, serde_json::to_vec(&json!({"schema":"ceres-native-export","version":1,"session":"changing.mcap","output":"dataset","fps":30,"ffmpeg":ffmpeg,"episodes":[{"start_us":0,"end_us":133_333,"task":"Inspect camera resolution"}],"video":{"stream":"video","width":16,"height":16}})).unwrap()).unwrap();
+    job
+}
+
+#[test]
+fn metadata_rejects_mixed_or_mismatched_selected_resolutions() {
+    let root = tempfile::tempdir().unwrap();
+    let job = changing_resolution_fixture(root.path(), true);
+    let error = ceres_native_exporter::run(&job).unwrap_err().to_string();
+    assert!(error.contains("source camera dimensions 32x16"), "{error}");
+    assert!(error.contains("select ranges at a single source resolution"));
+    assert!(!root.path().join("dataset").exists());
+    let mut document: Value = serde_json::from_reader(File::open(&job).unwrap()).unwrap();
+    document["episodes"] =
+        json!([{"start_us":0,"end_us":60_000,"task":"Inspect the first resolution"}]);
+    document["video"]["width"] = json!(32);
+    fs::write(&job, serde_json::to_vec(&document).unwrap()).unwrap();
+    let error = ceres_native_exporter::run(&job).unwrap_err().to_string();
+    assert!(error.contains("source camera dimensions 16x16"), "{error}");
+    assert!(!root.path().join("dataset").exists());
+}
+
+#[test]
+fn each_source_resolution_exports_separately_with_variable_size_preroll() {
+    let root = tempfile::tempdir().unwrap();
+    let job = changing_resolution_fixture(root.path(), true);
+    let mut document: Value = serde_json::from_reader(File::open(&job).unwrap()).unwrap();
+    for (start, end, width) in [(0, 60_000, 16), (66_666, 133_333, 32)] {
+        document["episodes"] =
+            json!([{"start_us":start,"end_us":end,"task":"Inspect one source resolution"}]);
+        document["video"]["width"] = json!(width);
+        document["output"] = json!(format!("dataset-{width}"));
+        fs::write(&job, serde_json::to_vec(&document).unwrap()).unwrap();
+        ceres_native_exporter::run(&job).unwrap();
+        let output = root.path().join(format!("dataset-{width}"));
+        let info: Value =
+            serde_json::from_reader(File::open(output.join("meta/info.json")).unwrap()).unwrap();
+        assert_eq!(
+            info["features"]["observation.images.passthrough"]["shape"],
+            json!([16, width, 3])
+        );
+        let ffprobe = PathBuf::from(document["ffmpeg"].as_str().unwrap())
+            .with_file_name(format!("ffprobe{}", std::env::consts::EXE_SUFFIX));
+        let probe = Command::new(ffprobe)
+            .args([
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=width,height",
+                "-of",
+                "json",
+            ])
+            .arg(output.join("videos/observation.images.passthrough/chunk-000/file-000.mp4"))
+            .output()
+            .unwrap();
+        assert!(probe.status.success());
+        let media: Value = serde_json::from_slice(&probe.stdout).unwrap();
+        assert_eq!(media["streams"][0]["width"], width);
+        assert_eq!(media["streams"][0]["height"], 16);
+    }
+}
+
+#[test]
+fn decoded_dimensions_reject_rescaling_without_camera_metadata() {
+    let root = tempfile::tempdir().unwrap();
+    let job = fixture(root.path());
+    let mut document: Value = serde_json::from_reader(File::open(&job).unwrap()).unwrap();
+    document["video"]["width"] = json!(32);
+    fs::write(&job, serde_json::to_vec(&document).unwrap()).unwrap();
+    let error = ceres_native_exporter::run(&job).unwrap_err().to_string();
+    assert!(error.contains("selected source image is 16x16"), "{error}");
+    assert!(!root.path().join("dataset").exists());
+}
+
+#[test]
+fn encoded_resolution_changes_are_rejected_even_without_metadata() {
+    let root = tempfile::tempdir().unwrap();
+    let job = changing_resolution_fixture(root.path(), false);
+    let error = ceres_native_exporter::run(&job).unwrap_err().to_string();
+    assert!(error.contains("selected source image is 32x16"), "{error}");
+    assert!(!root.path().join("dataset").exists());
+}

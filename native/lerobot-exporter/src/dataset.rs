@@ -362,15 +362,8 @@ pub fn export(
             File::open(&epoch.poses[1].path)?,
             File::open(&epoch.poses[2].path)?,
         ];
-        let mut decoder = if epoch.video_times.is_empty() {
-            None
-        } else {
-            Some(Decoder::new(
-                job,
-                &epoch.video_path,
-                &spool.join(format!("decode-{number}.log")),
-            )?)
-        };
+        let mut decoder: Option<Decoder> = None;
+        let mut decoder_configuration = usize::MAX;
         let video_path = path_for(root, &format!("videos/{}", job.video.key), number, "mp4")?;
         let mut encoder = Encoder::new(
             job,
@@ -428,6 +421,25 @@ pub fn export(
             ) {
                 let sample = sample + video_begin;
                 let time = epoch.video_times[sample];
+                let configuration = epoch
+                    .video_reconfigurations
+                    .partition_point(|&first| first <= sample);
+                if decoder.is_none() || configuration != decoder_configuration {
+                    decoder.take();
+                    let keyframe = epoch
+                        .video_keyframes
+                        .partition_point(|&(first, _)| first <= sample)
+                        .saturating_sub(1);
+                    let (first_frame, byte_offset) = epoch.video_keyframes[keyframe];
+                    decoder = Some(Decoder::new(
+                        job,
+                        &epoch.video_path,
+                        &spool.join(format!("decode-{number}.log")),
+                        first_frame,
+                        byte_offset,
+                    )?);
+                    decoder_configuration = configuration;
+                }
                 decoder.as_mut().unwrap().read_frame(sample, &mut pixels)?;
                 row.video_valid = true;
                 row.video_time = time as f64 / 1_000_000.0;

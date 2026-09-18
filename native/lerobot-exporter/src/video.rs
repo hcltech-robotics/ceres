@@ -2,7 +2,7 @@ use crate::ExportJob;
 use anyhow::{Context, Result, ensure};
 use std::{
     fs::File,
-    io::{Read, Write},
+    io::{BufReader, Read, Write},
     path::{Path, PathBuf},
     process::{Child, ChildStdin, ChildStdout, Command, Stdio},
 };
@@ -36,13 +36,21 @@ impl Drop for ManagedChild {
 
 pub struct Decoder {
     child: ManagedChild,
-    stdout: ChildStdout,
+    stdout: BufReader<ChildStdout>,
     next: usize,
     errors: PathBuf,
+    dimensions: (u32, u32),
 }
 impl Decoder {
-    pub fn new(job: &ExportJob, input: &Path, errors: &Path) -> Result<Self> {
+    pub fn new(
+        job: &ExportJob,
+        input: &Path,
+        errors: &Path,
+        first_frame: usize,
+        byte_offset: u64,
+    ) -> Result<Self> {
         let mut child = ffmpeg_command(&job.ffmpeg)
+            .args(["-skip_initial_bytes", &byte_offset.to_string()])
             .args([
                 "-hide_banner",
                 "-loglevel",
@@ -56,10 +64,17 @@ impl Decoder {
                 "-i",
             ])
             .arg(input)
-            .args(["-an", "-fps_mode", "passthrough", "-vf"])
-            .arg(format!("scale={}:{}", job.video.width, job.video.height))
+            .args(["-an", "-fps_mode", "passthrough", "-noautoscale"])
             .args([
-                "-threads", "2", "-pix_fmt", "rgb24", "-f", "rawvideo", "pipe:1",
+                "-threads",
+                "2",
+                "-pix_fmt",
+                "rgb24",
+                "-c:v",
+                "ppm",
+                "-f",
+                "image2pipe",
+                "pipe:1",
             ])
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -69,9 +84,10 @@ impl Decoder {
         let stdout = child.stdout.take().context("open FFmpeg decoder pipe")?;
         Ok(Self {
             child: ManagedChild(child),
-            stdout,
-            next: 0,
+            stdout: BufReader::with_capacity(64 * 1024, stdout),
+            next: first_frame,
             errors: errors.to_owned(),
+            dimensions: (job.video.width, job.video.height),
         })
     }
     pub fn read_frame(&mut self, index: usize, frame: &mut [u8]) -> Result<()> {
@@ -80,7 +96,11 @@ impl Decoder {
             "video samples cannot be reused or reordered"
         );
         while self.next <= index {
-            if let Err(error) = self.stdout.read_exact(frame) {
+            if let Err(error) = self.read_image(if self.next == index {
+                Some(&mut *frame)
+            } else {
+                None
+            }) {
                 let _ = self.child.0.try_wait();
                 let detail = std::fs::read_to_string(&self.errors).unwrap_or_default();
                 anyhow::bail!(
@@ -93,6 +113,58 @@ impl Decoder {
         }
         Ok(())
     }
+    fn read_image(&mut self, destination: Option<&mut [u8]>) -> Result<()> {
+        // Each PPM image carries its own dimensions, including discarded pre-roll.
+        ensure!(
+            image_token(&mut self.stdout)? == "P6",
+            "FFmpeg did not emit an RGB image"
+        );
+        let width: u32 = image_token(&mut self.stdout)?.parse()?;
+        let height: u32 = image_token(&mut self.stdout)?.parse()?;
+        ensure!(
+            (1..=16384).contains(&width) && (1..=16384).contains(&height),
+            "invalid decoded image dimensions"
+        );
+        ensure!(
+            image_token(&mut self.stdout)? == "255",
+            "FFmpeg did not emit 8-bit RGB pixels"
+        );
+        let bytes = u64::from(width) * u64::from(height) * 3;
+        if let Some(frame) = destination {
+            ensure!(
+                (width, height) == self.dimensions,
+                "selected source image is {width}x{height}, but the export requests {}x{}; select ranges at a single source resolution and use those exact dimensions",
+                self.dimensions.0,
+                self.dimensions.1
+            );
+            ensure!(
+                bytes == frame.len() as u64,
+                "RGB destination length differs from the source image"
+            );
+            self.stdout.read_exact(frame)?;
+        } else {
+            let copied =
+                std::io::copy(&mut self.stdout.by_ref().take(bytes), &mut std::io::sink())?;
+            ensure!(copied == bytes, "truncated decoded pre-roll image");
+        }
+        Ok(())
+    }
+}
+
+fn image_token(reader: &mut impl Read) -> Result<String> {
+    let mut token = Vec::with_capacity(16);
+    let mut byte = [0];
+    for _ in 0..128 {
+        reader.read_exact(&mut byte)?;
+        if byte[0].is_ascii_whitespace() {
+            if !token.is_empty() {
+                return Ok(String::from_utf8(token)?);
+            }
+        } else {
+            token.push(byte[0]);
+        }
+    }
+    anyhow::bail!("invalid decoded image header")
 }
 
 pub struct Encoder {

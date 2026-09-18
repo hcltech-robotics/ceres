@@ -2,7 +2,7 @@
   "version": 2,
   "packageVersion": "1.1.0",
   "generator": "ceres-public-core/2",
-  "treeDigest": "595b383cb4c2cc9c8e2765f40c27d681625447e728010746dd911f8c6681133a",
+  "treeDigest": "b562f505cec0a6882bcf7bdd10b6d05d0e576b6bdc40e9d461426f9d8890eb77",
   "files": {
     ".dockerignore": {
       "sha256": "f4f0799e0c8f318b0d36a430909ba9dcb3eeca1d1b0ae8b3b7907b44cc2bedca",
@@ -125,18 +125,18 @@
       "mode": "100644"
     },
     "native/lerobot-exporter/README.md": {
-      "sha256": "c9c35093bd8c85396508b97b00f027985f32eab3a1febedd49f6af8f7947b64f",
-      "bytes": 6799,
+      "sha256": "daa3aa95fa469a29e2cdbd2371985fab1a0e4bf8b9d92a439fd84df9cc7a2c30",
+      "bytes": 7334,
       "mode": "100644"
     },
     "native/lerobot-exporter/src/dataset.rs": {
-      "sha256": "1ab5148d11e2d7639c7e53f46d634e8709a3d8e9a8b4faa13f23e0e9bf3bd81f",
-      "bytes": 22456,
+      "sha256": "dd09422867ea574c948582dffb9329418c7ea324765d6c55f2e5135195715ce2",
+      "bytes": 23205,
       "mode": "100644"
     },
     "native/lerobot-exporter/src/lib.rs": {
-      "sha256": "0889e09c98d60fc29e3ee4fa3d7271c1ad53719b192babd276e28c963a61712d",
-      "bytes": 6981,
+      "sha256": "b4b36dc3682ca57f4f1f71ae8867c1da36e07682fc669a3823fbbb13df4ab63b",
+      "bytes": 7030,
       "mode": "100644"
     },
     "native/lerobot-exporter/src/main.rs": {
@@ -145,18 +145,18 @@
       "mode": "100644"
     },
     "native/lerobot-exporter/src/session.rs": {
-      "sha256": "07e365f97ad25c1147f20524405854d831a0130b318be8bed7b45f0a8c9c3bd3",
-      "bytes": 14036,
+      "sha256": "1114e305c0c7a58822af0c2eb2503d49e3848c955096ea3ef6b7fdccd976779a",
+      "bytes": 18762,
       "mode": "100644"
     },
     "native/lerobot-exporter/src/video.rs": {
-      "sha256": "f8589bff128f13d652b9369fccca492afe3c4d5754a68d07051ab4e1de8a8b61",
-      "bytes": 4984,
+      "sha256": "225bbfbe88944d6cc25116946abc72e17c4148061dd61bb330a7c3d225802617",
+      "bytes": 7505,
       "mode": "100644"
     },
     "native/lerobot-exporter/tests/session_export.rs": {
-      "sha256": "8a49994bf4c2f8b60f22733d4ca5820c891d306395903a379ffc3edb6c300b89",
-      "bytes": 11700,
+      "sha256": "95c35d4011a979269139f72a56d0307f833f97ba7bdb28030e5c12def3cac2fd",
+      "bytes": 18555,
       "mode": "100644"
     },
     "native/lerobot-exporter/tests/verify_lerobot.py": {

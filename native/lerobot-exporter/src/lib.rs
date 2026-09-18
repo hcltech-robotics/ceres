@@ -163,6 +163,7 @@ pub fn run(job_path: &Path) -> Result<()> {
         !episodes.is_empty(),
         "selected ranges do not contain a recorded epoch"
     );
+    index.validate_dimensions(&job, &episodes)?;
     let dataset = staging.path().join("dataset");
     fs::create_dir(&dataset)?;
     dataset::export(&job, &index, &episodes, &dataset, &spool)?;

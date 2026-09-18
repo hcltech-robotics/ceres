@@ -44,6 +44,8 @@ Session, output and cancellation paths are relative to the job file. The FFmpeg 
 
 Ranges use session-relative microseconds with an inclusive start and an exclusive end. Each range requires a task description. Ranges are exported in the order supplied and are split whenever the connection or reference-space epoch changes. FPS defaults to 30 and accepts integer values from 1 to 240. An omitted or empty stream selects the first recorded video stream, while an explicit stream selects that exact label. The default image key is `observation.images.passthrough`. Image dimensions must be positive and even.
 
+The image dimensions must match the recorded source throughout the selected ranges. Camera metadata is checked over those ranges and decoded images are checked before they enter the dataset. Export preserves source dimensions. When a recording changes resolution, select ranges at one resolution for each export and supply that resolution in the job. Other resolutions outside the selected ranges do not prevent export.
+
 Creating `cancel_file` requests cancellation. The helper checks it while reading events and producing output frames, terminates its FFmpeg children and discards its temporary output. The caller can remove that file before starting another job.
 
 Stdout contains newline-delimited JSON progress objects:
@@ -67,7 +69,7 @@ raw payload bytes to the end of the MCAP message
 
 The header includes `kind`, `session_receive_us`, `session_time_us`, `epoch`, `space_epoch`, `stream` and `keyframe`. Original receiver and sender timestamps remain in the recording. Pose messages contain the original CBR1 packet. Video messages contain one complete Annex B H264 access unit with increasing presentation timestamps. A video epoch begins at its first keyframe and the Ceres low-latency stream has no B frames.
 
-The helper memory-maps the MCAP and streams packet payloads into temporary per-epoch files. It retains timestamp/offset indexes rather than complete tracking or video payloads in memory. Parquet output is buffered in 512-row groups, while FFmpeg decoding and encoding use frame pipes. Each FFmpeg decoder, encoder and filter graph uses at most two worker threads, and export uses CPU codecs so the viewer retains the GPU.
+The helper memory-maps the MCAP and streams packet payloads into temporary per-epoch files. It retains timestamp/offset indexes rather than complete tracking or video payloads in memory. Parquet output is buffered in 512-row groups, while FFmpeg decoding and encoding use frame pipes. Decoding begins at the selected image's preceding keyframe and restarts when its H264 sequence parameters change. Each FFmpeg decoder, encoder and filter graph uses at most two worker threads, and export uses CPU codecs so the viewer retains the GPU.
 
 ## Observation semantics
 

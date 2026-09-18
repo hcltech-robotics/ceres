@@ -72,10 +72,21 @@ pub struct Epoch {
     pub poses: [Samples; 3],
     pub video_times: Vec<i64>,
     pub video_path: PathBuf,
+    pub video_keyframes: Vec<(usize, u64)>,
+    pub video_reconfigurations: Vec<usize>,
+    video_sps: Vec<u8>,
 }
 #[derive(Debug)]
 pub struct SessionIndex {
     pub epochs: Vec<Epoch>,
+    pub dimensions: Vec<CameraDimensions>,
+}
+#[derive(Debug)]
+pub struct CameraDimensions {
+    pub epoch: u32,
+    pub time_us: i64,
+    pub width: u64,
+    pub height: u64,
 }
 #[derive(Debug)]
 pub struct Segment {
@@ -86,6 +97,40 @@ pub struct Segment {
 }
 
 impl SessionIndex {
+    pub fn validate_dimensions(&self, job: &ExportJob, segments: &[Segment]) -> Result<()> {
+        for segment in segments {
+            let epoch = self.epochs[segment.epoch_index].epoch;
+            let changes: Vec<_> = self
+                .dimensions
+                .iter()
+                .filter(|change| change.epoch == epoch)
+                .collect();
+            let initial = changes
+                .iter()
+                .rev()
+                .find(|change| change.time_us <= segment.start_us);
+            for change in initial
+                .into_iter()
+                .copied()
+                .chain(changes.iter().copied().filter(|change| {
+                    change.time_us > segment.start_us && change.time_us < segment.end_us
+                }))
+            {
+                ensure!(
+                    change.width == u64::from(job.video.width)
+                        && change.height == u64::from(job.video.height),
+                    "selected range {}..{} us contains source camera dimensions {}x{}, but the export requests {}x{}; select ranges at a single source resolution and use those exact dimensions",
+                    segment.start_us,
+                    segment.end_us,
+                    change.width,
+                    change.height,
+                    job.video.width,
+                    job.video.height
+                );
+            }
+        }
+        Ok(())
+    }
     pub fn split_ranges(&self, ranges: &[EpisodeRange]) -> Result<Vec<Segment>> {
         let mut result = Vec::new();
         for range in ranges {
@@ -118,6 +163,7 @@ pub fn index(job: &ExportJob, spool: &Path) -> Result<SessionIndex> {
         File::create(spool.join(SOURCE_EVENTS_FILE)).context("create source event provenance")?,
     );
     let mut final_time = 0;
+    let mut dimensions = Vec::new();
     let mut selected_stream = if job.video.stream.is_empty() {
         None
     } else {
@@ -137,6 +183,33 @@ pub fn index(job: &ExportJob, spool: &Path) -> Result<SessionIndex> {
             serde_json::from_slice(&message.data[8..header_end])?;
         serde_json::to_writer(&mut source_events, &original_header)?;
         source_events.write_all(b"\n")?;
+        let attributes = &original_header["attributes"];
+        let camera = if header.kind == "metadata" {
+            attributes.get("camera")
+        } else if header.kind == "video" {
+            Some(attributes)
+        } else {
+            None
+        };
+        if let Some(camera) = camera
+            && let (Some(width), Some(height)) =
+                (camera["width"].as_u64(), camera["height"].as_u64())
+        {
+            let stream = if header.kind == "video" {
+                Some(header.stream.clone())
+            } else {
+                None
+            };
+            dimensions.push((
+                stream,
+                CameraDimensions {
+                    epoch: header.epoch,
+                    time_us: header.session_time_us,
+                    width,
+                    height,
+                },
+            ));
+        }
         final_time = final_time
             .max(header.session_receive_us)
             .max(header.session_time_us);
@@ -166,6 +239,9 @@ pub fn index(job: &ExportJob, spool: &Path) -> Result<SessionIndex> {
                     poses,
                     video_times: vec![],
                     video_path,
+                    video_keyframes: vec![],
+                    video_reconfigurations: vec![],
+                    video_sps: vec![],
                 });
                 files.push((pose_files, video_file));
                 by_key.insert(key, idx);
@@ -201,6 +277,16 @@ pub fn index(job: &ExportJob, spool: &Path) -> Result<SessionIndex> {
                     .is_none_or(|&t| header.session_time_us > t),
                 "video presentation timestamps must increase within an epoch"
             );
+            if header.keyframe {
+                let signature = sps_signature(payload);
+                if signature != epoch.video_sps {
+                    epoch.video_reconfigurations.push(epoch.video_times.len());
+                    epoch.video_sps = signature;
+                }
+                epoch
+                    .video_keyframes
+                    .push((epoch.video_times.len(), files[idx].1.stream_position()?));
+            }
             files[idx].1.write_all(payload)?;
             epoch.video_times.push(header.session_time_us);
         }
@@ -221,7 +307,49 @@ pub fn index(job: &ExportJob, spool: &Path) -> Result<SessionIndex> {
         }
     }
     ensure!(!epochs.is_empty(), "session contains no Ceres observations");
-    Ok(SessionIndex { epochs })
+    let mut dimensions: Vec<_> = dimensions
+        .into_iter()
+        .filter(|(stream, _)| stream.is_none() || stream == &selected_stream)
+        .map(|(_, change)| change)
+        .collect();
+    dimensions.sort_by_key(|change| (change.epoch, change.time_us));
+    dimensions.dedup_by(|later, earlier| {
+        later.epoch == earlier.epoch
+            && later.width == earlier.width
+            && later.height == earlier.height
+    });
+    Ok(SessionIndex { epochs, dimensions })
+}
+
+fn sps_signature(bytes: &[u8]) -> Vec<u8> {
+    let mut result = Vec::new();
+    let mut nal_start = None;
+    let mut cursor = 0;
+    let append = |nal: &[u8], result: &mut Vec<u8>| {
+        if nal.first().is_some_and(|byte| byte & 31 == 7) {
+            result.extend_from_slice(&(nal.len() as u64).to_le_bytes());
+            result.extend_from_slice(nal);
+        }
+    };
+    while cursor + 3 <= bytes.len() {
+        let prefix = if bytes[cursor..].starts_with(&[0, 0, 0, 1]) {
+            4
+        } else if bytes[cursor..].starts_with(&[0, 0, 1]) {
+            3
+        } else {
+            cursor += 1;
+            continue;
+        };
+        if let Some(start) = nal_start {
+            append(&bytes[start..cursor], &mut result);
+        }
+        cursor += prefix;
+        nal_start = Some(cursor);
+    }
+    if let Some(start) = nal_start {
+        append(&bytes[start..], &mut result);
+    }
+    result
 }
 
 pub fn validate_pose(bytes: &[u8], epoch: u32, space_epoch: u32) -> Result<usize> {
@@ -379,9 +507,13 @@ mod tests {
             poses: std::array::from_fn(|_| Samples::new(PathBuf::new())),
             video_times: vec![],
             video_path: PathBuf::new(),
+            video_keyframes: vec![],
+            video_reconfigurations: vec![],
+            video_sps: vec![],
         };
         let index = SessionIndex {
             epochs: vec![epoch(0, 0, 50), epoch(1, 50, 100)],
+            dimensions: vec![],
         };
         let segments = index
             .split_ranges(&[EpisodeRange {
