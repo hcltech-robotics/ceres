@@ -2,7 +2,7 @@
   "version": 2,
   "packageVersion": "1.1.0",
   "generator": "ceres-public-core/2",
-  "treeDigest": "c1ac61a1e5f5554f89bbd55358b98575ac6c3f6e7a9f006f86049c5c38ae60e4",
+  "treeDigest": "9fd00f57c2a7fee286cc08cc419033fd4228e47cc481b0b460bebe973e74231b",
   "files": {
     ".dockerignore": {
       "sha256": "f4f0799e0c8f318b0d36a430909ba9dcb3eeca1d1b0ae8b3b7907b44cc2bedca",
@@ -45,8 +45,8 @@
       "mode": "100644"
     },
     "README.md": {
-      "sha256": "477e7ab7f53c5f7addb54084274215c8f0509780863725b524b70882d437b5ac",
-      "bytes": 10648,
+      "sha256": "87bae87e190d3f854a9adcb54b48813d42064771795200956715bb2948899087",
+      "bytes": 10877,
       "mode": "100644"
     },
     "RELEASE.md": {
@@ -215,8 +215,8 @@
       "mode": "100644"
     },
     "receiver/README.md": {
-      "sha256": "479c929c28fbd5f83e9fca5f59b157643cf1af7f0691aecba01058f9f0f14b97",
-      "bytes": 691,
+      "sha256": "fbbbe12891d8fc07b82524e0247691d039fc7ceacab824702b70e87fda6842f4",
+      "bytes": 2130,
       "mode": "100644"
     },
     "receiver/THIRD-PARTY.md": {
@@ -259,9 +259,19 @@
       "bytes": 24538,
       "mode": "100644"
     },
+    "receiver/foxglove/dual-camera-layout.json": {
+      "sha256": "8b66c945c6965a27d90afa418ec554f9c3f0ba1513441f6b9de55461d2e6f55a",
+      "bytes": 19651,
+      "mode": "100644"
+    },
+    "receiver/foxglove/dual-camera-vp8-layout.json": {
+      "sha256": "e7cca7714b14221f3f52382b296542dc66ccd1ff8fae858e2287169476c0707c",
+      "bytes": 19666,
+      "mode": "100644"
+    },
     "receiver/foxglove/generate_layouts.py": {
-      "sha256": "fc4851778d53d97dabcf35ea29774588a5dc8fc68be25989ad276671e47c45e3",
-      "bytes": 9974,
+      "sha256": "81798aa8a837c8bcc9c9e3bae53899acd5703e1ae76a22b18e3a9fd5857c71b1",
+      "bytes": 11153,
       "mode": "100644"
     },
     "receiver/foxglove/layout.json": {
@@ -360,8 +370,8 @@
       "mode": "100644"
     },
     "receiver/src/ceres_bridge/client.py": {
-      "sha256": "789566cf04d32f621863e52b6dcaa2a34569a8dfdf62f6f3219b92b18d5fd6b6",
-      "bytes": 5694,
+      "sha256": "805be87fe006643af187ce3f66821657f09940e3fbc681ce3768325b0e61bb65",
+      "bytes": 6102,
       "mode": "100644"
     },
     "receiver/src/ceres_bridge/coordinates.py": {
@@ -377,6 +387,16 @@
     "receiver/src/ceres_bridge/data/dual-arm-vp8-layout.json": {
       "sha256": "b0f730892923904fb3995f2ee410e3376d3be9b8a4b879c1c7eed22c10882f09",
       "bytes": 24538,
+      "mode": "100644"
+    },
+    "receiver/src/ceres_bridge/data/dual-camera-layout.json": {
+      "sha256": "8b66c945c6965a27d90afa418ec554f9c3f0ba1513441f6b9de55461d2e6f55a",
+      "bytes": 19651,
+      "mode": "100644"
+    },
+    "receiver/src/ceres_bridge/data/dual-camera-vp8-layout.json": {
+      "sha256": "e7cca7714b14221f3f52382b296542dc66ccd1ff8fae858e2287169476c0707c",
+      "bytes": 19666,
       "mode": "100644"
     },
     "receiver/src/ceres_bridge/data/layout.json": {
@@ -485,13 +505,13 @@
       "mode": "100644"
     },
     "receiver/src/ceres_bridge/foxglove_output.py": {
-      "sha256": "c6852ca1ce069b60f047b3064354f674613bfa1426c2d61cf41caa9960bdc585",
-      "bytes": 14123,
+      "sha256": "f33e43c6d6bbcea2efc2f078d5ad7982c6f0c4dede9cb640e8e35a483be30be8",
+      "bytes": 16729,
       "mode": "100644"
     },
     "receiver/src/ceres_bridge/foxglove_scene.py": {
-      "sha256": "243e99a0eb6a4e113de8f5e9a7721fe3f59691b9df4569c84295ac54c7761581",
-      "bytes": 11437,
+      "sha256": "b167a91df1539fccbf736e1aedee9f48f5545f34e150841b1977d1b05c060f5d",
+      "bytes": 11776,
       "mode": "100644"
     },
     "receiver/src/ceres_bridge/foxglove_schemas.py": {
@@ -505,28 +525,28 @@
       "mode": "100644"
     },
     "receiver/src/ceres_bridge/foxglove_teleop.py": {
-      "sha256": "03f791c1ca9e610e93ec0ba976411c686b9f00ca16147da5e0bae988a15bd9ca",
-      "bytes": 6560,
+      "sha256": "b4069153f63ed5e7f0712a95a1b6cb73134d16ebc4622a4320319d3dabb629c9",
+      "bytes": 6848,
       "mode": "100644"
     },
     "receiver/src/ceres_bridge/foxglove_ui.py": {
-      "sha256": "c992672b4dcca796e4cfa266ac28f2b53043a5fb5043135d8c6cb5b994773441",
-      "bytes": 942,
+      "sha256": "9e8cbd8979423daa35365e723f9adcd3da4553aa61a0eb3748fa439ac0a8a658",
+      "bytes": 1189,
       "mode": "100644"
     },
     "receiver/src/ceres_bridge/ipc.py": {
-      "sha256": "652782deef8fbb5336f52bc23d03193c811d4064d84780068b67abebfcb4b6f5",
-      "bytes": 11531,
+      "sha256": "b8b149d352dc542be8c4266d3da5693f555201a78918bc8173d46998f7aac9b4",
+      "bytes": 12737,
       "mode": "100644"
     },
     "receiver/src/ceres_bridge/media.py": {
-      "sha256": "caf0226f3b37d3bdf0762a3de2bc30a5bc9e89efbd5267d416e480329078312c",
-      "bytes": 17353,
+      "sha256": "d91bdcd8fe4b9456642b0721f8733c074e706c787ec548bdf554e84c146a4260",
+      "bytes": 20631,
       "mode": "100644"
     },
     "receiver/src/ceres_bridge/protocol.py": {
-      "sha256": "e8e025be062dd93e4ff33690bb1a8a2a2642103788ce15c41c75db97f305038f",
-      "bytes": 5399,
+      "sha256": "dc0a29756d5b73bff8d45e868dd0fc5b5bf7be147f8af4579953a38a15866c64",
+      "bytes": 6311,
       "mode": "100644"
     },
     "receiver/src/ceres_bridge/robot_assets.py": {
@@ -595,13 +615,13 @@
       "mode": "100644"
     },
     "receiver/tests/test_foxglove.py": {
-      "sha256": "56a09f9ff5df7151e01d81eb15f8f76848a8061010589b3a7ac71b09bdb88004",
-      "bytes": 4287,
+      "sha256": "54130eb06e4fd0667fa6411926b53e97ec24d78ec77c933a6ccece47dd944cc3",
+      "bytes": 8561,
       "mode": "100644"
     },
     "receiver/tests/test_foxglove_demo.py": {
-      "sha256": "08266843b043a724f655d088423eafae46781f9a15dac5727e62b0f243a72120",
-      "bytes": 15028,
+      "sha256": "5947b2c52891eabb0d4280712d9fa4fd350474bf37bbd79d2778e2511a5cb411",
+      "bytes": 16641,
       "mode": "100644"
     },
     "receiver/tests/test_foxglove_scene.py": {
@@ -620,13 +640,13 @@
       "mode": "100644"
     },
     "receiver/tests/test_foxglove_ui.py": {
-      "sha256": "0e924ee51d532da4260264a05f3b66c1e5c0eda2a1cf5d803dbfd500ac2ac8f1",
-      "bytes": 4850,
+      "sha256": "8a8d75ab9c401a2298ad88a63d6a908d3e0b56f50bee08ba33990cc848177326",
+      "bytes": 5974,
       "mode": "100644"
     },
     "receiver/tests/test_ipc.py": {
-      "sha256": "510c643194a98bbdf8bc0bc7d00eae253f07d5c48fa7e6cd4fc4ac24efb30688",
-      "bytes": 3700,
+      "sha256": "292dd3b8894abfc980afc94e72fd8427196c76d450913b7410b3f6a240388234",
+      "bytes": 8706,
       "mode": "100644"
     },
     "receiver/tests/test_media_audio.py": {
@@ -634,9 +654,14 @@
       "bytes": 1726,
       "mode": "100644"
     },
+    "receiver/tests/test_media_cameras.py": {
+      "sha256": "05c045613c4e8c144adc3c28014032d7fa1dc2ae428e5ad8112f8aee6da69b90",
+      "bytes": 8953,
+      "mode": "100644"
+    },
     "receiver/tests/test_protocol.py": {
-      "sha256": "9394b5e767d02036f201c75918497a9fb624009fc4a1e4dc1800e75561ba5de0",
-      "bytes": 5240,
+      "sha256": "bd1114c347cd2a86646844a5d289f7bacbd659d78a20e1670300bf6b6b977330",
+      "bytes": 6689,
       "mode": "100644"
     },
     "receiver/tests/test_robot_assets.py": {
@@ -770,8 +795,8 @@
       "mode": "100644"
     },
     "shared/bridge-protocol.ts": {
-      "sha256": "8c443f623c9e473906681dda73717c194909f04fbbe535b5540188a7a714fac5",
-      "bytes": 7210,
+      "sha256": "b1ebe9f788baa7f6c82c8b5c2c083f29512b2db8d9c4438cd0bced426b755faf",
+      "bytes": 8427,
       "mode": "100644"
     },
     "shared/bridge-signalling.ts": {
@@ -879,6 +904,11 @@
       "bytes": 2730,
       "mode": "100644"
     },
+    "src/bridge-camera-selection.ts": {
+      "sha256": "df3478f2c2fb9888ada2833b2966a0f57ca0a1c7c9a45008bf9a6e90b51ce246",
+      "bytes": 2448,
+      "mode": "100644"
+    },
     "src/bridge-runtime.ts": {
       "sha256": "1e9fc61f3bbb5e11e89c7fb59f1caa4da08fb12ac2b8e0325f49c705d36c7df3",
       "bytes": 865,
@@ -910,8 +940,8 @@
       "mode": "100644"
     },
     "src/bridge/peer.ts": {
-      "sha256": "7d1f8275c0621dfe62a2e98625b02eaafc89d9ccf933e5531a2ef9b7688269c5",
-      "bytes": 10534,
+      "sha256": "5ede5eb0c3a2b1336bd85d3c0aa296a439c5c4cf7abff4fa2d5b66be98bf45e3",
+      "bytes": 11588,
       "mode": "100644"
     },
     "src/bridge/qr.ts": {
@@ -925,8 +955,8 @@
       "mode": "100644"
     },
     "src/bridge/sender.ts": {
-      "sha256": "373cafc1bcc93b2fe5780836b332cf70e59c8471b14d3e39e44c4647d991c74c",
-      "bytes": 12808,
+      "sha256": "b76b3d5702ee86e7649fa235c5b0ef34fcb7e8ce83c44f737ed6bf06511de4b0",
+      "bytes": 13411,
       "mode": "100644"
     },
     "src/camera-calibration-solver.ts": {
@@ -960,8 +990,8 @@
       "mode": "100644"
     },
     "src/capture-app.ts": {
-      "sha256": "01161fa8ded59a2986d1ba4cb861811726fd7885f4e51940efef4376a877284d",
-      "bytes": 308354,
+      "sha256": "61cc515abada022137db4f26d2b9a63dcbf5c92573d602fc1239ccc65d048ac9",
+      "bytes": 314668,
       "mode": "100644"
     },
     "src/capture-authority.ts": {
@@ -1584,9 +1614,24 @@
       "bytes": 2034,
       "mode": "100644"
     },
+    "test/bridge-camera-selection.test.ts": {
+      "sha256": "6ff486ab68408bab232bd5c58c98af652df1ae9a0c3fcce12065bbc00044da27",
+      "bytes": 3173,
+      "mode": "100644"
+    },
+    "test/bridge-peer.test.ts": {
+      "sha256": "f309b8742204b255001d295539bc5348e69b410fcf585b4e93ca78d207a58bcc",
+      "bytes": 7544,
+      "mode": "100644"
+    },
     "test/bridge-protocol.test.ts": {
-      "sha256": "e6a13faab640ee39151051ec9e219eab71b7c395a2b9965f8629a0c62af0b138",
-      "bytes": 2766,
+      "sha256": "f133e04734082c87135073ef800e47ca918dbe9c86437f1b31dee60cca510cc1",
+      "bytes": 4603,
+      "mode": "100644"
+    },
+    "test/browser/bridge.spec.ts": {
+      "sha256": "1895bc6deea31b7e00d14ebaf5474d388fb10155cde53f54fae64ba9607443bc",
+      "bytes": 7853,
       "mode": "100644"
     },
     "test/browser/selfhost.spec.ts": {
