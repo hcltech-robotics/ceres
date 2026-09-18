@@ -86,6 +86,8 @@ Each output slot selects the nearest unused sample within half a slot independen
 
 Joint values use position XYZ, quaternion XYZW and radius. Unobserved components are zero with false validity. Missing video is black with false video validity. Each episode has a zero-based uniform timestamp sequence and a separate MP4 file. The dataset includes task, episode, frame and global indexes, aggregate statistics and per-episode statistics. `meta/ceres-export.json` records the export job and timing policy. There is no action feature.
 
+`meta/ceres-source-events.jsonl` preserves every original Ceres event header in recording order, including sequences, RTP timestamps, receiver and session times, epochs, calibration, clock metadata and image/head associations. Each line is one JSON header with all original attributes and extension fields. This provenance covers the source session, including events outside the selected episode ranges. H264 and binary tracking payloads remain in the MCAP. Headers are compacted and written individually through a 64 KiB buffer.
+
 ## Verification
 
 ```text

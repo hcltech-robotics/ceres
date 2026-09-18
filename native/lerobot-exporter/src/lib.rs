@@ -167,6 +167,11 @@ pub fn run(job_path: &Path) -> Result<()> {
     fs::create_dir(&dataset)?;
     dataset::export(&job, &index, &episodes, &dataset, &spool)?;
     job.check_cancelled()?;
+    fs::rename(
+        spool.join(session::SOURCE_EVENTS_FILE),
+        dataset.join("meta").join(session::SOURCE_EVENTS_FILE),
+    )
+    .context("complete source event provenance")?;
     fs::rename(&dataset, &job.output).context("publish completed dataset")?;
     progress("complete", episodes.len() as u64, episodes.len() as u64);
     Ok(())

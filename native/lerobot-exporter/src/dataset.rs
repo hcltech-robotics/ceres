@@ -467,7 +467,7 @@ pub fn export(
     fs::write(
         root.join("meta/ceres-export.json"),
         serde_json::to_vec_pretty(
-            &json!({"schema":"ceres-native-export-provenance","version":1,"exporter_version":env!("CARGO_PKG_VERSION"),"lerobot_oracle":"0.6.1","session":job.session,"job":job,"resampling":"nearest unused within half a slot, earlier sample on ties","pose_time":"receiver-mapped observed time, arrival time when clock mapping is unavailable","video_time":"receiver-anchored RTP presentation time","invalid_observation":"zero with validity false","invalid_video":"black with video_valid false"}),
+            &json!({"schema":"ceres-native-export-provenance","version":1,"exporter_version":env!("CARGO_PKG_VERSION"),"lerobot_oracle":"0.6.1","session":job.session,"job":job,"source_events":{"path":"meta/ceres-source-events.jsonl","format":"jsonl","coverage":"all recorded Ceres event headers","payloads":false},"resampling":"nearest unused within half a slot, earlier sample on ties","pose_time":"receiver-mapped observed time, arrival time when clock mapping is unavailable","video_time":"receiver-anchored RTP presentation time","invalid_observation":"zero with validity false","invalid_video":"black with video_valid false"}),
         )?,
     )?;
     Ok(())

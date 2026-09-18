@@ -4,9 +4,11 @@ use serde::Deserialize;
 use std::{
     collections::BTreeMap,
     fs::File,
-    io::{Read, Seek, SeekFrom, Write},
+    io::{BufWriter, Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
 };
+
+pub const SOURCE_EVENTS_FILE: &str = "ceres-source-events.jsonl";
 
 #[derive(Debug, Deserialize)]
 pub struct Header {
@@ -111,6 +113,10 @@ pub fn index(job: &ExportJob, spool: &Path) -> Result<SessionIndex> {
     let mut epochs: Vec<Epoch> = Vec::new();
     let mut by_key = BTreeMap::new();
     let mut files: Vec<([File; 3], File)> = Vec::new();
+    let mut source_events = BufWriter::with_capacity(
+        64 * 1024,
+        File::create(spool.join(SOURCE_EVENTS_FILE)).context("create source event provenance")?,
+    );
     let mut final_time = 0;
     let mut selected_stream = if job.video.stream.is_empty() {
         None
@@ -124,6 +130,13 @@ pub fn index(job: &ExportJob, spool: &Path) -> Result<SessionIndex> {
             continue;
         }
         let (header, payload) = envelope(&message.data)?;
+        // Compact one original header at a time. Unknown fields and all attributes
+        // are preserved while media and tracking payloads stay in the MCAP.
+        let header_end = message.data.len() - payload.len();
+        let original_header: serde_json::Value =
+            serde_json::from_slice(&message.data[8..header_end])?;
+        serde_json::to_writer(&mut source_events, &original_header)?;
+        source_events.write_all(b"\n")?;
         final_time = final_time
             .max(header.session_receive_us)
             .max(header.session_time_us);
@@ -192,6 +205,9 @@ pub fn index(job: &ExportJob, spool: &Path) -> Result<SessionIndex> {
             epoch.video_times.push(header.session_time_us);
         }
     }
+    source_events
+        .flush()
+        .context("flush source event provenance")?;
     drop(files);
     epochs.sort_by_key(|epoch| epoch.start_us);
     for idx in 0..epochs.len() {

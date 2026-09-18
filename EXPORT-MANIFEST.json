@@ -2,7 +2,7 @@
   "version": 2,
   "packageVersion": "1.1.0",
   "generator": "ceres-public-core/2",
-  "treeDigest": "eb91ea85ea644afb39f46005620eda7131e804bc823c06cb2758c40bb87f6009",
+  "treeDigest": "595b383cb4c2cc9c8e2765f40c27d681625447e728010746dd911f8c6681133a",
   "files": {
     ".dockerignore": {
       "sha256": "f4f0799e0c8f318b0d36a430909ba9dcb3eeca1d1b0ae8b3b7907b44cc2bedca",
@@ -125,18 +125,18 @@
       "mode": "100644"
     },
     "native/lerobot-exporter/README.md": {
-      "sha256": "fbb027e3263fe6fc27695ec5c2dd972b76f2550cc980ebb6af9ddc69e2b6118b",
-      "bytes": 6268,
+      "sha256": "c9c35093bd8c85396508b97b00f027985f32eab3a1febedd49f6af8f7947b64f",
+      "bytes": 6799,
       "mode": "100644"
     },
     "native/lerobot-exporter/src/dataset.rs": {
-      "sha256": "995d17c73894398c04100a2fca8aad4bec276987a4457f75cc7d9f95089e2fc3",
-      "bytes": 22318,
+      "sha256": "1ab5148d11e2d7639c7e53f46d634e8709a3d8e9a8b4faa13f23e0e9bf3bd81f",
+      "bytes": 22456,
       "mode": "100644"
     },
     "native/lerobot-exporter/src/lib.rs": {
-      "sha256": "c4fc197e16a4220bd8a7862bd7e8af25e496eadb7e9d6b8076471d4bfc65144f",
-      "bytes": 6795,
+      "sha256": "0889e09c98d60fc29e3ee4fa3d7271c1ad53719b192babd276e28c963a61712d",
+      "bytes": 6981,
       "mode": "100644"
     },
     "native/lerobot-exporter/src/main.rs": {
@@ -145,8 +145,8 @@
       "mode": "100644"
     },
     "native/lerobot-exporter/src/session.rs": {
-      "sha256": "34f6694a70aa1e21773ac3a2b34a89417232f1730a5726bdef50727b8aafa76b",
-      "bytes": 13245,
+      "sha256": "07e365f97ad25c1147f20524405854d831a0130b318be8bed7b45f0a8c9c3bd3",
+      "bytes": 14036,
       "mode": "100644"
     },
     "native/lerobot-exporter/src/video.rs": {
@@ -155,8 +155,8 @@
       "mode": "100644"
     },
     "native/lerobot-exporter/tests/session_export.rs": {
-      "sha256": "6c788a537a1c68051253b2f8f02693ac317548a710f07a73a0f9ddc7c6c60c7c",
-      "bytes": 8419,
+      "sha256": "8a49994bf4c2f8b60f22733d4ca5820c891d306395903a379ffc3edb6c300b89",
+      "bytes": 11700,
       "mode": "100644"
     },
     "native/lerobot-exporter/tests/verify_lerobot.py": {

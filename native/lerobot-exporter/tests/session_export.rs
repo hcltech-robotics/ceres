@@ -32,7 +32,24 @@ fn write_event(
     sequence: u32,
     payload: &[u8],
 ) {
-    let header=serde_json::to_vec(&json!({"kind":kind,"receive_us":1_000_000+time,"time_us":1_000_000+time,"session_receive_us":time,"session_time_us":time,"epoch":epoch,"space_epoch":0,"sequence":sequence,"keyframe":true,"stream":"video","attributes":{}})).unwrap();
+    let attributes = if kind == "video" {
+        json!({"head_sequence":sequence,"head_pose":[sequence as f32 + 1.0,0,0,0,0,0,1],"rtp_clock_hz":90000})
+    } else {
+        json!({})
+    };
+    let header = json!({"version":1,"kind":kind,"receive_us":1_000_000+time,"time_us":1_000_000+time,"session_receive_us":time,"session_time_us":time,"epoch":epoch,"space_epoch":0,"sequence":sequence,"rtp_timestamp":sequence*3000,"keyframe":true,"stream":"video","attributes":attributes});
+    write_header_event(writer, channel, &header, payload);
+}
+fn write_header_event(
+    writer: &mut mcap::Writer<File>,
+    channel: u16,
+    header: &Value,
+    payload: &[u8],
+) {
+    let sequence = header["sequence"].as_u64().unwrap() as u32;
+    let time = header["session_receive_us"].as_u64().unwrap();
+    // A multiline input header must still become one JSONL record.
+    let header = serde_json::to_vec_pretty(header).unwrap();
     let mut data = b"CSE1".to_vec();
     data.extend_from_slice(&(header.len() as u32).to_le_bytes());
     data.extend(header);
@@ -42,8 +59,8 @@ fn write_event(
             &mcap::records::MessageHeader {
                 channel_id: channel,
                 sequence,
-                log_time: time as u64 * 1000,
-                publish_time: time as u64 * 1000,
+                log_time: time * 1000,
+                publish_time: time * 1000,
             },
             &data,
         )
@@ -96,6 +113,12 @@ fn fixture(root: &Path) -> PathBuf {
     let channel = writer
         .add_channel(0, "ceres/events", "ceres-session-v1", &BTreeMap::new())
         .unwrap();
+    write_header_event(
+        &mut writer,
+        channel,
+        &json!({"version":1,"kind":"calibration","receive_us":1_000_000,"time_us":1_000_000,"session_receive_us":0,"session_time_us":0,"epoch":1,"space_epoch":0,"sequence":42,"rtp_timestamp":0,"stream":"video","attributes":{"fx":600.0,"fy":610.0,"head_from_camera":[0.02,0.01,-0.03,0,0,0,1],"name":"Measured camera"},"extension":{"preserve":true}}),
+        b"calibration-payload-is-not-provenance",
+    );
     for (sequence, time) in [0, 33_333, 100_000].into_iter().enumerate() {
         write_event(
             &mut writer,
@@ -242,4 +265,56 @@ fn trimmed_range_excludes_earlier_samples_and_selects_video_automatically() {
             .collect::<Vec<_>>(),
         vec![false, false, true, false]
     );
+}
+
+#[test]
+fn export_preserves_source_headers_calibration_and_image_head_associations() {
+    let root = tempfile::tempdir().unwrap();
+    let job = fixture(root.path());
+    let source = fs::read(root.path().join("session.mcap")).unwrap();
+    let expected: Vec<Value> = mcap::MessageStream::new(&source)
+        .unwrap()
+        .map(|message| {
+            let message = message.unwrap();
+            let length = u32::from_le_bytes(message.data[4..8].try_into().unwrap()) as usize;
+            serde_json::from_slice(&message.data[8..8 + length]).unwrap()
+        })
+        .collect();
+    ceres_native_exporter::run(&job).unwrap();
+    let metadata = root.path().join("dataset/meta");
+    let text = fs::read_to_string(metadata.join("ceres-source-events.jsonl")).unwrap();
+    let headers: Vec<Value> = text
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(headers, expected);
+    let calibration = headers
+        .iter()
+        .find(|value| value["kind"] == "calibration")
+        .unwrap();
+    assert_eq!(calibration["attributes"]["fx"], 600.0);
+    assert_eq!(calibration["attributes"]["head_from_camera"][0], 0.02);
+    assert_eq!(calibration["sequence"], 42);
+    assert_eq!(calibration["extension"]["preserve"], true);
+    let image = headers
+        .iter()
+        .find(|value| value["kind"] == "video" && value["sequence"] == 1)
+        .unwrap();
+    assert_eq!(image["rtp_timestamp"], 3000);
+    assert_eq!(image["attributes"]["head_sequence"], 1);
+    assert_eq!(
+        image["attributes"]["head_pose"],
+        json!([2.0, 0, 0, 0, 0, 0, 1])
+    );
+    assert_eq!(image["time_us"], 1_033_333);
+    assert_eq!(image["session_time_us"], 33_333);
+    assert!(!text.contains("calibration-payload-is-not-provenance"));
+    assert!(headers.iter().all(|value| value.get("payload").is_none()));
+    let provenance: Value =
+        serde_json::from_reader(File::open(metadata.join("ceres-export.json")).unwrap()).unwrap();
+    assert_eq!(
+        provenance["source_events"]["path"],
+        "meta/ceres-source-events.jsonl"
+    );
+    assert_eq!(provenance["source_events"]["payloads"], false);
 }
