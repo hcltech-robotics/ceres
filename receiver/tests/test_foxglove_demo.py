@@ -23,10 +23,10 @@ from ceres_bridge import foxglove_output, foxglove_teleop
 
 
 class _Frame:
-    def __init__(self, number, now_us):
+    def __init__(self, number, now_us, side):
         self.metadata = {"width": 96, "height": 64, "stride": 288,
-                         "received_us": now_us, "generation": number}
-        self.data = bytes((number % 256, 80, 160)) * (96 * 64)
+                         "received_us": now_us, "generation": number, "side": side, "epoch": 1}
+        self.data = bytes((number % 256, 80 if side == "left" else 160, 160)) * (96 * 64)
 
     def __enter__(self):
         return self
@@ -38,13 +38,16 @@ class _Frame:
 class _GeneratedReceiver:
     """Independent latest-sample consumers with moving wrists and RGB frames."""
 
-    def __init__(self, _socket=None, *, video=False, encoded=False):
+    def __init__(self, _socket=None, *, video=False, encoded=False, camera="primary"):
         self.started = time.monotonic()
         self.video = video
+        self.camera = camera
+        self.keyframe_requests = 0
         self.last_frame = -1
         self.closed = False
 
     def latest(self, *, keyframe=False):
+        self.keyframe_requests += int(keyframe)
         elapsed = time.monotonic() - self.started
         now_us = time.monotonic_ns() // 1000
         sequence = int(elapsed * 90)
@@ -69,7 +72,7 @@ class _GeneratedReceiver:
                                     "values": values}}
         frame = None
         if self.video and frame_number != self.last_frame:
-            frame = _Frame(frame_number, now_us)
+            frame = _Frame(frame_number, now_us, "right" if self.camera == "primary" else self.camera)
             self.last_frame = frame_number
         return {"connection": "connected", "epoch": 1, "space_epoch": 1,
                 "now_us": now_us, "codec": "vp8", "poses": poses,
@@ -77,7 +80,8 @@ class _GeneratedReceiver:
                            **dict.fromkeys(("rejected", "gaps", "late", "future",
                                             "duplicate", "malformed"), 0)},
                 "clock": {"uncertainty_us": 100},
-                "description": {"camera": {"side": "right", "width": 96, "height": 64}},
+                "description": {"camera": {"side": "right", "width": 96, "height": 64},
+                                "cameras": [{"side": side, "width": 96, "height": 64} for side in ("right", "left")]},
                 "frame": frame, "encoded": None}
 
     def close(self):
@@ -179,8 +183,12 @@ async def _assert_robot_models(session, endpoint, geometry):
 
 
 @pytest.mark.skipif(sys.platform != "linux", reason="The Bridge receiver runtime uses Linux")
-def test_dual_arm_dashboard_streams_moving_waveforms_geometry_and_measured_load(monkeypatch):
+@pytest.mark.parametrize("_run", range(3))
+def test_dual_arm_dashboard_streams_moving_waveforms_geometry_and_measured_load(monkeypatch, _run):
     consumers = []
+
+    def reject_global_lookup(*_args, **_kwargs):
+        pytest.fail("Streaming must use its registered Foxglove channels")
 
     def receiver(*args, **kwargs):
         consumer = _GeneratedReceiver(*args, **kwargs)
@@ -189,6 +197,7 @@ def test_dual_arm_dashboard_streams_moving_waveforms_geometry_and_measured_load(
 
     monkeypatch.setattr(foxglove_output, "Receiver", receiver)
     monkeypatch.setattr(foxglove_teleop, "Receiver", receiver)
+    monkeypatch.setattr(foxglove_output.foxglove, "log", reject_global_lookup)
 
     async def exercise():
         with socket.socket() as reservation:
@@ -269,6 +278,15 @@ def test_dual_arm_dashboard_streams_moving_waveforms_geometry_and_measured_load(
                     images = messages["/ceres/camera/projection"]
                     assert len(images) >= 10 and images[-1].data.startswith(b"\xff\xd8")
                     assert images[-1].format == "jpeg"
+                    for side in ("left", "right"):
+                        topic = f"/ceres/camera/{side}"
+                        images = messages[topic + "/projection"]
+                        assert len(images) >= 10 and images[-1].data.startswith(b"\xff\xd8")
+                        assert images[-1].frame_id == f"ceres_camera_{side}_optical"
+                        calibration = messages[topic + "/calibration"][-1]
+                        assert calibration.frame_id == images[-1].frame_id
+                        assert (calibration.width, calibration.height) == (96, 64)
+                    assert messages["/ceres/camera/left/projection"][-1].data != messages["/ceres/camera/right/projection"][-1].data
                     diagnostics = messages["/ceres/diagnostics"]
                     assert len(diagnostics) >= 5
                     for field in ("video_fps", "motion_fps", "left_fps", "right_fps", "process_cpu_percent", "process_rss_mb", "loop_ms"):
@@ -277,7 +295,8 @@ def test_dual_arm_dashboard_streams_moving_waveforms_geometry_and_measured_load(
                         assert max(sample[field] for sample in diagnostics) > 0, field
                     assert max(sample["update_fps"] for sample in messages["/ceres/robot/diagnostics"]) > 0
 
-                    for name in ("layout.json", "vp8-layout.json", "dual-arm-layout.json", "dual-arm-vp8-layout.json"):
+                    for name in ("layout.json", "vp8-layout.json", "dual-arm-layout.json", "dual-arm-vp8-layout.json",
+                                 "dual-camera-layout.json", "dual-camera-vp8-layout.json"):
                         async with session.get(f"{endpoint}/layouts/{name}") as response:
                             assert response.status == 200
                             layout = await response.json()
@@ -288,4 +307,6 @@ def test_dual_arm_dashboard_streams_moving_waveforms_geometry_and_measured_load(
             await asyncio.wait_for(running, 5)
 
     asyncio.run(asyncio.wait_for(exercise(), 15))
-    assert len(consumers) == 2 and all(consumer.closed for consumer in consumers)
+    assert len(consumers) == 4 and all(consumer.closed for consumer in consumers)
+    assert {consumer.camera for consumer in consumers if consumer.video} == {"primary", "left", "right"}
+    assert all(consumer.keyframe_requests for consumer in consumers if consumer.video)

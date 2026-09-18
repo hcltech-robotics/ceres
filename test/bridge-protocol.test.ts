@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createPoseBuffer, writePoseHeader, decodePose, newerSequence, canSendObservation, parseMetadata } from "../shared/bridge-protocol.js";
+import { createPoseBuffer, writePoseHeader, decodePose, newerSequence, canSendObservation, parseMetadata, XR_HAND_JOINTS } from "../shared/bridge-protocol.js";
 
 test("Bridge packets preserve clock domains and fixed little-endian layout", () => {
   const buffer = createPoseBuffer(1);
@@ -49,4 +49,42 @@ test("Bridge sequence comparison wraps and sender admission never queues an old 
   assert.ok(canSendObservation({ readyState: "open", bufferedAmount: 292 }));
   assert.ok(!canSendObservation({ readyState: "open", bufferedAmount: 293 }));
   assert.ok(!canSendObservation({ readyState: "closed", bufferedAmount: 0 }));
+});
+
+function description() {
+  const camera = { side: "right", width: 1280, height: 960, requestedWidth: 640, fps: 30, calibration: null };
+  return {
+    type: "description", version: 1, epoch: 1,
+    clock: { id: "camera-test", units: "microseconds", domain: "sender-monotonic" },
+    referenceSpace: "local-floor", axes: "right-handed-x-right-y-up-z-back", units: "metres",
+    quaternion: "xyzw", joints: XR_HAND_JOINTS, camera,
+    cameras: [{ ...camera, mid: "0" }, { ...camera, side: "left", mid: "1" }],
+  };
+}
+
+test("Bridge camera descriptions preserve legacy primary metadata and identify both tracks", () => {
+  const both = description();
+  assert.deepEqual(parseMetadata(JSON.stringify(both)), both);
+  const { cameras, ...single } = both;
+  assert.deepEqual(parseMetadata(JSON.stringify(single)), single);
+  assert.deepEqual(parseMetadata(JSON.stringify({ ...both, cameras: cameras.slice(0, 1) })), { ...both, cameras: cameras.slice(0, 1) });
+});
+
+test("Bridge rejects ambiguous or malformed camera identities", () => {
+  const both = description();
+  const cases = [
+    null, {}, [], [...both.cameras, both.cameras[0]],
+    [both.cameras[0], { ...both.cameras[1], mid: "0" }],
+    [both.cameras[0], { ...both.cameras[1], side: "right" }],
+    [both.cameras[0], { ...both.cameras[1], side: "unknown" }],
+    [both.cameras[0], { ...both.cameras[1], mid: "" }],
+    [both.cameras[0], { ...both.cameras[1], mid: "not a mid" }],
+    [both.cameras[0], { ...both.cameras[1], mid: "x".repeat(65) }],
+    [both.cameras[0], { ...both.cameras[1], width: 0 }],
+    [both.cameras[0], { ...both.cameras[1], fps: "30" }],
+    [{ ...both.cameras[0], height: 480 }, both.cameras[1]],
+  ];
+  for (const cameras of cases) {
+    assert.throws(() => parseMetadata(JSON.stringify({ ...both, cameras })), /Bridge camera/);
+  }
 });

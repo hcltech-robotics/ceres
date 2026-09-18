@@ -136,14 +136,19 @@ def transforms(snapshot, now):
         result.append(m.FrameTransform(timestamp=timestamp(now), parent_frame_id=ORIGIN,
             child_frame_id="ceres_" + NAMES[kind] + ("" if kind == "1" else "_wrist"),
             translation=vector(ros_position(v)), rotation=m.Quaternion(x=q[0], y=q[1], z=q[2], w=q[3])))
-    side = ((snapshot.get("description") or {}).get("camera") or {}).get("side")
-    if side in ("left", "right"):
+    description = snapshot.get("description") or {}
+    cameras = description.get("cameras") or [description.get("camera") or {}]
+    optical_frames = [(camera.get("side"), f"ceres_camera_{camera.get('side')}_optical") for camera in cameras]
+    optical_frames.append(((description.get("camera") or {}).get("side"), "ceres_camera_optical"))
+    for side, frame_id in optical_frames:
+        if side not in ("left", "right"):
+            continue
         yaw = math.radians(-6 if side == "left" else 6)
         # Player's head-to-camera preset followed by optical X-right/Y-down/Z-forward.
         q = quaternion_product(quaternion_product((.5, -.5, -.5, .5), (0, math.sin(yaw/2), 0, math.cos(yaw/2))), (1, 0, 0, 0))
         p = ros_position((-.064 if side == "left" else .064, -.03, -.035))
         result.append(m.FrameTransform(timestamp=timestamp(0), parent_frame_id="ceres_head",
-            child_frame_id="ceres_camera_optical", translation=vector(p),
+            child_frame_id=frame_id, translation=vector(p),
             rotation=m.Quaternion(x=q[0], y=q[1], z=q[2], w=q[3])))
     return m.FrameTransforms(transforms=result)
 
@@ -154,11 +159,11 @@ def quaternion_product(a, b):
     return (w*i+x*s+y*k-z*j, w*j-x*k+y*s+z*i, w*k+x*j-y*i+z*s, w*s-x*i-y*j-z*k)
 
 
-def camera_calibration(width, height, now):
+def camera_calibration(width, height, now, *, frame_id="ceres_camera_optical"):
     # Match CERES Player's 2*atan(0.81) horizontal FOV until measured intrinsics are supplied.
     f = width / (2 * .81)
     cx, cy = width / 2, height / 2
-    return m.CameraCalibration(timestamp=timestamp(now), frame_id="ceres_camera_optical",
+    return m.CameraCalibration(timestamp=timestamp(now), frame_id=frame_id,
         width=width, height=height, distortion_model="plumb_bob", D=[0.0]*5,
         K=[f, 0, cx, 0, f, cy, 0, 0, 1], R=[1, 0, 0, 0, 1, 0, 0, 0, 1],
         P=[f, 0, cx, 0, 0, f, cy, 0, 0, 0, 1, 0])

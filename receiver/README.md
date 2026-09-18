@@ -15,3 +15,34 @@ models with CPU inverse kinematics and an optional IsaacTeleop adapter. Foxglove
 shows the robot, acquisition view, live video, wrist and joint waveforms and
 process performance. Follow the [demo guide](https://ceres.cam/documentation/dual-arm-demo/)
 for installation and use.
+
+In Bridge, choose **Both cameras** to stream the left and right cameras together.
+Python clients can select either stream with `Receiver(camera="left")` or
+`Receiver(camera="right")`. The default `Receiver()` keeps the primary camera.
+
+```python
+from ceres_bridge import Receiver
+
+with Receiver(camera="right") as right, Receiver(camera="left") as left:
+    for receiver in (right, left):
+        frame = receiver.latest()["frame"]
+        if frame is not None:
+            with frame:
+                pixels = bytes(frame.data)
+                print(frame.metadata["side"], frame.metadata["width"], frame.metadata["height"])
+```
+
+Each receiver has independent bounded frame slots. Holding a lease on one side
+does not block the other. Frame and encoded metadata include the camera `side`
+and SDP `mid`. A side that is not streaming returns no frame. Use
+`Receiver(encoded=True, camera="left")` to read left-camera H.264 access units
+as well as RGB frames. Pose and optional audio belong to the shared headset session.
+
+Run `ceres-bridge foxglove` and import
+`http://127.0.0.1:8765/layouts/dual-camera-layout.json` to view both images. For VP8,
+use `http://127.0.0.1:8765/layouts/dual-camera-vp8-layout.json`.
+
+Each camera has its own `/ceres/camera/left/video` or
+`/ceres/camera/right/video` topic, with matching `projection` and `calibration`
+topics. The existing `/ceres/camera/video` topic and default layout show the
+primary camera.

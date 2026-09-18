@@ -14,6 +14,8 @@ def test_bundled_layouts_resolve_every_panel_and_use_the_expected_camera():
         "ros-layout.json": "/ceres/camera/image",
         "dual-arm-layout.json": "/ceres/camera/video",
         "dual-arm-vp8-layout.json": "/ceres/camera/projection",
+        "dual-camera-layout.json": "/ceres/camera/video",
+        "dual-camera-vp8-layout.json": "/ceres/camera/projection",
     }
     assert set(LAYOUTS) == set(cameras)
     for name, topic in cameras.items():
@@ -55,7 +57,7 @@ def visible_panels(layout):
     return {identifier: panels[identifier] for identifier in walk(layout["layout"])}
 
 
-@pytest.mark.parametrize("name", ["layout.json", "vp8-layout.json", "dual-arm-layout.json", "dual-arm-vp8-layout.json"])
+@pytest.mark.parametrize("name", [name for name in LAYOUTS if name != "ros-layout.json"])
 def test_live_overview_exposes_signed_wrist_waveforms_rates_and_cpu(name):
     layout = json.loads(layout_bytes(name))
     visible = visible_panels(layout)
@@ -93,6 +95,19 @@ def test_dual_arm_overview_separates_robot_acquisition_video_and_joint_plots(nam
         assert all(path.startswith(f"/ceres/robot/joints.{side}.") for path in paths)
 
 
+@pytest.mark.parametrize("name,suffix", [("dual-camera-layout.json", "video"), ("dual-camera-vp8-layout.json", "projection")])
+def test_dual_camera_layout_shows_both_images_and_matching_projection_topics(name, suffix):
+    visible = visible_panels(json.loads(layout_bytes(name)))
+    assert {identifier for identifier in visible if identifier.startswith("Image!")} == {"Image!camera-left", "Image!camera-right"}
+    topics = visible["3D!tracking"]["topics"]
+    for side in ("left", "right"):
+        image = visible[f"Image!camera-{side}"]
+        assert image["imageMode"]["imageTopic"] == f"/ceres/camera/{side}/{suffix}"
+        assert image["synchronize"] is False
+        assert topics[f"/ceres/camera/{side}/projection"]["cameraInfoTopic"] == f"/ceres/camera/{side}/calibration"
+    assert topics["/ceres/camera/projection"]["visible"] is False
+
+
 @pytest.mark.parametrize("host,expected", [
     ("10.0.0.77", "ws://10.0.0.77:8765/"),
     ("0.0.0.0", "ws://127.0.0.1:8765/"),
@@ -104,3 +119,5 @@ def test_desktop_connection_links_round_trip_the_receiver_address(host, expected
     parameters = parse_qs(urlsplit(links["open"]).query)
     assert parameters == {"ds": ["foxglove-websocket"], "ds.url": [expected]}
     assert links["layout"].endswith("/layouts/layout.json")
+    assert links["dual_camera_layout"].endswith("/layouts/dual-camera-layout.json")
+    assert links["dual_camera_vp8_layout"].endswith("/layouts/dual-camera-vp8-layout.json")

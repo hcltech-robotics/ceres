@@ -112,6 +112,15 @@ export function decodePose(buffer: ArrayBuffer): PosePacket {
   };
 }
 
+export interface BridgeCameraDescription {
+  side: "left" | "right" | "unknown";
+  width: number;
+  height: number;
+  requestedWidth: number;
+  fps: number | null;
+  calibration: null;
+}
+
 export interface BridgeDescription {
   type: "description";
   version: 1;
@@ -122,13 +131,23 @@ export interface BridgeDescription {
   units: "metres";
   quaternion: "xyzw";
   joints: readonly string[];
-  camera: { side: "left" | "right" | "unknown"; width: number; height: number; requestedWidth: number; fps: number | null; calibration: null };
+  camera: BridgeCameraDescription;
+  cameras?: (BridgeCameraDescription & { mid: string })[];
 }
 
 export type BridgeMetadata = BridgeDescription
   | { type: "ack"; version: 1; epoch: number }
   | { type: "ping"; version: 1; epoch: number; id: number; t0: number }
   | { type: "pong"; version: 1; epoch: number; id: number; t0: number; t1: number; t2: number };
+
+function validCamera(value: unknown): value is BridgeCameraDescription {
+  if (!value || typeof value !== "object") return false;
+  const camera = value as BridgeCameraDescription;
+  return ["left", "right", "unknown"].includes(camera.side)
+    && [camera.width, camera.height, camera.requestedWidth].every(n => Number.isInteger(n) && n > 0 && n <= 8192)
+    && (camera.fps === null || typeof camera.fps === "number" && Number.isFinite(camera.fps) && camera.fps > 0)
+    && camera.calibration === null;
+}
 
 export function parseMetadata(text: string): BridgeMetadata {
   if (text.length > 8192) throw new Error("Bridge metadata exceeds its budget");
@@ -149,10 +168,23 @@ export function parseMetadata(text: string): BridgeMetadata {
     || typeof value.clock.id !== "string" || value.clock.id.length > 128
     || !Array.isArray(value.joints) || value.joints.length !== 25
     || !XR_HAND_JOINTS.every((name, index) => value.joints[index] === name)
-    || !value.camera || !["left", "right", "unknown"].includes(value.camera.side)
-    || ![value.camera.width, value.camera.height, value.camera.requestedWidth].every((n) => Number.isInteger(n) && n > 0 && n <= 8192)
-    || !(value.camera.fps === null || Number.isFinite(value.camera.fps) && value.camera.fps > 0)
-    || value.camera.calibration !== null) throw new Error("Invalid Bridge stream description");
+    || !validCamera(value.camera)) throw new Error("Invalid Bridge stream description");
+  if (value.cameras !== undefined) {
+    const cameras: unknown[] = value.cameras;
+    if (!Array.isArray(cameras) || cameras.length < 1 || cameras.length > 2
+      || !cameras.every(camera => validCamera(camera) && "mid" in camera
+        && typeof camera.mid === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(camera.mid))) {
+      throw new Error("Invalid Bridge camera tracks");
+    }
+    const tracks = cameras as NonNullable<BridgeDescription["cameras"]>;
+    if (new Set(tracks.map(camera => camera.mid)).size !== tracks.length
+      || tracks.length === 2 && (new Set(tracks.map(camera => camera.side)).size !== 2
+        || tracks.some(camera => camera.side === "unknown"))
+      || (["side", "width", "height", "requestedWidth", "fps", "calibration"] as const)
+        .some(key => tracks[0][key] !== value.camera[key])) {
+      throw new Error("Invalid Bridge camera identity");
+    }
+  }
   return value;
 }
 

@@ -3,7 +3,8 @@
 from importlib.resources import files
 from urllib.parse import urlencode
 
-LAYOUTS = ("layout.json", "vp8-layout.json", "ros-layout.json", "dual-arm-layout.json", "dual-arm-vp8-layout.json")
+LAYOUTS = ("layout.json", "vp8-layout.json", "ros-layout.json", "dual-arm-layout.json", "dual-arm-vp8-layout.json",
+           "dual-camera-layout.json", "dual-camera-vp8-layout.json")
 
 
 def layout_bytes(name):
@@ -21,4 +22,6 @@ def connection_links(host, port):
         "websocket": websocket,
         "open": "foxglove://open?" + urlencode({"ds": "foxglove-websocket", "ds.url": websocket}),
         "layout": f"http://{authority}/layouts/layout.json",
+        "dual_camera_layout": f"http://{authority}/layouts/dual-camera-layout.json",
+        "dual_camera_vp8_layout": f"http://{authority}/layouts/dual-camera-vp8-layout.json",
     }
