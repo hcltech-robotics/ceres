@@ -6,6 +6,7 @@ import time
 from urllib.parse import urlsplit
 
 import foxglove
+from foxglove import channels as c
 from foxglove import messages as m
 import numpy as np
 
@@ -68,14 +69,16 @@ def fixed_robot_transform(origin, yaw_degrees):
     return transform
 
 
-async def run_robot(args, stop):
+async def run_robot(args, stop, *, context=None):
     teleop = DualArmTeleop(position_scale=args.position_scale, backend=args.retargeter,
                           robot_from_ceres=fixed_robot_transform(args.robot_origin, args.robot_yaw),
                           tracking_grace=getattr(args, "tracking_grace", .5))
     authority = urlsplit(connection_links(args.host, args.port)["layout"]).netloc
     asset_base_url = f"http://{authority}/assets/xlerobot"
-    joint_channel = foxglove.Channel("/ceres/robot/joints", schema=JOINT_SCHEMA)
-    diagnostics = foxglove.Channel("/ceres/robot/diagnostics", schema=DIAGNOSTIC_SCHEMA)
+    joint_channel = foxglove.Channel("/ceres/robot/joints", schema=JOINT_SCHEMA, context=context)
+    diagnostics = foxglove.Channel("/ceres/robot/diagnostics", schema=DIAGNOSTIC_SCHEMA, context=context)
+    scene_channel = c.SceneUpdateChannel("/ceres/robot/scene", context=context)
+    transform_channel = c.FrameTransformsChannel("/ceres/robot/transforms", context=context)
     receiver = None
     count, started, rate = 0, time.monotonic(), 0.0
     last_diagnostic = last_scene = 0
@@ -100,8 +103,8 @@ async def run_robot(args, stop):
             if elapsed >= 1:
                 rate, count, started = count/elapsed, 0, time.monotonic()
             if now - last_scene >= 33_000_000:
-                foxglove.log("/ceres/robot/scene", robot_scene(result, links, now, asset_base_url), log_time=now)
-                foxglove.log("/ceres/robot/transforms", m.FrameTransforms(transforms=[m.FrameTransform(
+                scene_channel.log(robot_scene(result, links, now, asset_base_url), log_time=now)
+                transform_channel.log(m.FrameTransforms(transforms=[m.FrameTransform(
                     timestamp=timestamp(now), parent_frame_id="ceres_robot_base", child_frame_id="ceres_robot_axes",
                     translation=vector((0, 0, 0)), rotation=m.Quaternion(w=1))]), log_time=now)
                 last_scene = now
@@ -119,3 +122,5 @@ async def run_robot(args, stop):
             receiver.close()
         joint_channel.close()
         diagnostics.close()
+        scene_channel.close()
+        transform_channel.close()

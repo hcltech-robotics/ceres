@@ -52,7 +52,7 @@ def scene_panel(title, frame, topics, *, distance, target):
         "topics": topics, "transforms": {}, "layers": {}}
 
 
-def make_layout(video, *, dual_arm=False):
+def make_layout(video, *, dual_arm=False, dual_camera=False):
     diag = "/ceres/diagnostics."
     rates = [(diag + "video_fps", "Video", "#b4d67e"),
              (diag + "motion_fps", "Head", "#cbd5e1"),
@@ -102,6 +102,19 @@ def make_layout(video, *, dual_arm=False):
             "rules": [{"operator": "=", "rawValue": raw, "color": "#14532d", "label": label}]}
 
     visual_views = split("row", "3D!tracking", "Image!camera", 60)
+    if dual_camera:
+        camera_topics = panels["3D!tracking"]["topics"]
+        camera_topics["/ceres/camera/calibration"]["visible"] = False
+        camera_topics["/ceres/camera/projection"]["visible"] = False
+        for side in ("left", "right"):
+            panels[f"Image!camera-{side}"] = {
+                "foxglovePanelTitle": f"{side.capitalize()} camera",
+                "imageMode": {"imageTopic": video.replace("/camera/", f"/camera/{side}/")}, "synchronize": False}
+            camera_topics[f"/ceres/camera/{side}/calibration"] = {"visible": True, "distance": 0.216}
+            camera_topics[f"/ceres/camera/{side}/projection"] = {
+                "visible": True, "cameraInfoTopic": f"/ceres/camera/{side}/calibration",
+                "distance": 0.216, "planarProjectionFactor": 1, "color": "#ffffff80"}
+        visual_views = split("row", "3D!tracking", split("row", "Image!camera-left", "Image!camera-right"), 40)
     signal_views = three_columns(
         split("column", "Plot!head-position", "Plot!head-rotation"),
         split("column", "Plot!hand-position", "Plot!hand-rotation"),
@@ -143,13 +156,15 @@ def make_layout(video, *, dual_arm=False):
 if __name__ == "__main__":
     package_data = Path(__file__).parents[1] / "src" / "ceres_bridge" / "data"
     package_data.mkdir(parents=True, exist_ok=True)
-    for filename, topic, dual_arm in (
-        ("layout.json", "/ceres/camera/video", False),
-        ("vp8-layout.json", "/ceres/camera/projection", False),
-        ("dual-arm-layout.json", "/ceres/camera/video", True),
-        ("dual-arm-vp8-layout.json", "/ceres/camera/projection", True),
+    for filename, topic, dual_arm, dual_camera in (
+        ("layout.json", "/ceres/camera/video", False, False),
+        ("vp8-layout.json", "/ceres/camera/projection", False, False),
+        ("dual-arm-layout.json", "/ceres/camera/video", True, False),
+        ("dual-arm-vp8-layout.json", "/ceres/camera/projection", True, False),
+        ("dual-camera-layout.json", "/ceres/camera/video", False, True),
+        ("dual-camera-vp8-layout.json", "/ceres/camera/projection", False, True),
     ):
-        content = json.dumps(make_layout(topic, dual_arm=dual_arm), indent=2) + "\n"
+        content = json.dumps(make_layout(topic, dual_arm=dual_arm, dual_camera=dual_camera), indent=2) + "\n"
         Path(__file__).with_name(filename).write_text(content, encoding="utf-8", newline="\n")
         (package_data / filename).write_text(content, encoding="utf-8", newline="\n")
     ros = {"version": 1, "globalVariables": {}, "userNodes": {}, "playbackConfig": {"speed": 1},

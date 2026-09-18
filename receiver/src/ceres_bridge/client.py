@@ -35,7 +35,10 @@ class Frame:
 
 
 class Receiver:
-    def __init__(self, path: str | Path | None = None, *, video: bool = True, encoded: bool = False, audio: bool = False):
+    def __init__(self, path: str | Path | None = None, *, video: bool = True, encoded: bool = False,
+                 audio: bool = False, camera: str = "primary"):
+        if camera not in ("primary", "left", "right"):
+            raise ValueError("Bridge camera must be primary, left or right")
         if path is None:
             from .ipc import runtime_dir
             path = runtime_dir() / "receiver.sock"
@@ -55,7 +58,11 @@ class Receiver:
         self.needs_keyframe = False
         self.memory = None
         self.mapping_file = None
-        result = self._request({"op": "subscribe", "video": video, "encoded": encoded, "audio": audio})
+        result = self._request({"op": "subscribe", "video": video, "encoded": encoded, "audio": audio, "camera": camera})
+        if camera != "primary" and result.get("camera") != camera:
+            self.stream.close()
+            self.socket.close()
+            raise ValueError("This Bridge worker does not support camera selection")
         if result["path"]:
             self.mapping_file = open(result["path"], "rb")
             self.memory = mmap.mmap(self.mapping_file.fileno(), result["size"], access=mmap.ACCESS_READ)

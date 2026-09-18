@@ -1,4 +1,4 @@
-"""One GStreamer peer and decoder, owned by the receiver worker process."""
+"""One GStreamer peer with bounded camera decoders, owned by the receiver worker."""
 
 import asyncio
 import json
@@ -25,7 +25,7 @@ class MediaPeer:
             self._initialise(state, broker, send_signal, jitter_ms=jitter_ms, bind_address=bind_address)
         except Exception:
             self.closed = True
-            broker.request_keyframe = lambda: None
+            broker.request_keyframe = lambda _camera=None: None
             if hasattr(self, "pipeline"):
                 self.pipeline.set_state(Gst.State.NULL)
                 if getattr(self, "bus_watched", False):
@@ -62,9 +62,10 @@ class MediaPeer:
         self.connected = asyncio.Event()
         self.changed = asyncio.Event()
         self.error = None
-        self.video_bin = None
+        self.video_bins = {}
+        self.video_codecs = {}
         self.audio_bin = None
-        self.last_keyframe_request = 0
+        self.last_keyframe_requests = {}
         self.broker.request_keyframe = self.request_keyframe
         self.pending_ice = []
         self.pings = {}
@@ -216,9 +217,12 @@ class MediaPeer:
                 if message["type"] == "description":
                     if self.state.description and self.state.description != message:
                         raise ValueError("Bridge description changed within one epoch")
+                    self._validate_video_mids(message)
                     self.state.description = message
+                    self._update_codec()
                     channel.emit("send-string", json.dumps({"type": "ack", "version": 1, "epoch": self.state.epoch}))
                     self.acknowledged = True
+                    self.request_keyframe()
                 elif message["type"] == "pong":
                     expected = self.pings.pop(message["id"], None)
                     if expected is not None and expected == message["t0"]:
@@ -244,6 +248,44 @@ class MediaPeer:
             self.meta.emit("send-string", json.dumps({"type": "ping", "version": 1, "epoch": self.state.epoch,
                                                        "id": self.ping_id, "t0": sent}))
 
+    def _validate_video_mids(self, description):
+        cameras = description.get("cameras")
+        if cameras is None:
+            if len(self.video_bins) > 1:
+                raise ValueError("Bridge received undeclared camera tracks")
+        elif not set(self.video_bins).issubset({camera["mid"] for camera in cameras}):
+            raise ValueError("Bridge received an undeclared camera track")
+
+    def _update_codec(self):
+        description = self.state.description
+        if description and description.get("cameras"):
+            self.state.codec = self.video_codecs.get(description["cameras"][0]["mid"])
+        elif self.video_codecs:
+            self.state.codec = next(iter(self.video_codecs.values()))
+
+    def _camera_for_mid(self, mid):
+        # RTP can arrive before the ordered metadata channel. Decode it without
+        # publishing until the camera identity has been declared.
+        with self.state.lock:
+            description = self.state.description
+            if not description:
+                return None
+            cameras = description.get("cameras")
+            if cameras is None:
+                return {"side": description["camera"]["side"], "mid": mid, "primary": True}
+            for index, camera in enumerate(cameras):
+                if camera["mid"] == mid:
+                    return {"side": camera["side"], "mid": mid, "primary": index == 0}
+        return None
+
+    @staticmethod
+    def _pad_mid(pad):
+        transceiver = pad.get_property("transceiver")
+        mid = transceiver.get_property("mid") if transceiver else None
+        if not isinstance(mid, str) or not mid:
+            raise ValueError("Bridge video track has no media identity")
+        return mid
+
     def _pad(self, _peer, pad):
         if pad.get_direction() != Gst.PadDirection.SRC:
             return
@@ -264,57 +306,84 @@ class MediaPeer:
                     raise RuntimeError("Cannot connect the audio decoder")
                 self.audio_bin.sync_state_with_parent()
                 return
-            if structure.get_string("media") != "video" or encoding not in ("H264", "VP8") or self.video_bin:
-                raise ValueError("Bridge accepts one H.264 or VP8 video track")
-            decoder = "rtph264depay wait-for-keyframe=true request-keyframe=true ! h264parse name=parsed_h264 config-interval=-1 ! video/x-h264,stream-format=byte-stream,alignment=au ! tee name=access_units ! queue max-size-buffers=2 max-size-bytes=524288 max-size-time=100000000 ! avdec_h264 max-threads=1" if encoding == "H264" else "rtpvp8depay ! vp8dec threads=1"
-            encoded_branch = " access_units. ! queue leaky=downstream max-size-buffers=1 max-size-bytes=262144 max-size-time=100000000 ! appsink name=encoded emit-signals=true sync=false max-buffers=1 drop=true wait-on-eos=false" if encoding == "H264" else ""
-            self.video_bin = Gst.parse_bin_from_description(
-                decoder + " ! videoconvert n-threads=1 ! video/x-raw,format=RGB ! appsink name=frames emit-signals=true sync=false max-buffers=1 drop=true wait-on-eos=false" + encoded_branch, True)
-            sink = self.video_bin.get_by_name("frames")
-            sink.connect("new-sample", self._frame)
-            encoded_sink = self.video_bin.get_by_name("encoded")
-            if encoded_sink:
-                encoded_sink.connect("new-sample", self._encoded)
+            if structure.get_string("media") != "video" or encoding not in ("H264", "VP8"):
+                raise ValueError("Bridge accepts H.264 or VP8 video tracks")
+            mid = self._pad_mid(pad)
             with self.state.lock:
-                self.state.codec = encoding.lower()
-            self.pipeline.add(self.video_bin)
-            if pad.link(self.video_bin.get_static_pad("sink")) != Gst.PadLinkReturn.OK:
+                if mid in self.video_bins or len(self.video_bins) >= 2:
+                    raise ValueError("Bridge received duplicate or excess camera tracks")
+                self.video_bins[mid] = None
+                if self.state.description:
+                    self._validate_video_mids(self.state.description)
+            decoder = "rtph264depay wait-for-keyframe=true request-keyframe=true ! h264parse name=parsed_h264 config-interval=-1 ! video/x-h264,stream-format=byte-stream,alignment=au ! tee name=access_units ! queue max-size-buffers=2 max-size-bytes=524288 max-size-time=100000000 ! avdec_h264 max-threads=1" if encoding == "H264" else "rtpvp8depay ! vp8dec threads=1"
+            encoded_branch = " access_units. ! queue leaky=downstream max-size-buffers=1 max-size-bytes=262144 max-size-time=100000000 ! appsink name=encoded emit-signals=true sync=false async=false max-buffers=1 drop=true wait-on-eos=false" if encoding == "H264" else ""
+            video_bin = Gst.parse_bin_from_description(
+                decoder + " ! videoconvert n-threads=1 ! video/x-raw,format=RGB ! appsink name=frames emit-signals=true sync=false async=false max-buffers=1 drop=true wait-on-eos=false" + encoded_branch, True)
+            sink = video_bin.get_by_name("frames")
+            sink.connect("new-sample", self._frame, mid)
+            encoded_sink = video_bin.get_by_name("encoded")
+            if encoded_sink:
+                encoded_sink.connect("new-sample", self._encoded, mid)
+            with self.state.lock:
+                self.video_bins[mid] = video_bin
+                self.video_codecs[mid] = encoding.lower()
+                self._update_codec()
+            self.pipeline.add(video_bin)
+            if pad.link(video_bin.get_static_pad("sink")) != Gst.PadLinkReturn.OK:
                 raise RuntimeError("Cannot connect the video decoder")
-            self.video_bin.sync_state_with_parent()
+            video_bin.sync_state_with_parent()
         except Exception as error:
             self.error = str(error)
             self._notify()
 
-    def request_keyframe(self):
+    def request_keyframe(self, camera=None):
         now = monotonic_us()
-        if self.closed or not self.video_bin or now - self.last_keyframe_request < 200_000:
+        bins = []
+        with self.state.lock:
+            if self.closed:
+                return
+            for mid, video_bin in self.video_bins.items():
+                identity = self._camera_for_mid(mid)
+                if (not video_bin or self.video_codecs.get(mid) != "h264" or identity is None
+                        or camera == "primary" and not identity["primary"]
+                        or camera in ("left", "right") and camera != identity["side"]):
+                    continue
+                previous = self.last_keyframe_requests.get(mid)
+                if previous is not None and now - previous < 200_000:
+                    continue
+                self.last_keyframe_requests[mid] = now
+                bins.append(video_bin)
+        if not bins:
             return
-        self.last_keyframe_request = now
         def request():
-            if not self.closed and self.video_bin:
-                parser = self.video_bin.get_by_name("parsed_h264")
+            if self.closed:
+                return False
+            for video_bin in bins:
+                parser = video_bin.get_by_name("parsed_h264")
                 if parser:
                     parser.get_static_pad("src").send_event(GstVideo.video_event_new_upstream_force_key_unit(Gst.CLOCK_TIME_NONE, True, 0))
             return False
         GLib.idle_add(request)
 
-    def _encoded(self, sink):
+    def _encoded(self, sink, mid):
         sample = sink.emit("pull-sample")
-        if not sample or self.closed:
+        camera = self._camera_for_mid(mid)
+        if not sample or self.closed or self.error or camera is None:
             return Gst.FlowReturn.OK
         buffer = sample.get_buffer()
         success, mapped = buffer.map(Gst.MapFlags.READ)
         if success:
             try:
                 self.broker.publish_encoded(mapped.data, not buffer.has_flags(Gst.BufferFlags.DELTA_UNIT), self.state.epoch,
-                                            None if buffer.pts == Gst.CLOCK_TIME_NONE else buffer.pts)
+                                            None if buffer.pts == Gst.CLOCK_TIME_NONE else buffer.pts, camera=camera)
             finally:
                 buffer.unmap(mapped)
         return Gst.FlowReturn.OK
 
-    def _frame(self, sink):
+    def _frame(self, sink, mid):
         sample = sink.emit("pull-sample")
-        if not sample or self.closed:
+        camera = self._camera_for_mid(mid)
+        if not sample or self.closed or self.error or camera is None:
             return Gst.FlowReturn.OK
         buffer = sample.get_buffer()
         info = GstVideo.VideoInfo.new_from_caps(sample.get_caps())
@@ -326,7 +395,7 @@ class MediaPeer:
         if success:
             try:
                 self.broker.publish_frame(mapped.data, info.width, info.height, info.stride[0], self.state.epoch,
-                                          None if buffer.pts == Gst.CLOCK_TIME_NONE else buffer.pts)
+                                          None if buffer.pts == Gst.CLOCK_TIME_NONE else buffer.pts, camera=camera)
             finally:
                 buffer.unmap(mapped)
         return Gst.FlowReturn.OK
@@ -351,7 +420,7 @@ class MediaPeer:
 
     def close(self):
         self.closed = True
-        self.broker.request_keyframe = lambda: None
+        self.broker.request_keyframe = lambda _camera=None: None
         self.pipeline.set_state(Gst.State.NULL)
         self.pipeline.get_bus().remove_signal_watch()
         self.glib.quit()

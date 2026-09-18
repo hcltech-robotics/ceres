@@ -1,7 +1,9 @@
+import time
+
 import pytest
 
 pytest.importorskip("foxglove")
-from ceres_bridge.foxglove_output import scene
+from ceres_bridge.foxglove_output import CameraOutput, VideoHistory, scene
 from ceres_bridge.foxglove_scene import camera_calibration, joints, transforms, StreamMetrics
 from google.protobuf import descriptor_pb2, descriptor_pool, message_factory
 from foxglove import messages as m
@@ -77,6 +79,94 @@ def test_player_camera_preset_and_optical_transform():
     assert camera.translation.y == pytest.approx(-.064)
     assert camera.translation.z == pytest.approx(-.03)
     assert sum(getattr(camera.rotation, axis)**2 for axis in "xyzw") == pytest.approx(1)
+
+
+def test_dual_camera_transforms_keep_distinct_optical_frames_and_primary_alias():
+    description = {"camera": {"side": "left"}, "cameras": [{"side": "left"}, {"side": "right"}]}
+    data = decode(transforms({"poses": {}, "description": description}, 100))
+    frames = {transform.child_frame_id: transform for transform in data.transforms}
+    assert frames["ceres_camera_left_optical"].translation.y == pytest.approx(.064)
+    assert frames["ceres_camera_right_optical"].translation.y == pytest.approx(-.064)
+    assert frames["ceres_camera_optical"].translation == frames["ceres_camera_left_optical"].translation
+    calibration = decode(camera_calibration(640, 480, 100, frame_id="ceres_camera_right_optical"))
+    assert calibration.frame_id == "ceres_camera_right_optical"
+
+
+def test_h264_continuity_is_independent_per_camera_and_connection_epoch():
+    history = VideoHistory()
+    previous = {}
+    left, right = "/ceres/camera/left/video", "/ceres/camera/right/video"
+    for topic in (left, right):
+        history.record(topic, 100, True, 1)
+        assert history.accept(topic, 100, previous)
+    history.record(left, 200, False, 1)
+    history.record(left, 300, False, 1)
+    history.record(right, 300, False, 1)
+    assert not history.accept(left, 300, previous)
+    assert history.accept(right, 300, previous)
+    history.record(right, 400, False, 2)
+    assert not history.accept(right, 400, previous)
+    history.record(left, 500, True, 2)
+    assert history.accept(left, 500, previous)
+    for sent in range(600, 730):
+        history.record(left, sent, False, 2)
+    assert len(history.records[left]) == 128
+    assert not history.accept(left, 500, previous)
+
+
+class CameraFrame:
+    def __init__(self, side, *, encoded=False, width=2):
+        self.data = b"h264" if encoded else bytes([255, 32, 16]) * width * 2
+        self.metadata = {"side": side, "epoch": 1, "received_us": time.monotonic_ns() // 1000,
+                         "width": width, "height": 2, "stride": width * 3, "keyframe": True}
+        self.released = False
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        self.released = True
+
+
+def camera_snapshot(side, *, width=2):
+    return {"description": {"camera": {"side": "left"}, "cameras": [{"side": "left"}, {"side": "right"}]},
+            "frame": CameraFrame(side, width=width), "encoded": CameraFrame(side, encoded=True)}
+
+
+def test_camera_output_preserves_primary_and_publishes_both_sides_with_matching_calibration():
+    logged = {}
+    output = CameraOutput(VideoHistory(), lambda topic, message, **_: logged.update({topic: decode(message)}))
+    now = time.time_ns()
+    for side, width in ((None, 2), ("left", 2), ("right", 4)):
+        snapshot = camera_snapshot(side or "left", width=width)
+        assert output.publish(snapshot, now, side) == 4
+        assert snapshot["frame"].released and snapshot["encoded"].released
+        topic = "/ceres/camera" + (f"/{side}" if side else "")
+        frame_id = f"ceres_camera_{side}_optical" if side else "ceres_camera_optical"
+        assert logged[topic + "/calibration"].width == width
+        for suffix in ("video", "projection", "calibration"):
+            assert logged[topic + "/" + suffix].frame_id == frame_id
+    assert len(logged) == 9
+
+
+@pytest.mark.parametrize("wrong_description", [False, True])
+def test_side_output_rejects_mismatched_frames_and_releases_both_leases(wrong_description):
+    logged = []
+    snapshot = camera_snapshot("right" if wrong_description else "left")
+    if wrong_description:
+        snapshot["description"] = {"camera": {"side": "left"}}
+    assert CameraOutput(VideoHistory(), lambda *args, **_: logged.append(args)).publish(snapshot, time.time_ns(), "right") == 0
+    assert not logged
+    assert snapshot["frame"].released and snapshot["encoded"].released
+
+
+def test_camera_output_releases_both_leases_when_logging_fails():
+    def fail(*_args, **_kwargs):
+        raise RuntimeError("Viewer closed")
+    snapshot = camera_snapshot("left")
+    with pytest.raises(RuntimeError, match="Viewer closed"):
+        CameraOutput(VideoHistory(), fail).publish(snapshot, time.time_ns(), "left")
+    assert snapshot["frame"].released and snapshot["encoded"].released
 
 
 def test_metrics_count_unique_samples_and_become_zero_when_paused():

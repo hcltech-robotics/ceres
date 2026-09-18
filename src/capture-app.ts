@@ -45,6 +45,8 @@ import { clearStoredPairingInvitationTarget, demonstratorSignalCredentials, isPa
 import { canvasFont } from "./typography.js";
 import { CaptureRecorder, type DurableRecorderStatus } from "./recorder/capture-recorder.js";
 import type { BridgeSender } from "./bridge/sender.js";
+import type { BridgeCamera } from "./bridge/camera.js";
+import { BRIDGE_BOTH_CAMERAS, bridgeStereoCameraChoices, bridgeSelectedCameraChoices, openBridgeCameraSelection } from "./bridge-camera-selection.js";
 import { installCaptureSetup, renderCaptureSetup } from "./capture-setup.js";
 import { drawXrBridgeAttitude, drawXrBridgeReticle } from "./xr-task-hud.js";
 import { fragmentPeerRecorderBlock } from "./recorder/peer-recorder-framing.js";
@@ -681,6 +683,8 @@ export class CaptureApp {
   private selectedCamera: CameraChoice | null = null;
   private cameraRegistration: CameraRegistration | null = null;
   private cameraStream: MediaStream | null = null;
+  private bridgeCameras: BridgeCamera[] = [];
+  private bridgeCameraAcquisition: AbortController | null = null;
   private cameraCaptureComposer: CameraCaptureComposer | null = null;
   private cameraSelectionGeneration = 0;
   private microphoneStream: MediaStream | null = null;
@@ -963,9 +967,10 @@ export class CaptureApp {
               <div class="capture-video-empty"><span id="camera-field-status" hidden></span><button id="prepare-camera" class="camera-enable-button" type="button">Enable camera</button></div>
             </div>
             <div class="camera-settings">
-              <label for="camera-select">Current camera</label>
+              <label for="camera-select">${this.bridge ? "Cameras to stream" : "Current camera"}</label>
               <select id="camera-select" disabled><option>No camera available</option></select>
             </div>
+            ${this.bridge ? '<p id="bridge-camera-preview-detail" class="capture-status" role="status" hidden></p>' : ""}
             <div class="launch-audio-preferences${soloMode ? "" : " is-single"}"${this.bridge ? " hidden" : ""}>
               <div class="launch-audio-preference launch-audio-cue-preference">
                 <span>Audio cues</span>
@@ -1179,6 +1184,7 @@ export class CaptureApp {
     this.audioRecorder = null;
     this.recordingRecorder?.dispose();
     this.cameraSelectionGeneration += 1;
+    this.releaseBridgeCameras(root);
     this.cameraCaptureComposer?.dispose();
     this.cameraCaptureComposer = null;
     if (root) {
@@ -1453,7 +1459,10 @@ export class CaptureApp {
   }
 
   private async prepareCamera(root: HTMLElement) {
-    if (this.captureAuthorityRevoked) return;
+    if (this.disposed || this.captureAuthorityRevoked) return;
+    if (this.bridge && (this.xrSession || this.captureStatus.xr === "requesting")) return;
+    let generation = ++this.cameraSelectionGeneration;
+    this.releaseBridgeCameras(root);
     this.requestCaptureIntent();
     delete root.dataset.cameraCaptureFrame;
     delete root.dataset.cameraCaptureOutput;
@@ -1473,8 +1482,9 @@ export class CaptureApp {
     this.setStatus(root, "Requesting camera access");
     prepare.disabled = true;
     try {
-      this.cameraChoices = await enumerateOutwardCameras();
-      if (this.disposed || this.captureAuthorityRevoked) return;
+      const cameraChoices = await enumerateOutwardCameras();
+      if (this.disposed || this.captureAuthorityRevoked || generation !== this.cameraSelectionGeneration) return;
+      this.cameraChoices = cameraChoices;
       if (!this.cameraChoices.length) {
         throw withErrorContext(new Error("No outward video input is available"), {
           stage: "device_enumeration",
@@ -1483,11 +1493,11 @@ export class CaptureApp {
       const select = root.querySelector<HTMLSelectElement>("#camera-select")!;
       select.disabled = false;
       select.innerHTML = this.cameraChoices.map((camera) => {
-        const side = camera.side === "unknown" ? "" : ` / ${camera.side.toUpperCase()}`;
+        const side = camera.side === "unknown" ? "" : `/${camera.side}`;
         return `<option value="${escapeHtml(camera.deviceId)}">${escapeHtml(camera.label + side)}</option>`;
-      }).join("");
-      await this.selectCamera(root, this.cameraChoices[0].deviceId);
-      if (this.disposed || this.captureAuthorityRevoked) return;
+      }).join("") + (this.bridge && bridgeStereoCameraChoices(this.cameraChoices).length === 2
+        ? `<option value="${BRIDGE_BOTH_CAMERAS}">Both cameras</option>`
+        : "");
       select.onchange = () => {
         void this.selectCamera(root, select.value).catch((error) => {
           this.reportError(
@@ -1496,14 +1506,22 @@ export class CaptureApp {
           );
         });
       };
+      const selection = this.selectCamera(root, this.cameraChoices[0].deviceId);
+      generation = this.cameraSelectionGeneration;
+      await selection;
+      if (this.disposed || this.captureAuthorityRevoked || generation !== this.cameraSelectionGeneration) return;
       this.renderCaptureDiagnostics(root);
       this.setStatus(root, "Camera ready");
-    } catch (error) {      this.reportError(root, error instanceof Error ? error.message : "Camera permission was not granted");
+    } catch (error) {
+      if (this.disposed || this.captureAuthorityRevoked || generation !== this.cameraSelectionGeneration) return;
+      this.reportError(root, error instanceof Error ? error.message : "Camera permission was not granted");
     } finally {
-      prepare.disabled = this.captureAuthorityRevoked
-        || !cameraAccessCapability().available
-        || (this.authority.kind === "solo" && this.captureStatus.camera === "ready");
-      this.renderCaptureDiagnostics(root);
+      if (!this.disposed && generation === this.cameraSelectionGeneration) {
+        prepare.disabled = this.captureAuthorityRevoked
+          || !cameraAccessCapability().available
+          || (this.authority.kind === "solo" && this.captureStatus.camera === "ready");
+        this.renderCaptureDiagnostics(root);
+      }
     }
   }
 
@@ -2392,9 +2410,129 @@ export class CaptureApp {
     };
   }
 
+  private bridgeCamerasReady() {
+    return this.bridgeCameras.length > 0
+      && this.bridgeCameras.every((camera) => camera.track.readyState === "live"
+        && Number.isFinite(camera.width) && camera.width > 0
+        && Number.isFinite(camera.height) && camera.height > 0);
+  }
+
+  private releaseBridgeCameras(root: HTMLElement | null) {
+    if (!this.bridge) return;
+    this.bridgeCameraAcquisition?.abort();
+    this.bridgeCameraAcquisition = null;
+    const cameras = this.bridgeCameras;
+    this.bridgeCameras = [];
+    this.bridge.setCameras([]);
+    for (const camera of cameras) stopStream(camera.stream);
+    if (cameras.some((camera) => camera.stream === this.cameraStream)) this.cameraStream = null;
+    const preview = root?.querySelector<HTMLVideoElement>("#camera-preview");
+    if (preview && cameras.some((camera) => camera.stream === preview.srcObject)) preview.srcObject = null;
+    const detail = root?.querySelector<HTMLElement>("#bridge-camera-preview-detail");
+    if (detail) detail.hidden = true;
+    if (root) root.dataset.bridgeCameraCount = "0";
+  }
+
+  private async selectBridgeCameras(root: HTMLElement, selection: string) {
+    const generation = ++this.cameraSelectionGeneration;
+    this.releaseBridgeCameras(root);
+    const acquisition = new AbortController();
+    this.bridgeCameraAcquisition = acquisition;
+    const current = () => !this.disposed && !this.captureAuthorityRevoked
+      && generation === this.cameraSelectionGeneration && !acquisition.signal.aborted;
+    this.selectedCamera = null;
+    this.captureStream = null;
+    this.xrCameraEdgesShownAt = null;
+    root.dataset.xrCameraEdgesPhase = "hidden";
+    this.updateCaptureStatus(root, {
+      camera: "requesting",
+      selectedCameraDeviceId: null,
+      selectedCameraLabel: null,
+      selectedCameraWidth: null,
+      selectedCameraHeight: null,
+      selectedCameraFrame: null,
+      selectedCameraFrameRate: null,
+      selectedCameraSide: "unknown",
+      lastError: null,
+    });
+    this.setStatus(root, selection === BRIDGE_BOTH_CAMERAS ? "Opening both cameras" : "Opening camera");
+    const preview = root.querySelector<HTMLVideoElement>("#camera-preview")!;
+    try {
+      const choices = bridgeSelectedCameraChoices(this.cameraChoices, selection);
+      const acquired = await openBridgeCameraSelection(choices, acquisition.signal);
+      if (!acquired || !current()) {
+        acquired?.forEach((camera) => stopStream(camera.stream));
+        return;
+      }
+      this.bridgeCameras = acquired.map(({ choice, stream, track }) => ({
+        stream,
+        track,
+        side: choice.side,
+        width: track.getSettings().width ?? 0,
+        height: track.getSettings().height ?? 0,
+      }));
+      const primary = this.bridgeCameras[0];
+      this.cameraStream = primary.stream;
+      this.selectedCamera = acquired[0].choice;
+      preview.srcObject = primary.stream;
+      await preview.play();
+      if (!current()) return;
+      primary.width ||= preview.videoWidth;
+      primary.height ||= preview.videoHeight;
+      if (!this.bridgeCamerasReady()) throw new Error("Every selected camera must provide live video and camera geometry");
+      for (const camera of this.bridgeCameras) {
+        camera.track.contentHint = "motion";
+        camera.track.addEventListener("ended", () => {
+          if (!current() || !this.bridgeCameras.includes(camera)) return;
+          this.releaseBridgeCameras(root);
+          this.selectedCamera = null;
+          const message = `The ${camera.side === "unknown" ? "selected" : camera.side} camera stopped. Enable the camera to reconnect.`;
+          this.updateCaptureStatus(root, { camera: "error", lastError: message });
+          this.reportError(root, message);
+        }, { once: true });
+      }
+      this.bridge!.setCameras(this.bridgeCameras);
+      root.dataset.bridgeCameraCount = String(this.bridgeCameras.length);
+      const detail = root.querySelector<HTMLElement>("#bridge-camera-preview-detail")!;
+      detail.textContent = this.bridgeCameras.length === 2
+        ? "Both cameras selected. Preview shows the right camera."
+        : primary.side === "unknown" ? "One camera selected." : `${primary.side === "right" ? "Right" : "Left"} camera selected.`;
+      detail.hidden = false;
+      root.querySelector(".capture-video-empty")!.classList.add("is-hidden");
+      root.querySelector(".capture-video-empty")!.classList.remove("has-error");
+      root.querySelector<HTMLElement>("#camera-field-status")!.hidden = true;
+      this.updateCaptureStatus(root, {
+        camera: "ready",
+        selectedCameraDeviceId: this.selectedCamera.deviceId,
+        selectedCameraLabel: this.bridgeCameras.length === 2 ? "Both cameras" : this.selectedCamera.label,
+        selectedCameraWidth: primary.width,
+        selectedCameraHeight: primary.height,
+        selectedCameraFrame: null,
+        selectedCameraFrameRate: primary.track.getSettings().frameRate ?? null,
+        selectedCameraSide: primary.side,
+        lastError: null,
+      });
+      this.setStatus(root, this.bridgeCameras.length === 2 ? "Both cameras ready" : "Camera ready");
+      void this.composeCaptureStream();
+    } catch (error) {
+      if (!current()) return;
+      this.releaseBridgeCameras(root);
+      this.selectedCamera = null;
+      this.updateCaptureStatus(root, {
+        camera: "error",
+        lastError: error instanceof Error ? error.message : "The selected cameras could not be opened",
+      });      throw error;
+    } finally {
+      if (!this.disposed && generation === this.cameraSelectionGeneration) this.renderCaptureDiagnostics(root);
+    }
+  }
+
   private async selectCamera(root: HTMLElement, deviceId: string) {
-    if (this.captureAuthorityRevoked) return;
-    if (this.bridge && this.xrSession) throw new Error("Exit XR before changing the camera");
+    if (this.disposed || this.captureAuthorityRevoked) return;
+    if (this.bridge) {
+      if (this.xrSession || this.captureStatus.xr === "requesting") throw new Error("Exit XR before changing the camera");
+      return this.selectBridgeCameras(root, deviceId);
+    }
     if ((this.mediaRecorder && this.mediaRecorder.state !== "inactive")
       || (this.snapshot?.run.recordingState !== undefined && this.snapshot.run.recordingState !== "idle")
       || this.recordingFinalising) {
@@ -2407,7 +2545,6 @@ export class CaptureApp {
     this.cameraCaptureComposer = null;
     stopStream(this.cameraStream);
     this.cameraStream = null;
-    this.bridge?.setCamera(null);
     this.captureStream = null;
     this.selectedCamera = null;
     delete root.dataset.cameraCaptureFrame;
@@ -2458,24 +2595,6 @@ export class CaptureApp {
       }
       const sourceWidth = sourceSettings?.width ?? preview.videoWidth;
       const sourceHeight = sourceSettings?.height ?? preview.videoHeight;
-      if (this.bridge) {
-        if (!sourceWidth || !sourceHeight) throw new Error("Camera geometry is unavailable");
-        sourceTrack.contentHint = "motion";
-        this.bridge.setCamera({ stream: cameraStream, track: sourceTrack, side: camera?.side ?? "unknown", width: sourceWidth, height: sourceHeight });
-        this.updateCaptureStatus(root, {
-          camera: "ready",
-          selectedCameraDeviceId: camera?.deviceId ?? deviceId,
-          selectedCameraLabel: camera?.label ?? "Outward camera",
-          selectedCameraWidth: sourceWidth,
-          selectedCameraHeight: sourceHeight,
-          selectedCameraFrame: null,
-          selectedCameraFrameRate: sourceSettings?.frameRate ?? null,
-          selectedCameraSide: camera?.side ?? "unknown",
-          lastError: null,
-        });
-        void this.composeCaptureStream();
-        return;
-      }
       const captureFrame = cameraCaptureFrame(sourceWidth, sourceHeight);
       let composer!: CameraCaptureComposer;
       composer = new CameraCaptureComposer(
@@ -2534,7 +2653,8 @@ export class CaptureApp {
         selectedCameraFrameRate: null,
         selectedCameraSide: "unknown",
         lastError: error instanceof Error ? error.message : "The selected camera could not be opened",
-      });      throw error;
+      });
+      throw error;
     } finally {
       if (generation === this.cameraSelectionGeneration && select) select.disabled = false;
     }
@@ -2929,7 +3049,7 @@ export class CaptureApp {
   private enterXr(root: HTMLElement): Promise<boolean> {
     if (this.disposed || this.captureAuthorityRevoked) return Promise.resolve(false);
     if (this.xrSession || this.world?.renderer.xr.getSession()) return Promise.resolve(true);
-    if (this.bridge && (!this.bridge.ready || this.captureStatus.camera !== "ready")) {
+    if (this.bridge && (!this.bridge.ready || this.captureStatus.camera !== "ready" || !this.bridgeCamerasReady())) {
       this.setStatus(root, "Pair a receiver and enable the camera before entering XR");
       return Promise.resolve(false);
     }
@@ -4502,7 +4622,7 @@ export class CaptureApp {
     const cameraWidth = this.captureStatus.selectedCameraWidth;
     const cameraHeight = this.captureStatus.selectedCameraHeight;
     const cameraFrameReady = (this.bridge
-      ? this.cameraStream?.getVideoTracks().some(track => track.readyState === "live") === true
+      ? this.bridgeCamerasReady()
       : this.liveComposedVideoTrack() !== null)
       && typeof cameraWidth === "number"
       && Number.isFinite(cameraWidth)
@@ -5648,6 +5768,7 @@ export class CaptureApp {
     this.audioRecorder = null;
     this.recorder.dispose();
     this.cameraSelectionGeneration += 1;
+    this.releaseBridgeCameras(root);
     this.cameraCaptureComposer?.dispose();
     this.cameraCaptureComposer = null;
     delete root.dataset.cameraCaptureFrame;
@@ -6598,18 +6719,19 @@ export class CaptureApp {
 
   private renderCaptureDiagnostics(root: HTMLElement) {
     if (this.bridge) {
-      this.setStatusPill(root, "#join-camera-state", this.captureStatus.camera === "ready" ? "OK" : this.captureStatus.camera === "requesting" ? "WAIT" : this.captureStatus.camera === "error" ? "ERR" : "IDLE");
+      const camerasReady = this.captureStatus.camera === "ready" && this.bridgeCamerasReady();
+      this.setStatusPill(root, "#join-camera-state", camerasReady ? "OK" : this.captureStatus.camera === "requesting" ? "WAIT" : this.captureStatus.camera === "error" || this.captureStatus.camera === "ready" ? "ERR" : "IDLE");
       this.setStatusPill(root, "#join-key-state", this.bridge.ready ? "OK" : "WAIT");
       this.setStatusPill(root, "#join-session-state", this.bridge.streaming ? "OK" : this.xrSession ? "WAIT" : "IDLE");
       this.setXrStatusPill(root, this.captureStatus.xr === "active" ? "READY" : "IDLE");
       this.renderCaptureModeSelector(root);
       const active = Boolean(this.xrSession) || this.captureStatus.xr === "requesting";
       const button = root.querySelector<HTMLButtonElement>("#enter-xr")!;
-      button.disabled = active || !this.bridge.ready || this.captureStatus.camera !== "ready";
+      button.disabled = active || !this.bridge.ready || !camerasReady;
       button.title = button.disabled ? "Pair a receiver and enable the camera before entering XR" : "Launch Bridge XR";
-      root.querySelector<HTMLSelectElement>("#camera-select")!.disabled = active || !this.cameraChoices.length;
-      root.querySelector<HTMLButtonElement>("#prepare-camera")!.disabled = active || !cameraAccessCapability().available;
-      renderCaptureSetup(root, this.bridge.ready, this.captureStatus.camera === "ready", this.captureStatus.xr === "active");
+      root.querySelector<HTMLSelectElement>("#camera-select")!.disabled = active || this.captureStatus.camera === "requesting" || !this.cameraChoices.length;
+      root.querySelector<HTMLButtonElement>("#prepare-camera")!.disabled = active || this.captureStatus.camera === "requesting" || !cameraAccessCapability().available;
+      renderCaptureSetup(root, this.bridge.ready, camerasReady, this.captureStatus.xr === "active");
       return;
     }
     const soloMode = this.authority.kind === "solo";

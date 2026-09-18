@@ -1,4 +1,5 @@
 import json
+from copy import deepcopy
 from importlib.resources import files
 from pathlib import Path
 import struct
@@ -47,6 +48,35 @@ class ProtocolTests(unittest.TestCase):
         for command in ("record", "start", "stop", "reconfigure"):
             with self.assertRaises(ValueError):
                 parse_metadata(json.dumps({"type": command, "version": 1, "epoch": 1}))
+
+    def test_camera_tracks_preserve_primary_and_validate_identity(self):
+        value = description()
+        value["cameras"] = [{**value["camera"], "mid": "0"}, {**value["camera"], "side": "left", "mid": "1"}]
+        self.assertEqual(parse_metadata(json.dumps(value)), value)
+        single = deepcopy(value)
+        single["cameras"].pop()
+        self.assertEqual(parse_metadata(json.dumps(single)), single)
+        invalid = []
+        for cameras in (None, {}, [], value["cameras"] * 2):
+            invalid.append({**value, "cameras": cameras})
+        for mid in (None, "", "0", "x" * 65, "invalid mid", "a/b"):
+            candidate = deepcopy(value)
+            candidate["cameras"][1]["mid"] = mid
+            invalid.append(candidate)
+        for side in ("right", "unknown"):
+            candidate = deepcopy(value)
+            candidate["cameras"][1]["side"] = side
+            invalid.append(candidate)
+        for key, bad in (("width", 0), ("fps", float("nan")), ("calibration", {})):
+            candidate = deepcopy(value)
+            candidate["cameras"][1][key] = bad
+            invalid.append(candidate)
+        candidate = deepcopy(value)
+        candidate["camera"]["width"] = 640
+        invalid.append(candidate)
+        for candidate in invalid:
+            with self.subTest(cameras=candidate["cameras"]), self.assertRaises(ValueError):
+                parse_metadata(json.dumps(candidate))
 
     def test_cross_language_fixtures(self):
         path = Path(__file__).parents[2] / "protocol/bridge/fixtures/poses.json"

@@ -40,7 +40,7 @@ class FrameMailbox:
         self.generation = 0
         self.drops = 0
 
-    def publish(self, data, width, height, stride, received_us, epoch, pts_ns):
+    def publish(self, data, width, height, stride, received_us, epoch, pts_ns, camera=None):
         if len(data) > self.capacity or stride * height != len(data):
             self.drops += 1
             return
@@ -54,6 +54,8 @@ class FrameMailbox:
         self.latest = {"slot": slot, "generation": self.generation, "offset": offset, "bytes": len(data),
                        "width": width, "height": height, "stride": stride, "format": "RGB",
                        "received_us": received_us, "epoch": epoch, "pts_ns": pts_ns}
+        if camera is not None:
+            self.latest.update(side=camera["side"], mid=camera["mid"])
 
     def acquire(self, now):
         if not self.latest or now - self.latest["received_us"] > 100_000 or self.latest["slot"] in self.leased:
@@ -80,7 +82,7 @@ class EncodedMailbox(FrameMailbox):
             self.drops += 1
         return super().acquire(now)
 
-    def publish_access_unit(self, data, keyframe, received_us, epoch, pts_ns):
+    def publish_access_unit(self, data, keyframe, received_us, epoch, pts_ns, camera=None):
         if self.latest is not None or len(self.leased) == 2 or len(data) > self.capacity:
             self.needs_keyframe = True
             self.latest = None
@@ -89,7 +91,7 @@ class EncodedMailbox(FrameMailbox):
             return False
         if len(self.leased) == 2 or len(data) > self.capacity:
             return False
-        super().publish(data, len(data), 1, len(data), received_us, epoch, pts_ns)
+        super().publish(data, len(data), 1, len(data), received_us, epoch, pts_ns, camera)
         self.latest.update(format="h264", keyframe=keyframe)
         self.needs_keyframe = False
         return True
@@ -116,15 +118,22 @@ class Broker:
         self.consumers: dict[int, FrameMailbox | None] = {}
         self.encoded: dict[int, EncodedMailbox] = {}
         self.audio: dict[int, AudioMailbox] = {}
-        self.request_keyframe = lambda: None
+        self.cameras: dict[int, str] = {}
+        self.request_keyframe = lambda _camera=None: None
         self.serial = 0
 
-    def publish_frame(self, data, width, height, stride, epoch, pts_ns=None):
+    def _camera_matches(self, identity, camera):
+        selection = self.cameras.get(identity, "primary")
+        if selection == "primary":
+            return camera is None or camera["primary"]
+        return camera is not None and selection == camera["side"]
+
+    def publish_frame(self, data, width, height, stride, epoch, pts_ns=None, *, camera=None):
         now = monotonic_us()
         with self.lock:
-            for box in self.consumers.values():
-                if box:
-                    box.publish(data, width, height, stride, now, epoch, pts_ns)
+            for identity, box in self.consumers.items():
+                if box and self._camera_matches(identity, camera):
+                    box.publish(data, width, height, stride, now, epoch, pts_ns, camera)
         with self.state.lock:
             self.state.counts["frames"] += 1
 
@@ -136,14 +145,15 @@ class Broker:
                     if isinstance(box, EncodedMailbox):
                         box.needs_keyframe = True
 
-    def publish_encoded(self, data, keyframe, epoch, pts_ns):
-        request = False
+    def publish_encoded(self, data, keyframe, epoch, pts_ns, *, camera=None):
+        requests = set()
         with self.lock:
-            for box in self.encoded.values():
-                if not box.publish_access_unit(data, keyframe, monotonic_us(), epoch, pts_ns):
-                    request = True
-        if request:
-            self.request_keyframe()
+            for identity, box in self.encoded.items():
+                if self._camera_matches(identity, camera) and not box.publish_access_unit(
+                        data, keyframe, monotonic_us(), epoch, pts_ns, camera):
+                    requests.add(self.cameras.get(identity, "primary"))
+        for selection in requests:
+            self.request_keyframe(selection)
 
     def publish_audio(self, data, epoch, pts_ns):
         with self.lock:
@@ -177,17 +187,23 @@ class Broker:
                 with self.lock:
                     box = self.consumers[identity]
                     if message.get("op") == "subscribe":
+                        camera = message.get("camera", "primary")
+                        if camera not in ("primary", "left", "right") or (
+                                identity in self.cameras and self.cameras[identity] != camera):
+                            break
+                        self.cameras[identity] = camera
                         if message.get("video") and box is None:
                             box = FrameMailbox()
                             self.consumers[identity] = box
                         if message.get("encoded") and identity not in self.encoded:
                             self.encoded[identity] = EncodedMailbox()
-                            self.request_keyframe()
+                            self.request_keyframe(camera)
                         encoded_box = self.encoded.get(identity)
                         if message.get("audio") and identity not in self.audio:
                             self.audio[identity] = AudioMailbox()
                         audio_box = self.audio.get(identity)
-                        result = {"version": 1, "path": box.path if box else None, "size": MAX_FRAME_BYTES * 2 if box else 0,
+                        result = {"version": 1, "camera": camera,
+                                  "path": box.path if box else None, "size": MAX_FRAME_BYTES * 2 if box else 0,
                                   "encoded_path": encoded_box.path if encoded_box else None,
                                   "encoded_size": MAX_ENCODED_BYTES * 2 if encoded_box else 0,
                                   "audio_path": audio_box.path if audio_box else None,
@@ -209,7 +225,7 @@ class Broker:
                             if message.get("keyframe"):
                                 encoded_box.needs_keyframe = True
                                 encoded_box.latest = None
-                                self.request_keyframe()
+                                self.request_keyframe(self.cameras.get(identity, "primary"))
                         result = self.state.snapshot()
                         result["frame"] = box.acquire(monotonic_us()) if box else None
                         result["encoded"] = encoded_box.acquire(monotonic_us()) if encoded_box else None
@@ -221,7 +237,7 @@ class Broker:
                             audio_box.leased.difference_update(audio_release)
                         result["audio"] = audio_box.acquire(monotonic_us()) if audio_box else None
                         if encoded_box and encoded_box.needs_keyframe:
-                            self.request_keyframe()
+                            self.request_keyframe(self.cameras.get(identity, "primary"))
                         result["buffers"] = {"consumers": len(self.consumers),
                                              "raw_bytes": sum(MAX_FRAME_BYTES * 2 for b in self.consumers.values() if b),
                                              "encoded_bytes": len(self.encoded) * MAX_ENCODED_BYTES * 2,
@@ -248,6 +264,7 @@ class Broker:
                     audio_box = self.audio.pop(identity, None)
                     if audio_box:
                         audio_box.close()
+                    self.cameras.pop(identity, None)
             writer.close()
             try:
                 await writer.wait_closed()

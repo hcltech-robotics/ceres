@@ -78,6 +78,14 @@ def _uint(value, bits=32):
     return type(value) is int and 0 <= value < 2**bits
 
 
+def _camera(value):
+    return (isinstance(value, dict) and value.get("side") in ("left", "right", "unknown")
+            and value.get("calibration") is None
+            and all(type(value.get(k)) is int and 0 < value[k] <= 8192 for k in ("width", "height", "requestedWidth"))
+            and (value.get("fps") is None or type(value["fps"]) in (int, float)
+                 and math.isfinite(value["fps"]) and value["fps"] > 0))
+
+
 def parse_metadata(raw: str) -> dict:
     if len(raw.encode("utf-8")) > 8192:
         raise ValueError("Bridge metadata exceeds its budget")
@@ -100,9 +108,18 @@ def parse_metadata(raw: str) -> dict:
             or value.get("joints") != list(JOINTS)
             or not isinstance(clock, dict) or clock.get("units") != "microseconds"
             or clock.get("domain") != "sender-monotonic" or not isinstance(clock.get("id"), str)
-            or len(clock["id"]) > 128 or not isinstance(camera, dict)
-            or camera.get("side") not in ("left", "right", "unknown") or camera.get("calibration") is not None
-            or not all(type(camera.get(k)) is int and 0 < camera[k] <= 8192 for k in ("width", "height", "requestedWidth"))
-            or camera.get("fps") is not None and (type(camera["fps"]) not in (int, float) or not math.isfinite(camera["fps"]) or camera["fps"] <= 0)):
+            or len(clock["id"]) > 128 or not _camera(camera)):
         raise ValueError("Invalid Bridge stream description")
+    if "cameras" in value:
+        cameras = value["cameras"]
+        if (not isinstance(cameras, list) or not 1 <= len(cameras) <= 2
+                or any(not _camera(item) or not isinstance(item.get("mid"), str)
+                       or not 1 <= len(item["mid"]) <= 64
+                       or any(character not in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-"
+                              for character in item["mid"]) for item in cameras)
+                or len({item["mid"] for item in cameras}) != len(cameras)
+                or any(cameras[0].get(key) != camera.get(key)
+                       for key in ("side", "width", "height", "requestedWidth", "fps", "calibration"))
+                or len(cameras) == 2 and {item["side"] for item in cameras} != {"left", "right"}):
+            raise ValueError("Invalid Bridge camera descriptions")
     return value

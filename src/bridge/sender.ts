@@ -15,7 +15,7 @@ export class BridgeSender implements CaptureAuthorityPort {
   readonly supportsPeerMedia = false;
   readonly observations = new Observations();
   private binding: Binding | null = null;
-  private camera: BridgeCamera | null = null;
+  private cameras: readonly BridgeCamera[] = [];
   private audioTrack: MediaStreamTrack | null = null;
   private peer: BridgePeer | null = null;
   private session: XRSession | null = null;
@@ -147,22 +147,28 @@ export class BridgeSender implements CaptureAuthorityPort {
     });
   }
 
-  setCamera(camera: BridgeCamera | null) { this.camera = camera; }
+  setCamera(camera: BridgeCamera | null) { this.setCameras(camera ? [camera] : []); }
+  setCameras(cameras: readonly BridgeCamera[]) { this.cameras = [...cameras]; }
 
   start(session: XRSession, space: XRReferenceSpace, referenceSpace: "local" | "local-floor") {
-    if (!this.ready || !this.binding || !this.camera) throw new Error("Pair a receiver and enable the camera before entering XR");
+    if (!this.ready || !this.binding || !this.cameras.length
+      || this.cameras.some(camera => camera.track.readyState !== "live")) {
+      throw new Error("Pair a receiver and enable the selected cameras before entering XR");
+    }
     this.stop();
     this.session = session;
     this.observations.spaceEpoch = (this.observations.spaceEpoch + 1) >>> 0;
     this.sessionEvents = new AbortController();
     const options = { signal: this.sessionEvents.signal };
     space.addEventListener("reset", () => { this.observations.spaceEpoch = (this.observations.spaceEpoch + 1) >>> 0; }, options);
-    this.camera.track.addEventListener("ended", () => {
-      this.stop();
-      this.setStatus("The camera disconnected. Enable it again before restarting Bridge.");
-      void session.end().catch(() => undefined);
-    }, options);
-    const peer = this.peer = new BridgePeer(this.binding, this.camera, referenceSpace,
+    for (const camera of this.cameras) {
+      camera.track.addEventListener("ended", () => {
+        this.stop();
+        this.setStatus("A selected camera disconnected. Enable the cameras again before restarting Bridge.");
+        void session.end().catch(() => undefined);
+      }, options);
+    }
+    const peer = this.peer = new BridgePeer(this.binding, this.cameras, referenceSpace,
       message => this.setStatus(message), error => {
         if (this.peer !== peer) return;
         this.stop();
@@ -215,7 +221,7 @@ export class BridgeSender implements CaptureAuthorityPort {
   private sampleRates(peer: BridgePeer) {
     let lastMotion = this.observations.acquired - this.observations.dropped;
     let lastTime = performance.now();
-    let lastVideo: { id: string; frames: number; time: number } | null = null;
+    let lastVideos = new Map<string, { frames: number; time: number }>();
     const sample = async () => {
       if (this.peer !== peer) return;
       const now = performance.now();
@@ -227,20 +233,29 @@ export class BridgeSender implements CaptureAuthorityPort {
       try {
         const report = await pc?.getStats();
         if (this.peer !== peer || peer.pc !== pc) return;
-        let videoFound = false;
+        const videos = new Map<string, { frames: number; time: number }>();
+        const rates: number[] = [];
         report?.forEach(stat => {
           if (stat.type !== "outbound-rtp" || stat.kind !== "video" || typeof stat.framesSent !== "number") return;
-          videoFound = true;
-          this.videoFps = !this.paused && lastVideo && lastVideo.id === stat.id && stat.framesSent >= lastVideo.frames
-            ? 1000 * (stat.framesSent - lastVideo.frames) / Math.max(1, stat.timestamp - lastVideo.time) : 0;
-          lastVideo = { id: stat.id, frames: stat.framesSent, time: stat.timestamp };
+          const previous = lastVideos.get(stat.id);
+          rates.push(!this.paused && previous && stat.framesSent >= previous.frames
+            ? 1000 * (stat.framesSent - previous.frames) / Math.max(1, stat.timestamp - previous.time) : 0);
+          videos.set(stat.id, { frames: stat.framesSent, time: stat.timestamp });
         });
-        if (!videoFound) { this.videoFps = 0; lastVideo = null; }
-        const settings = this.camera?.track.getSettings();
-        if (settings?.width && settings.height && this.camera
-          && (settings.width !== this.camera.width || settings.height !== this.camera.height)) {
-          this.camera.width = settings.width;
-          this.camera.height = settings.height;
+        // The HUD reports the slower camera rather than adding two frame rates.
+        this.videoFps = rates.length === this.cameras.length ? Math.min(...rates) : 0;
+        lastVideos = videos;
+        let geometryChanged = false;
+        for (const camera of this.cameras) {
+          const settings = camera.track.getSettings();
+          if (settings.width && settings.height
+            && (settings.width !== camera.width || settings.height !== camera.height)) {
+            camera.width = settings.width;
+            camera.height = settings.height;
+            geometryChanged = true;
+          }
+        }
+        if (geometryChanged) {
           void peer.start(peer.epoch).catch(error => this.failed(error));
         }
       } catch { this.videoFps = 0; }
@@ -276,7 +291,7 @@ export class BridgeSender implements CaptureAuthorityPort {
     this.scanner?.abort();
     this.lifetime.abort();
     this.releaseTab?.();
-    this.camera = null;
+    this.cameras = [];
     this.audioTrack = null;
   }
   // The local sender does not accept run commands or expose recording services.

@@ -110,7 +110,10 @@ ceres-bridge listen --app-origin https://ceres.example.org --name dual-arm-demo
 ```
 
 Open `/bridge/` on the Quest at that deployment, enter the displayed pairing code
-and select **Start streaming**. In another terminal in the same environment:
+and enable the camera. Choose the right camera, left camera or **Both cameras**
+in the camera selector, then enter XR to start streaming. The **Both cameras**
+option appears when both outward cameras are available and sends each feed as a
+separate video track. In another terminal in the same environment:
 
 ```sh
 ceres-bridge foxglove --robot xlerobot --robot-rate 60

@@ -1,15 +1,20 @@
-import { parseMetadata, XR_HAND_JOINTS, type BridgeDescription } from "../../shared/bridge-protocol.js";
+import { parseMetadata, XR_HAND_JOINTS, type BridgeCameraDescription, type BridgeDescription } from "../../shared/bridge-protocol.js";
 import type { BridgeCamera } from "./camera.js";
 import { relayBase, refreshBinding, type Binding } from "./pairing.js";
 
 const nowUs = () => Math.round(performance.now() * 1000);
+
+const describeCamera = (camera: BridgeCamera): BridgeCameraDescription => ({
+  side: camera.side, width: camera.width, height: camera.height,
+  requestedWidth: 640, fps: camera.track.getSettings().frameRate ?? null, calibration: null,
+});
 
 export class BridgePeer {
   pc: RTCPeerConnection | null = null;
   pose: RTCDataChannel | null = null;
   epoch = 0;
   private paused = false;
-  private videoSender: RTCRtpSender | null = null;
+  private videoSenders: RTCRtpSender[] = [];
   private audioSender: RTCRtpSender | null = null;
   private audioTrack: MediaStreamTrack | null = null;
   private socket: WebSocket | null = null;
@@ -21,8 +26,14 @@ export class BridgePeer {
   private metadata: RTCDataChannel | null = null;
   private signalComplete = false;
 
-  constructor(private binding: Binding, private camera: BridgeCamera, private referenceSpace: "local" | "local-floor",
-    private status: (message: string) => void, private fatal: (error: Error) => void) {}
+  constructor(private binding: Binding, private cameras: readonly BridgeCamera[], private referenceSpace: "local" | "local-floor",
+    private status: (message: string) => void, private fatal: (error: Error) => void) {
+    if (cameras.length < 1 || cameras.length > 2
+      || cameras.length === 2 && (new Set(cameras.map(camera => camera.side)).size !== 2
+        || cameras.some(camera => camera.side === "unknown"))) {
+      throw new Error("Bridge requires one camera or a left and right camera pair");
+    }
+  }
 
   async start(restartAfter?: number): Promise<void> {
     const attempt = ++this.attempt;
@@ -39,8 +50,7 @@ export class BridgePeer {
       clock: { id: crypto.randomUUID(), units: "microseconds", domain: "sender-monotonic" },
       referenceSpace: this.referenceSpace, axes: "right-handed-x-right-y-up-z-back", units: "metres",
       quaternion: "xyzw", joints: XR_HAND_JOINTS,
-      camera: { side: this.camera.side, width: this.camera.width, height: this.camera.height,
-        requestedWidth: 640, fps: this.camera.track.getSettings().frameRate ?? null, calibration: null },
+      camera: describeCamera(this.cameras[0]),
     };
     let acknowledged = false, remoteEnd = false, localEndSent = false, offered = false;
     let remoteSet = false;
@@ -111,10 +121,13 @@ export class BridgePeer {
         if (message.epoch !== this.epoch) return;
         if (message.type === "peer-ready" && !offered) {
           offered = true;
-          const transceiver = pc.addTransceiver(this.camera.track, { direction: "sendonly", streams: [this.camera.stream],
-            sendEncodings: [{ maxBitrate: 2_000_000, scaleResolutionDownBy: Math.max(1, this.camera.width / 640) }] });
-          this.videoSender = transceiver.sender;
-          if (this.paused) await transceiver.sender.replaceTrack(null);
+          const videos = this.cameras.map(camera => pc.addTransceiver(camera.track, {
+            direction: "sendonly", streams: [camera.stream],
+            sendEncodings: [{ maxBitrate: 2_000_000, scaleResolutionDownBy: Math.max(1, camera.width / 640) }],
+          }));
+          this.videoSenders = videos.map(video => video.sender);
+          if (this.paused) await Promise.all(this.videoSenders.map(sender => sender.replaceTrack(null)));
+          if (!active()) return;
           const audio = pc.addTransceiver("audio", { direction: "sendonly", sendEncodings: [{ maxBitrate: 32_000 }] });
           const opus = RTCRtpSender.getCapabilities("audio")?.codecs.filter(codec => codec.mimeType.toLowerCase() === "audio/opus");
           if (opus?.length) audio.setCodecPreferences(opus);
@@ -124,12 +137,21 @@ export class BridgePeer {
           if (codecs?.length) {
             const preferred = new URLSearchParams(location.search).get("codec") === "vp8" ? "video/VP8" : "video/H264";
             codecs.sort((a, b) => Number(b.mimeType === preferred) - Number(a.mimeType === preferred));
-            transceiver.setCodecPreferences(codecs);
+            for (const video of videos) video.setCodecPreferences(codecs);
           }
           const offer = await pc.createOffer();
           if (!active()) return;
           await pc.setLocalDescription(offer);
           if (!active()) return;
+          const cameraDescriptions = this.cameras.map(describeCamera);
+          description.camera = cameraDescriptions[0];
+          if (this.cameras.length > 1) {
+            description.cameras = cameraDescriptions.map((camera, index) => {
+              const mid = videos[index].mid;
+              if (mid === null) throw new Error("Bridge camera track has no negotiated identity");
+              return { ...camera, mid };
+            });
+          }
           send({ type: "offer", sdp: offer.sdp });
         } else if (message.type === "signal") {
           const signal = message.signal;
@@ -183,7 +205,7 @@ export class BridgePeer {
   async setPaused(paused: boolean) {
     this.paused = paused;
     await Promise.all([
-      this.videoSender?.replaceTrack(paused ? null : this.camera.track),
+      ...this.videoSenders.map((sender, index) => sender.replaceTrack(paused ? null : this.cameras[index].track)),
       this.audioSender?.replaceTrack(paused ? null : this.audioTrack),
     ]);
   }
@@ -194,7 +216,7 @@ export class BridgePeer {
   }
 
   private cleanup() {
-    this.videoSender = null;
+    this.videoSenders = [];
     this.audioSender = null;
     if (this.timer) clearTimeout(this.timer);
     if (this.setupTimer) clearTimeout(this.setupTimer);
