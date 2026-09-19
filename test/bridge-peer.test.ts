@@ -136,6 +136,23 @@ test("Bridge single-camera offers retain the original metadata shape", async t =
   assert.equal(description.type === "description" && description.camera?.side, "left");
   assert.ok(!("cameras" in description));
 });
+test("Bridge enables depth metadata only for an explicit current receiver acknowledgement", async t => {
+  const env = environment(t);
+  const peer = new BridgePeer(binding, null, "local-floor", () => {}, error => env.errors.push(error));
+  t.after(() => peer.stop());
+  const { pc } = await env.offer(peer);
+  const meta = pc.channels.find((channel: any) => channel.label === "ceres.meta.v1");
+  assert.equal(peer.depthMetadataVersion, 1);
+  for (const version of [undefined, 1, 3, "2", null, false, 2]) {
+    meta.onmessage({ data: JSON.stringify({ type: "ack", version: 1, epoch: peer.epoch, depth_metadata_version: version }) });
+    assert.equal(peer.depthMetadataVersion, version === 2 ? 2 : 1);
+  }
+  meta.onmessage({ data: JSON.stringify({ type: "ack", version: 1, epoch: peer.epoch + 1, depth_metadata_version: 1 }) });
+  assert.equal(peer.depthMetadataVersion, 2, "foreign epoch cannot change negotiated metadata");
+  await env.offer(peer);
+  assert.equal(peer.depthMetadataVersion, 1, "reconnection requires a fresh acknowledgement");
+  assert.deepEqual(env.errors, []);
+});
 
 test("Bridge uses one camera metadata snapshot when measured settings change during setup", async t => {
   const env = environment(t);

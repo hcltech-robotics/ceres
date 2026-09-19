@@ -12,8 +12,20 @@ struct VoxelGpuConfig {
     float contradiction_decrement = .2f;
     float support_increment = .25f;
     float surface_tolerance = .04f;
+    float truncation_voxels = 3.f;
+    // Set only for measured camera colour. Depth palettes are presentation data.
+    bool intrinsic_colour = true;
     // Column-major rigid transform, as stored by glm. World coordinates are metres.
     float head_to_world[16]{};
+};
+
+struct VoxelStatistics {
+    unsigned occupied_points = 0, tsdf_voxels = 0;
+    float minimum_cell_size = 0, maximum_cell_size = 0;
+};
+
+struct VoxelTsdfSample {
+    float distance_metres = 0, weight = 0;
 };
 
 struct VoxelLodConfig {

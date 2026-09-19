@@ -1032,7 +1032,8 @@ struct BridgeClient::Impl : std::enable_shared_from_this<BridgeClient::Impl> {
             event.payload.assign(message.text.begin(), message.text.end());
             emit(std::move(event));
             metadata_channel->send(
-                Json{{"type", "ack"}, {"version", 1}, {"epoch", identity["epoch"]}}.dump());
+                Json{{"type", "ack"}, {"version", 1}, {"epoch", identity["epoch"]},
+                     {"depth_metadata_version", 2}}.dump());
         } else if (type == "depth-status") {
             {
                 std::lock_guard lock(state_mutex);

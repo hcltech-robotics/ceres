@@ -30,6 +30,7 @@ export interface DepthRenderer {
 }
 export interface DepthPeer {
   epoch: number;
+  depthMetadataVersion?: 1 | 2;
   depth: Pick<RTCDataChannel, "readyState" | "bufferedAmount" | "send"> | null;
   sendDepthStatus(status: DepthStatus): boolean;
 }
@@ -59,17 +60,27 @@ export function copyCpuDepth(image: DepthImage, format: DepthSourceFormat, width
   }
   return pixels;
 }
-export function depthGeometry(image: DepthImage, view: XRView): Pick<DepthHeader, "world_from_view" | "projection" | "norm_depth_from_norm_view"> {
+export function depthGeometry(image: DepthImage, view: XRView, usage?: DepthUsage, format?: DepthSourceFormat):
+Pick<DepthHeader, "world_from_view" | "projection" | "norm_depth_from_norm_view" | "geometry_source" | "mapping_version"> {
   // Newer WebXR implementations expose the depth sensor's original geometry.
   // Older implementations honour matchDepthView and use the associated XRView.
-  const original = image.transform && image.projectionMatrix ? image as DepthGeometry : image.view;
+  const sensor = Boolean(image.transform && image.projectionMatrix);
+  const original = sensor ? image as DepthGeometry : image.view;
   const geometry = original ?? view;
+  const norm = Array.from(image.normDepthBufferFromNormView.matrix);
+  if (usage === "gpu-optimized" && format && gpuDepthEncoding(image, format) === "perspective") {
+    // Meta's perspective GPU depth uses framebuffer rows, unlike its CPU data.
+    // IWSDK 0.4.2 depth-sensing-system samples GPU screenUV and CPU (x, 1-y).
+    // Compose F * N to map API depth coordinates into those raw framebuffer rows.
+    // Applying F to the whole output row preserves crops, rotations and reflection.
+    for (let column = 0; column < 4; column++) norm[column * 4 + 1] = norm[column * 4 + 3]! - norm[column * 4 + 1]!;
+  }
   return {
+    mapping_version: 2,
+    geometry_source: sensor ? "sensor" : image.view ? "view" : "view-fallback",
     world_from_view: Array.from(geometry.transform.matrix),
     projection: Array.from(geometry.projectionMatrix),
-    // WebXR already maps top-left view coordinates to the actual depth buffer.
-    // GPU packing preserves texel row indices, so retain this transform exactly.
-    norm_depth_from_norm_view: Array.from(image.normDepthBufferFromNormView.matrix),
+    norm_depth_from_norm_view: norm,
   };
 }
 type GpuReader = Pick<DepthGpuReadback, "capture" | "poll" | "cancel" | "dispose" | "busy">;
@@ -171,6 +182,7 @@ export class BridgeDepth {
           const pixels = this.gpu?.poll();
           if (pixels) {
             this.pending = null;
+            pending.header.readback_us = Math.max(0, Math.round((now - pending.at) * 1000));
             this.transmit(peer, pending.header, pixels);
           }
         }
@@ -212,10 +224,18 @@ export class BridgeDepth {
           observed_us: Math.round(now * 1000), target_us: Math.max(0, Math.round(displayTime * 1000)),
           ...dimensions, source_width: image.width, source_height: image.height, eye: view.eye,
           usage: this.usage, source_format: this.format, depth_format: "uint16-mm",
-          ...depthGeometry(image, view),
+          ...depthGeometry(image, view, this.usage, this.format),
         };
+        header.target_lead_us = header.target_us - header.observed_us;
+        this.diagnostics.geometry_source = header.geometry_source;
+        this.diagnostics.mapping_version = header.mapping_version;
+        this.diagnostics.target_lead_us = header.target_lead_us;
+        this.diagnosticKey = JSON.stringify(this.diagnostics);
         if (this.usage === "cpu-optimized") {
-          this.transmit(peer, header, copyCpuDepth(image, this.format, dimensions.width, dimensions.height));
+          const started = performance.now();
+          const pixels = copyCpuDepth(image, this.format, dimensions.width, dimensions.height);
+          header.readback_us = Math.max(0, Math.round((performance.now() - started) * 1000));
+          this.transmit(peer, header, pixels);
         } else if (image.texture && image.textureType && this.gpu?.capture(image as GpuDepthImage, this.format, dimensions.width, dimensions.height)) {
           this.pending = { header, at: now };
         } else continue;
@@ -235,8 +255,15 @@ export class BridgeDepth {
     const channel = peer.depth;
     if (!channel || channel.readyState !== "open" || channel.bufferedAmount !== 0
       || peer.epoch !== header.epoch || this.spaceEpoch !== header.space_epoch) return;
-    const fragments = fragmentDepthFrame(encodeDepthFrame(header, pixels), header);
+    const { geometry_source, readback_us, target_lead_us, mapping_version, ...legacyHeader } = header;
+    const wireHeader = peer.depthMetadataVersion === 2 ? header : legacyHeader;
+    const fragments = fragmentDepthFrame(encodeDepthFrame(wireHeader, pixels), header);
     for (const fragment of fragments) channel.send(fragment);
+    this.diagnostics.geometry_source = header.geometry_source;
+    this.diagnostics.mapping_version = header.mapping_version;
+    this.diagnostics.readback_us = header.readback_us;
+    this.diagnostics.target_lead_us = header.target_lead_us;
+    this.diagnosticKey = JSON.stringify(this.diagnostics);
     this.sendStatus(peer, "streaming");
   }
   private sendStatus(peer: DepthPeer, status: DepthStatus["status"]) {

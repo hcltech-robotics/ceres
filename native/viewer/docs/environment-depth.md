@@ -6,7 +6,7 @@ calibration to place these measurements.
 
 ## Viewing depth
 
-Select **DEPTH** in the sidebar footer, then choose a source in the **Depth** panel:
+Select **DEPTH** in the sidebar footer, then choose a source in **Spatial map**:
 
 | Source | Behaviour |
 | --- | --- |
@@ -14,26 +14,40 @@ Select **DEPTH** in the sidebar footer, then choose a source in the **Depth** pa
 | Quest depth | Uses only depth supplied by the headset |
 | Stereo | Uses the two camera images and the active stereo calibration |
 
-**Voxel** sets the finest spatial resolution and **Near**/**Far** bound the accepted
-depth range. The defaults are 3 cm cells and a range of 0.2 to 5 metres. **Points** sets
-the minimum point size. The map remains fixed in the tracking reference space while the
-headset moves. **Clear map** starts a new map.
+**Freeze map** stops both Quest depth integration and stereo reconstruction. Video,
+tracking and recording continue. The stored world geometry stays visible and distance
+colours follow the headset on every frame. **Resume acquisition** accepts new observations.
+
+**Spacing** sets the fusion resolution and **Near**/**Far** bound the accepted depth range.
+The defaults are 3 cm cells and a range of 0.2 to 5 metres. Changing spacing retains existing
+geometry. **Density** selects the proportion of samples shown without changing the stored
+map. **Points** sets the exact point width in framebuffer pixels, independent of distance,
+voxel size, adaptive detail and display scaling. A 1 px point occupies one pixel.
 
 **Detail > Adaptive** keeps nearby geometry fine and groups distant cells according to
 their projected size. The groups stay on the original world grid. Moving the viewer
-changes the displayed detail. **Full** displays every stored cell at its retained size.
-The map uses a fixed memory budget. As it fills, distant cells are merged on the world
-grid and less useful cells are pruned to leave room for new observations. Nearby,
-well-supported surfaces take priority. **Telemetry > Map memory** shows the allocated
-map and presentation storage. Revisiting a coarsened region restores finer detail when
-fresh observations cover the retained cells.
+changes the displayed detail. **Full** uses retained surface samples without additional
+display grouping.
+The CUDA working set is bounded. **Max size** also limits the retained surface samples
+to fit the selected saved-map budget. Spatial aggregation combines neighbouring samples
+as the map fills. **Telemetry > Map memory** shows the allocated map and presentation
+storage. Revisiting a coarsened region restores finer detail when fresh observations cover
+the retained cells.
 
-The map uses a spectral scale from warm near surfaces to cool distant surfaces.
+**View > Shape** adds depth-aware shading to make boundaries and overlapping surfaces
+easier to see. **Relief** controls its strength. The shading uses the measured depth of
+nearby visible samples, ignores gaps and preserves the selected point size. **Points**
+shows the same geometry with its unshaded palette.
+
+**Colour > Distance** uses a spectral scale from warm near surfaces to cool distant surfaces.
 Colour follows each point's distance from the headset's current tracked position and
 updates on every rendered frame, including while depth capture is idle. Moving the
 headset or changing **Near** or **Far** updates the colours. Orbiting the desktop view
 does not change them. Tracking gaps retain the last accepted headset position. The scale appears below
-those controls. **Opacity** sets
+those controls. **Recency** shades observation age using **Age span**, while **Confidence**
+shows retained surface support. **Neutral** uses a single pale material for inspecting
+geometry with Shape shading. Geometry, observation timestamps and evidence are stored
+independently of these display palettes. **Opacity** sets
 supported geometry's visibility. A surface loses opacity as newer measurements contradict
 it, and disappears when its evidence is exhausted. Time alone does not fade the map.
 
@@ -50,29 +64,72 @@ weaken the map again.
 Repeatedly confirmed surfaces require consecutive, consistent free-space measurements
 before confidence decreases, and stronger support slows that decrease. Inconsistent
 depth readings break the contradiction sequence. Under memory pressure, further
-coarsening preserves confirmed coverage before less-supported geometry is discarded.
+spatial coarsening preserves accumulated coverage within the sample budget.
 
 CPU and GPU refer to the depth access mode selected by the headset browser. Both arrive
-as metric measurements and use CUDA for unprojection and voxel fusion in the viewer.
-Telemetry separates the depth update rate, GPU processing time and rejected packets.
-The depth status identifies the active source.
+as metric measurements and use CUDA for unprojection and TSDF fusion in the viewer.
+Telemetry separates readback, callback-to-arrival age, receiver queueing, CUDA processing
+and submission-to-completion time. The pose source identifies sensor geometry, a depth
+view or a display-view fallback. Camera pose is captured with the depth frame and is
+never replaced by the headset pose at packet arrival.
+
+## Fusion and saved maps
+
+Depth observations update a sparse truncated signed distance field on the GPU. Each
+observed voxel combines signed metric distance and evidence weight within a narrow band
+around the measured surface. Zero crossings produce world-space surface samples for the
+persistent map. The bounded TSDF working layer and persistent surface cache are separate,
+so reclaiming working voxels does not erase previously reconstructed regions.
+
+The storage worker saves complete surface snapshots every two seconds and at shutdown.
+**Save map now** requests a fresh snapshot. The default folder is `maps` within the viewer's
+data directory. The folder field accepts another location when Enter is pressed. Each
+tracking world has separate Quest and stereo `.cmap` files. **Clear map** starts a new map.
+The folder keeps the three most recent autosaved files, counting
+Quest and stereo together. Older autosaves are removed after a new file has been saved
+successfully. Other map filenames are left untouched.
+
+**Max size** ranges from 1 to 256 MiB per completed map file, with a default of 16 MiB.
+The live GPU cache holds up to 262144 surface samples, with a smaller file budget reducing
+that count. **Live limit** shows the active sample budget.
+Neighbouring samples merge spatially when needed, retaining representative world positions,
+latest observation times and evidence. Atomic replacement temporarily keeps one pending
+file beside the completed file. A valid pending save is recoverable after interruption.
+The file contains a versioned header, explicitly encoded point records and checksums.
+
+Enter a `.cmap` path and select **Open saved map** to inspect it. Saved maps open frozen.
+Maps larger than the live sample budget are spatially coarsened during loading without
+rewriting the selected file.
+Resuming acquisition starts a map in the current tracking space, so a saved coordinate
+frame cannot accidentally receive observations from another session. The source MCAP
+recording remains independent of map display, sampling and storage settings.
+
+The command-line equivalents are `--map-directory DIRECTORY`, `--load-map FILE.cmap`
+and `--freeze-map-after SECONDS`.
 
 ## Headset capture
 
 Bridge requests WebXR depth sensing with a view-aligned result and sends one observation
-twice per second. Each frame keeps its aspect ratio within 256 by 256 samples. The selected
-view's pose and projection travel with the frame, along with the original depth dimensions
-and normalised coordinate transform. Camera video and tracking retain their own cadence.
-GPU packing preserves the source texture's row indices. The transmitted normalised
-transform is copied from WebXR exactly, including any reflection, rotation or crop supplied
-by the browser. The sender does not add a second vertical reflection.
+twice per second. Each frame keeps its aspect ratio within 256 by 256 samples. The depth
+sensor's pose and projection travel with the frame when the browser exposes them.
+Otherwise, Bridge uses the associated view geometry and identifies that fallback in the
+depth diagnostics. The original depth dimensions and normalised coordinate transform
+travel with the frame. Camera video and tracking retain their own cadence.
+GPU packing preserves the source texture's row indices. Quest perspective GPU depth uses
+OpenGL row coordinates, while CPU depth uses top-left image coordinates. For perspective
+GPU depth, the sender composes a vertical row conversion with the complete WebXR
+normalised transform. Crop, rotation, reflection and projective terms remain part of that
+composition. Linear GPU and CPU results retain the API transform. The native receiver
+applies the transmitted mapping once, including during replay.
 
 The CPU path converts the browser's depth buffer directly into millimetres. The GPU path
 samples the browser-owned 2D or array texture into a small owned RGBA8 target, packs
 millimetres and transfers that target into a pixel-pack buffer. It checks a GPU fence on
 later XR callbacks and reads the buffer only after completion. Only one readback is in
-flight, while the renderer's OpenGL state is restored after capture. Depth values and
-timestamps belong to the observation that initiated the readback.
+flight, while the renderer's OpenGL state is restored after capture. Depth values, pose,
+projection and timestamps belong to the observation that initiated the readback. The
+measured readback duration is added after completion, without changing that observation's
+timestamps or geometry.
 
 The browser selects the supported access mode and source format. The application uses the
 corresponding CPU or WebGL depth interface described in the
@@ -92,11 +149,15 @@ points upwards and the view looks along negative Z. The interpretation follows t
 
 Original sender observation and target timestamps are retained. The receiver maps the
 target timestamp through its clock model when available, otherwise it uses arrival time.
-This sample time orders evidence updates. Hand association uses the original recorded
+This sample time orders evidence updates. It does not move geometry: the embedded view
+transform determines every point's world position. The WebXR callback and predicted
+target times are not presented as the sensor's physical exposure timestamp.
+Hand association uses the original recorded
 timeline during replay, so changing playback speed does not change the mask.
 
-Connection and reference-space changes and seeks clear the map.
-Changing the voxel size starts a new map. Switching depth sources retains their separate
+Connection and reference-space changes and seeks start a new map while acquisition is active.
+Frozen maps survive these transitions. Changing spacing preserves existing geometry.
+Switching depth sources retains their separate
 maps, and recording pause/resume markers preserve the current world. Hiding depth or an interval without depth
 observations preserves the map. Zero samples are invalid and never become geometry or
 evidence of empty space.
@@ -139,7 +200,17 @@ samples. `0` denotes invalid depth.
 | `depth_format` | `uint16-mm` |
 | `world_from_view` | View pose in the tracking reference space |
 | `projection` | View projection matrix |
-| `norm_depth_from_norm_view` | Normalised view-to-depth coordinate transform |
+| `norm_depth_from_norm_view` | Normalised view-to-packed-depth coordinate transform |
+| `geometry_source` | Optional `sensor`, `view` or `view-fallback` pose provenance |
+| `mapping_version` | Optional `2`, identifying the row-normalised sender |
+| `readback_us` | Optional measured capture/readback duration in microseconds |
+| `target_lead_us` | Optional signed `target_us - observed_us` |
+
+Receivers advertise `depth_metadata_version: 2` in the description acknowledgement.
+The sender includes optional header diagnostics only after that acknowledgement, keeping
+the original 17-field envelope for earlier viewers. Depth status also carries the
+diagnostics. Old recordings retain their stored matrices and are never reinterpreted
+based on the current sender's row convention.
 
 Matrices contain 16 column-major numbers. The source representation is
 `luminance-alpha`, `float32` or `unsigned-short`. Its metric conversion is already
@@ -159,11 +230,23 @@ MCAP stores the complete original `CED1` packet as a `depth` event on
 clock validity, uncertainty, rate, offset and mapped timestamps. The ordinary CSE1 envelope
 preserves original and session-relative arrival/sample times.
 
-Replay uses the same unprojection and voxel path as live input. A seek clears the old
-volume and restores the most recent depth observation in the selected reference space.
+Replay uses the same unprojection and TSDF path as live input. With acquisition active,
+a seek saves the previous surface cache, starts a new volume and restores the most recent
+depth observation in the selected reference space.
 Further observations rebuild the visible space as playback advances.
 
 CERES-compatible LeRobot v3 export keeps its existing features. The pinned exporter retains
 depth event headers in `meta/ceres-source-events.jsonl`, while the raw depth payload remains
 in the recording. Depth measurements do not modify hand validity, state values, actions or
 camera images.
+
+## Volumetric reconstruction
+
+The optional [Quest Mapper](../tools/quest-mapper.md) reconstructs a complete cuRobo TSDF
+from recorded sensor depth or a stream of CED1 packets. It writes a surface mesh, shaded
+and normal previews and resumable volume checkpoints. Each frame retains its acquisition
+pose, and the helper converts WebXR coordinates at the Mapper boundary.
+
+The helper runs in a separate Python process with its own memory and block limits.
+It retains the three most recent complete checkpoints and verifies the rendered surface
+after loading the saved volume. The native viewer's CUDA map remains independent.

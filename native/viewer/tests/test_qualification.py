@@ -5,6 +5,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import struct
 import sys
 import tempfile
 import unittest
@@ -288,6 +289,66 @@ class RenderedFixtureTests(unittest.TestCase):
                 self.path.write_bytes(data)
                 with self.assertRaises(RuntimeError):
                     hardware.check_rendered_fixture(self.path)
+
+
+class FrozenRecordingTests(unittest.TestCase):
+    def events(self, times=(3200000, 3800000, 5200000, 6100000)):
+        result = []
+        for sequence, elapsed in enumerate(times):
+            target = 100000000 + elapsed
+            pose = b"CBR1" + struct.pack("<BBHIIIIQQ7f", 1, 1, 1, 1, 1, sequence, 28,
+                                        target, target, 0, 1.6, 0, 0, 0, 0, 1)
+            result.append(({"kind": "pose", "stream": "head", "epoch": 1, "space_epoch": 1}, pose))
+            metadata = {"epoch": 1, "space_epoch": 1, "target_us": target, "observed_us": target,
+                        "width": 32, "height": 24, "mapping_version": 2,
+                        "world_from_view": [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1.6, 0, 1]}
+            text = json.dumps(metadata).encode()
+            depth = b"CED1" + struct.pack("<I", len(text)) + text + struct.pack("<768H", *([1500] * 768))
+            result.append(({"kind": "depth", "stream": "environment_depth",
+                            "attributes": {"fixture_elapsed_us": elapsed}}, depth))
+        return result
+
+    def test_depth_recorded_after_freeze_retains_matching_head_pose(self):
+        proof = hardware.check_frozen_recording_events(self.events(), 4500000)
+        self.assertEqual(proof["before_freeze"], 2)
+        self.assertEqual(proof["after_freeze"], 2)
+        self.assertEqual(proof["depth_frames"], 4)
+
+    def test_depth_stopping_at_freeze_is_rejected(self):
+        with self.assertRaisesRegex(RuntimeError, "continue through"):
+            hardware.check_frozen_recording_events(self.events((3200000, 3800000, 4500000)), 4500000)
+
+    def test_depth_without_an_acquisition_matched_head_is_rejected(self):
+        events = self.events()
+        events[0][0]["epoch"] = 2
+        with self.assertRaisesRegex(RuntimeError, "acquisition head pose"):
+            hardware.check_frozen_recording_events(events, 4500000)
+
+    def test_depth_without_elapsed_acquisition_time_is_rejected(self):
+        events = self.events()
+        events[1][0]["attributes"].clear()
+        with self.assertRaisesRegex(RuntimeError, "acquisition time"):
+            hardware.check_frozen_recording_events(events, 4500000)
+
+    def test_recorded_zero_depth_is_rejected(self):
+        events = self.events()
+        header, payload = events[1]
+        events[1] = (header, payload[:-2] + b"\x00\x00")
+        with self.assertRaisesRegex(RuntimeError, "acquisition contract"):
+            hardware.check_frozen_recording_events(events, 4500000)
+
+    def test_rotated_or_nonfinite_depth_transform_is_rejected(self):
+        for value in (-1, float("nan"), float("inf")):
+            with self.subTest(value=value):
+                events = self.events()
+                header, payload = events[1]
+                size = struct.unpack_from("<I", payload, 4)[0]
+                metadata = json.loads(payload[8:8 + size])
+                metadata["world_from_view"][0] = value
+                text = json.dumps(metadata).encode()
+                events[1] = (header, b"CED1" + struct.pack("<I", len(text)) + text + payload[8 + size:])
+                with self.assertRaisesRegex(RuntimeError, "acquisition head pose"):
+                    hardware.check_frozen_recording_events(events, 4500000)
 
 
 if __name__ == "__main__":

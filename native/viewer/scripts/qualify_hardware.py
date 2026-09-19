@@ -6,6 +6,7 @@ import argparse
 import copy
 import importlib.util
 import json
+import math
 import os
 from pathlib import Path
 import shutil
@@ -36,6 +37,11 @@ def make_dual_depth_recording(source: Path, output: Path) -> None:
     from mcap.writer import CompressionType, Writer
 
     identity = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]
+    focal = 1 / math.tan(math.radians(70) / 2)
+    near, far = 0.1, 10.0
+    projection = [focal / (32 / 24), 0, 0, 0, 0, focal, 0, 0,
+                  0, 0, (far + near) / (near - far), -1,
+                  0, 0, 2 * far * near / (near - far), 0]
     world = identity.copy()
     world[13] = 1.6
     with source.open("rb") as input_stream, output.open("wb") as output_stream:
@@ -64,7 +70,7 @@ def make_dual_depth_recording(source: Path, output: Path) -> None:
                      "target_us": header["time_us"], "width": 32, "height": 24,
                      "source_width": 32, "source_height": 24, "eye": "left", "usage": "cpu-optimized",
                      "source_format": "luminance-alpha", "depth_format": "uint16-mm",
-                     "world_from_view": world, "projection": identity,
+                     "world_from_view": world, "projection": projection,
                      "norm_depth_from_norm_view": identity}
             text = json.dumps(depth, separators=(",", ":")).encode("utf-8")
             depth_payload = b"CED1" + struct.pack("<I", len(text)) + text + struct.pack("<768H", *([1500] * 768))
@@ -114,6 +120,52 @@ def check_scene_assets(metrics: dict) -> None:
         raise RuntimeError("Public package hand geometry differs from the bundled model")
     if assets.get("headset", {}).get("triangles", 0) <= 0:
         raise RuntimeError("Public package did not load its Quest model")
+
+
+def check_frozen_recording_events(events, freeze_us: int) -> dict:
+    """Require acquisition-matched depth on both sides of the map freeze."""
+    heads = {}
+    depths = []
+    for header, payload in events:
+        if header["kind"] == "pose" and header["stream"] == "head":
+            if len(payload) != 68 or payload[:4] != b"CBR1":
+                raise RuntimeError("Recorded fixture head pose is malformed")
+            target = struct.unpack_from("<Q", payload, 32)[0]
+            heads[(header["epoch"], header["space_epoch"], target)] = struct.unpack_from("<7f", payload, 40)
+        elif header["kind"] == "depth":
+            if len(payload) < 8 or payload[:4] != b"CED1":
+                raise RuntimeError("Recorded fixture depth is malformed")
+            size = struct.unpack_from("<I", payload, 4)[0]
+            metadata = json.loads(payload[8:8 + size])
+            pixels = payload[8 + size:]
+            if (metadata.get("mapping_version") != 2 or metadata.get("width") != 32 or
+                    metadata.get("height") != 24 or len(pixels) != 32 * 24 * 2 or
+                    any(value != 1500 for value in struct.unpack("<768H", pixels)) or
+                    metadata.get("observed_us") != metadata.get("target_us")):
+                raise RuntimeError("Recorded fixture depth changed its acquisition contract")
+            elapsed = header.get("attributes", {}).get("fixture_elapsed_us")
+            if type(elapsed) is not int or elapsed < 0:
+                raise RuntimeError("Recorded fixture depth lacks its acquisition time")
+            depths.append((metadata, elapsed))
+    before = after = 0
+    latest = -1
+    for metadata, elapsed in depths:
+        head = heads.get((metadata["epoch"], metadata["space_epoch"], metadata["target_us"]))
+        world = metadata["world_from_view"]
+        if (head is None or any(not math.isfinite(value) for value in head) or
+                any(abs(value) > 1e-6 for value in head[3:6]) or abs(head[6] - 1) > 1e-6):
+            raise RuntimeError("Recorded depth is not matched to its acquisition head pose")
+        expected = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, *head[:3], 1]
+        if (len(world) != 16 or any(not math.isfinite(value) or abs(value - target) > 1e-5
+                                   for value, target in zip(world, expected))):
+            raise RuntimeError("Recorded depth is not matched to its acquisition head pose")
+        before += elapsed < freeze_us
+        after += elapsed >= freeze_us + 500000
+        latest = max(latest, elapsed)
+    if before < 2 or after < 2 or latest < freeze_us + 1000000:
+        raise RuntimeError("Depth recording did not continue through the map freeze")
+    return {"depth_frames": len(depths), "before_freeze": before,
+            "after_freeze": after, "latest_acquisition_us": latest, "freeze_us": freeze_us}
 
 
 def check_rendered_fixture(path: Path) -> dict:
@@ -198,13 +250,17 @@ def record(args: argparse.Namespace) -> dict:
         environment["LD_LIBRARY_PATH"] = str(package / "lib")
     identity = run(["nvidia-smi", "--query-gpu=name,driver_version", "--format=csv,noheader"],
                    work, work / "gpu.txt", timeout=30).strip()
-    for name in ("test_image", "test_stereo_cuda", "test_voxel_cuda", "test_depth_cuda"):
+    for name in ("test_image", "test_stereo_cuda", "test_voxel_cuda", "test_depth_cuda",
+                 "test_spatial_map_render", "test_spatial_map_lifecycle"):
         memory_check(target)
         binary = find_binary(args.build_tests, name, windows)
         test_env = dict(environment)
         if windows:
             test_env["PATH"] = str(package) + os.pathsep + environment["PATH"]
-        run([str(binary)], work, work / f"{name}.log", env=test_env)
+        command = [str(binary)]
+        if name == "test_spatial_map_lifecycle":
+            command += ["--assets", str(package / "assets")]
+        run(command, work, work / f"{name}.log", env=test_env)
     decoder = find_binary(args.build_tests, "test_nvdec", windows)
     decoder_env = dict(environment)
     if windows:
@@ -243,6 +299,45 @@ def record(args: argparse.Namespace) -> dict:
     check_scene_assets(replay)
     for name in ("record.ppm", "replay.ppm"):
         check_rendered_fixture(work / name)
+    memory_check(target)
+    frozen_recording = work / "frozen-recording.mcap"
+    freeze_us = 4500000
+    preferences = read_json(config / "preferences.json")
+    preferences["view"].update({"depth": True, "depth_source": 1, "map_frozen": False})
+    (config / "preferences.json").write_text(json.dumps(preferences), encoding="utf-8")
+    run(base + ["--fixture", "--fixture-depth", "--fixture-video", str(fixture),
+                "--freeze-map-after", "4.5", "--seconds", "8",
+                "--record", str(frozen_recording), "--metrics", str(work / "frozen.json"),
+                "--screenshot", str(work / "frozen.ppm")], work, work / "frozen.log",
+        env=environment, timeout=45)
+    frozen = read_json(work / "frozen.json")
+    check_metrics(frozen)
+    if (not frozen.get("map_frozen") or frozen.get("map_error") or
+            frozen.get("map_point_count", 0) == 0 or
+            frozen.get("environment_depth_updates", 0) < 2 or
+            frozen.get("environment_depth_updates") != frozen.get("map_freeze_environment_updates")):
+        raise RuntimeError("Freezing the spatial map did not preserve its acquired surface")
+    saved_map = Path(frozen["map_file"])
+    if not saved_map.is_file() or saved_map.stat().st_size > frozen["map_max_bytes"]:
+        raise RuntimeError("The spatial map was not saved within its configured size")
+    from mcap.reader import make_reader
+    with frozen_recording.open("rb") as stream:
+        def events():
+            for _, _, message in make_reader(stream, validate_crcs=True).iter_messages():
+                size = struct.unpack_from("<I", message.data, 4)[0]
+                yield json.loads(message.data[8:8 + size]), message.data[8 + size:]
+        frozen_recording_proof = check_frozen_recording_events(events(), freeze_us)
+    if frozen.get("environment_depth_received", 0) < frozen_recording_proof["depth_frames"]:
+        raise RuntimeError("The live depth input did not continue while the map was frozen")
+    (work / "frozen-recording-proof.json").write_text(json.dumps(frozen_recording_proof, indent=2) + "\n")
+    run([str(executable), "--hidden", "--no-connect", "--no-vsync", "--seconds", "1.5",
+         "--config-dir", str(work / "loaded-config"), "--load-map", str(saved_map),
+         "--metrics", str(work / "loaded.json")], work, work / "loaded.log",
+        env=environment, timeout=30)
+    loaded = read_json(work / "loaded.json")
+    if (loaded.get("map_error") or not loaded.get("map_frozen") or
+            loaded.get("map_point_count") != frozen["map_point_count"]):
+        raise RuntimeError("The saved spatial map did not reopen with its complete surface")
     receipt = {"schema": "ceres-native-hardware-qualification", "version": 1, "status": "passed",
                "platform": target, "input_sha256": fingerprint(root, inputs),
                "source_revision": inputs["source_revision"], "archive_name": archive.name,

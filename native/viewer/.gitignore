@@ -5,6 +5,8 @@
 /.cache/
 *.mcap
 *.mcap.partial
+*.cmap
+*.cmap.pending
 imgui.ini
 *.log
 /artifacts/

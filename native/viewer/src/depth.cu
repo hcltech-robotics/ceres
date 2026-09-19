@@ -1,5 +1,4 @@
 #include "ceres/depth_kernel.hpp"
-#include "ceres/depth_display.hpp"
 #include <cmath>
 
 namespace ceres {
@@ -47,10 +46,8 @@ __global__ void unproject(const uint16_t* depths, StereoPoint* output, DepthGpuC
     if (!isfinite(point.x) || !isfinite(point.y))
         return;
     point.valid = 1;
-    const auto colour = spectral_depth_colour((depth - c.min_depth) / (c.max_depth - c.min_depth));
-    point.r = colour.r;
-    point.g = colour.g;
-    point.b = colour.b;
+    // Environment depth has no measured colour. The renderer colours geometry
+    // from current view settings, independently of the acquisition range.
     point.a = 1;
     output[i] = point;
 }
