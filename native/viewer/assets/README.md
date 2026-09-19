@@ -1,6 +1,20 @@
 # Viewer assets
 
-Release packages contain the converted Quest 3 model and fonts listed in `redistributable.json`. The viewer supplies original articulated hand geometry in its executable. The positive package allowlist excludes user-supplied MANO assets.
+Release packages contain the SOMA-X hand meshes, converted Quest 3 model and fonts listed in `redistributable.json`.
+
+## Anatomical hands
+
+The default hands use NVIDIA's native [SOMA-X](https://github.com/NVlabs/SOMA-X) mid-resolution template, with 2,859 vertices, 5,692 triangles and 25 joints per hand. The conversion preserves the original topology and all hand skinning weights, including the published wrist-boundary rule. Palm-relative rotation transport follows the WebXR landmarks while keeping finger thickness independent of bone length.
+
+`hands/model.json` records the source revisions, source checksums, joint mapping and geometry checksum. `hands/geometry.bin` contains both wrist-local meshes in metres. The Apache 2.0 licence and NVIDIA attribution accompany these assets in `hands/LICENSE` and `hands/NOTICE`.
+
+To reproduce the conversion, provide the pinned `SOMAHand.npz`, `SOMA_template_rig.usda` and `LICENSE` files from the asset revision recorded in `hands/model.json`, then run:
+
+```text
+python scripts/convert-soma-hands.py --source PATH-TO-SOURCE-ASSETS --output assets/hands
+```
+
+Conversion requires NumPy and OpenUSD. The viewer reads the converted geometry directly, and recordings embed the meshes and their provenance for replay.
 
 ## MANO hands
 

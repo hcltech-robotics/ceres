@@ -15,6 +15,7 @@ static void check(bool condition, const char* message) {
 }
 namespace {
 constexpr std::array<int, 16> mano_targets{0, 6, 7, 8, 11, 12, 13, 21, 22, 23, 16, 17, 18, 1, 2, 3};
+void fixture_geometry(const ceres::HandAssets& assets);
 glm::mat4 skin(const ceres::Vertex& vertex, const std::array<glm::mat4, 25>& transforms) {
     glm::mat4 result(0);
     for (int group = 0; group < 4; ++group) {
@@ -49,6 +50,8 @@ void finite(const std::array<glm::mat4, 25>& transforms) {
                 check(std::isfinite(transform[c][r]), "Tracking produced a non-finite transform");
 }
 void retarget_geometry(const ceres::HandAssets& assets) {
+    const bool anatomical =
+        assets.metadata.value("retargeting", std::string{}) == "webxr-anatomical-v1";
     const auto rigid = glm::translate(glm::mat4(1), glm::vec3(.4f, 1.2f, -.7f)) *
                        glm::toMat4(glm::angleAxis(1.1f, glm::normalize(glm::vec3(1, 2, 3))));
     const auto similarity = rigid * glm::scale(glm::mat4(1), glm::vec3(1.25f));
@@ -93,10 +96,12 @@ void retarget_geometry(const ceres::HandAssets& assets) {
                 bent.values[joint * 8 + c] = point[c];
         }
         const auto matrices = ceres::hand_transforms(bent, side == 0, assets);
-        for (int joint : mano_targets) {
-            if (!joint)
+        for (int joint = 1; joint < 25; ++joint) {
+            if (!anatomical &&
+                std::find(mano_targets.begin(), mano_targets.end(), joint) == mano_targets.end())
                 continue;
-            for (int endpoint : {joint, joint + 1}) {
+            const bool tip = joint == 4 || joint == 9 || joint == 14 || joint == 19 || joint == 24;
+            for (int endpoint : {joint, tip ? joint - 1 : joint + 1}) {
                 const auto actual =
                     glm::vec3(matrices[size_t(joint)] * glm::vec4(rest[size_t(endpoint)], 1));
                 check(glm::length(actual - observed(bent, endpoint)) < 2e-5f,
@@ -130,6 +135,180 @@ void retarget_geometry(const ceres::HandAssets& assets) {
               "Degenerate palm observations fabricated a mesh alignment");
         finite(ceres::hand_transforms(bent, side == 0, assets));
     }
+}
+void anatomical_tracking(const ceres::HandAssets& assets) {
+    const auto rigid = glm::translate(glm::mat4(1), glm::vec3(-.7f, .3f, 1.4f)) *
+                       glm::toMat4(glm::angleAxis(2.1f, glm::normalize(glm::vec3(-3, 1, 2))));
+    for (bool left : {true, false}) {
+        const auto& rest = assets.rest[left ? 0 : 1];
+        const auto& mesh = assets.meshes[left ? 0 : 1];
+        auto extended = rest_pose(rest, left);
+        for (int joint : {7, 8, 9}) {
+            const auto position = rest[6] + (rest[size_t(joint)] - rest[6]) * 1.4f;
+            for (int coordinate = 0; coordinate < 3; ++coordinate)
+                extended.values[joint * 8 + coordinate] = position[coordinate];
+        }
+        const auto stretched = ceres::hand_transforms(extended, left, assets);
+        for (int joint : {6, 7, 8}) {
+            const auto axis = glm::normalize(rest[size_t(joint + 1)] - rest[size_t(joint)]);
+            const auto across = glm::normalize(glm::cross(axis, rest[6] - rest[21]));
+            const auto thickness = glm::cross(axis, across);
+            check(std::abs(glm::length(glm::mat3(stretched[size_t(joint)]) * across) - 1) < 1e-5f &&
+                      std::abs(glm::length(glm::mat3(stretched[size_t(joint)]) * thickness) - 1) <
+                          1e-5f,
+                  "A longer tracked bone inflated the source finger cross-section");
+        }
+        for (int tip : {4, 9, 14, 19, 24}) {
+            for (const auto& vertex : mesh.vertices) {
+                const auto position = glm::vec4(vertex.position, 1);
+                check(glm::length(glm::vec3((stretched[size_t(tip)] - stretched[size_t(tip - 1)]) *
+                                            position)) < 2e-5f,
+                      "Weighted fingertip separated from its distal skin transform");
+            }
+        }
+        auto antiparallel = rest_pose(rest, left);
+        for (int joint : {7, 8, 9}) {
+            const auto position = rest[6] - (rest[size_t(joint)] - rest[6]);
+            for (int coordinate = 0; coordinate < 3; ++coordinate)
+                antiparallel.values[joint * 8 + coordinate] = position[coordinate];
+        }
+        const auto reversed = ceres::hand_transforms(antiparallel, left, assets);
+        finite(reversed);
+        auto moved = antiparallel;
+        for (int joint = 0; joint < 25; ++joint) {
+            const auto position = glm::vec3(rigid * glm::vec4(observed(antiparallel, joint), 1));
+            for (int coordinate = 0; coordinate < 3; ++coordinate)
+                moved.values[joint * 8 + coordinate] = position[coordinate];
+        }
+        const auto moved_reversed = ceres::hand_transforms(moved, left, assets);
+        finite(moved_reversed);
+        for (const auto& vertex : mesh.vertices) {
+            const auto actual = skin(vertex, moved_reversed) * glm::vec4(vertex.position, 1);
+            const auto expected = rigid * skin(vertex, reversed) * glm::vec4(vertex.position, 1);
+            check(glm::length(glm::vec3(actual - expected)) < 3e-5f,
+                  "Antiparallel finger alignment depends on arbitrary world axes");
+        }
+        auto partial = ceres::fixture_hand(left, 1.3, assets);
+        partial.joint_mask &= ~((1u << 7) | (1u << 9) | (1u << 15));
+        for (int joint : {7, 9, 15})
+            for (int coordinate = 0; coordinate < 3; ++coordinate)
+                partial.values[joint * 8 + coordinate] = std::numeric_limits<float>::quiet_NaN();
+        const auto incomplete = ceres::hand_transforms(partial, left, assets);
+        finite(incomplete);
+        for (int joint : {7, 9, 15}) {
+            const auto position = glm::vec4(rest[size_t(joint)], 1);
+            const auto inherited =
+                incomplete[size_t(ceres::joint_parents[size_t(joint)])] * position;
+            check(glm::length(glm::vec3(incomplete[size_t(joint)] * position - inherited)) < 1e-6f,
+                  "Missing joint did not follow its nearest tracked parent");
+        }
+        // A tracked non-finite coordinate is treated as a missing observation too.
+        partial.joint_mask |= (1u << 7);
+        finite(ceres::hand_transforms(partial, left, assets));
+        partial.values[0] = std::numeric_limits<float>::quiet_NaN();
+        check(!ceres::hand_pose_supported(partial, left, assets),
+              "A non-finite wrist fabricated a palm alignment");
+    }
+}
+void anatomical_assets(const std::filesystem::path& directory) {
+    const auto assets = ceres::load_hand_assets(directory);
+    check(assets.metadata.value("name", std::string{}) == "soma-hand-mid" &&
+              assets.metadata.value("retargeting", std::string{}) == "webxr-anatomical-v1",
+          "Bundled hand asset has the wrong identity or retargeting contract");
+    const auto event = ceres::encode_hand_assets(assets);
+    check(event.payload[3] == '2' && event.attributes["skin_influences"] == 16,
+          "Anatomical hand was not recorded with its full influence capacity");
+    const auto restored = ceres::decode_hand_assets(event);
+    check(restored.metadata == event.attributes, "Anatomical source metadata changed in recording");
+    for (size_t side = 0; side < 2; ++side) {
+        const auto& mesh = assets.meshes[side];
+        const auto& copy = restored.meshes[side];
+        check(mesh.vertices.size() == 2859 && mesh.indices.size() == 5692 * 3,
+              "Bundled anatomical topology differs from the converted source");
+        check(mesh.indices == copy.indices && assets.rest[side] == restored.rest[side],
+              "Anatomical topology or landmarks changed in recording");
+        bool weighted_tip = false, weighted_metacarpal = false, more_than_four = false;
+        for (size_t index = 0; index < mesh.vertices.size(); ++index) {
+            const auto& vertex = mesh.vertices[index];
+            const auto& roundtrip = copy.vertices[index];
+            check(vertex.position == roundtrip.position && vertex.normal == roundtrip.normal &&
+                      vertex.uv == roundtrip.uv && vertex.bones == roundtrip.bones &&
+                      vertex.weights == roundtrip.weights &&
+                      vertex.extra_bones == roundtrip.extra_bones &&
+                      vertex.extra_weights == roundtrip.extra_weights,
+                  "CHM2 lost an anatomical vertex or source skin influence");
+            check(std::abs(glm::length(vertex.normal) - 1) < 1e-5f,
+                  "Anatomical vertex normal is not a finite unit vector");
+            int nonzero = 0;
+            float total = 0;
+            for (int influence = 0; influence < 16; ++influence) {
+                const auto& bones =
+                    influence < 4 ? vertex.bones : vertex.extra_bones[size_t(influence / 4 - 1)];
+                const auto& weights = influence < 4
+                                          ? vertex.weights
+                                          : vertex.extra_weights[size_t(influence / 4 - 1)];
+                const int joint = bones[influence % 4];
+                const float weight = weights[influence % 4];
+                check(joint >= 0 && joint < 25 && weight >= 0 && weight <= 1,
+                      "Anatomical skin contains an invalid joint or weight");
+                nonzero += weight > 1e-8f;
+                total += weight;
+                weighted_tip =
+                    weighted_tip || (weight > 1e-8f && (joint == 4 || joint == 9 || joint == 14 ||
+                                                        joint == 19 || joint == 24));
+                weighted_metacarpal =
+                    weighted_metacarpal ||
+                    (weight > 1e-8f && (joint == 5 || joint == 10 || joint == 15 || joint == 20));
+            }
+            check(std::abs(total - 1) < 1e-4f, "Anatomical skin weights do not sum to one");
+            more_than_four = more_than_four || nonzero > 4;
+        }
+        check(weighted_tip && weighted_metacarpal && more_than_four,
+              "Anatomical test no longer covers fingertips, metacarpals and full skin weights");
+        for (size_t triangle = 0; triangle < mesh.indices.size(); triangle += 3) {
+            const auto& a = mesh.vertices[mesh.indices[triangle]];
+            const auto& b = mesh.vertices[mesh.indices[triangle + 1]];
+            const auto& c = mesh.vertices[mesh.indices[triangle + 2]];
+            const auto normal = glm::cross(b.position - a.position, c.position - a.position);
+            check(glm::length(normal) > 1e-12f &&
+                      glm::dot(normal, a.normal + b.normal + c.normal) > -1e-9f,
+                  "Anatomical triangle winding opposes its surface normals");
+        }
+    }
+    retarget_geometry(restored);
+    fixture_geometry(restored);
+    anatomical_tracking(restored);
+    for (int defect = 0; defect < 6; ++defect) {
+        auto invalid = assets;
+        switch (defect) {
+        case 0:
+            invalid.meshes[0].vertices[0].normal = glm::vec3(0);
+            break;
+        case 1:
+            invalid.meshes[0].vertices[0].weights = glm::vec4(-1);
+            break;
+        case 2:
+            invalid.meshes[0].vertices[0].bones.x = 25;
+            break;
+        case 3:
+            invalid.meshes[0].indices[0] = uint32_t(invalid.meshes[0].vertices.size());
+            break;
+        case 4:
+            invalid.rest[0][7] = invalid.rest[0][6];
+            break;
+        case 5:
+            invalid.metadata["units"] = "centimetres";
+            break;
+        }
+        bool rejected = false;
+        try {
+            ceres::decode_hand_assets(ceres::encode_hand_assets(invalid));
+        } catch (const std::exception&) {
+            rejected = true;
+        }
+        check(rejected, "Malformed anatomical hand asset was accepted");
+    }
+    std::cout << "Anatomical source geometry, 25-joint retargeting and recording tests passed\n";
 }
 void fixture_geometry(const ceres::HandAssets& assets) {
     constexpr std::array<int, 5> tips{4, 9, 14, 19, 24};
@@ -397,6 +576,9 @@ int main(int argc, char** argv) {
         check(expanded_copy.meshes[0].vertices[0].extra_weights == vertex.extra_weights &&
                   expanded_copy.meshes[0].vertices[0].extra_bones == vertex.extra_bones,
               "CHM2 did not preserve the final influence group");
+#ifdef CERES_TEST_ASSET_DIRECTORY
+        anatomical_assets(std::filesystem::path(CERES_TEST_ASSET_DIRECTORY) / "hands");
+#endif
         if (argc == 3 && std::string(argv[1]) == "--mano")
             mano_assets(argv[2]);
         else if (const char* directory = std::getenv("CERES_MANO_DIR"))

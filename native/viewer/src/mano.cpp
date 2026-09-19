@@ -17,6 +17,7 @@ constexpr std::array<const char*, 5> tip_names{"thumbTip", "indexTip", "middleTi
                                                "pinkyTip"};
 constexpr std::array<int, 5> tips{4, 9, 14, 19, 24};
 constexpr const char* retargeting = "mano-landmark-lbs-v1";
+constexpr const char* anatomical_retargeting = "webxr-anatomical-v1";
 
 void require(bool valid, const std::string& reason) {
     if (!valid)
@@ -48,7 +49,8 @@ bool basis(const glm::vec3& root, const glm::vec3& index, const glm::vec3& middl
            const glm::vec3& pinky, glm::mat3& result) {
     const auto across = index - pinky;
     const auto normal = glm::cross(across, middle - root);
-    if (glm::length(across) < 1e-5f || glm::length(normal) < 1e-7f)
+    if (!std::isfinite(glm::length(across)) || !std::isfinite(glm::length(normal)) ||
+        glm::length(across) < 1e-5f || glm::length(normal) < 1e-7f)
         return false;
     const auto x = glm::normalize(across), z = glm::normalize(normal);
     result = glm::mat3(x, glm::cross(z, x), z);
@@ -59,17 +61,44 @@ bool is_mano(const HandAssets& assets) {
     return found != assets.metadata.end() && found->is_string() &&
            found->get_ref<const std::string&>() == retargeting;
 }
+bool is_anatomical(const HandAssets& assets) {
+    return assets.metadata.value("retargeting", std::string{}) == anatomical_retargeting;
+}
+bool tracked(const PoseSample& pose, int joint) {
+    if (!(pose.joint_mask & (1u << joint)))
+        return false;
+    for (int coordinate = 0; coordinate < 3; ++coordinate)
+        if (!std::isfinite(pose.values[joint * 8 + coordinate]))
+            return false;
+    return true;
+}
+glm::mat3 align_bone(glm::vec3 from, glm::vec3 to, const glm::vec3& palm_normal,
+                     const glm::vec3& palm_across) {
+    from = glm::normalize(from);
+    to = glm::normalize(to);
+    const float cosine = glm::clamp(glm::dot(from, to), -1.f, 1.f);
+    if (cosine < -.9999f) {
+        auto axis = glm::cross(from, palm_normal);
+        if (glm::length(axis) < 1e-5f)
+            axis = glm::cross(from, palm_across);
+        const glm::quat half_turn(0, glm::normalize(axis));
+        const auto residual =
+            glm::normalize(glm::quat(1.f + glm::dot(-from, to), glm::cross(-from, to)));
+        return glm::mat3_cast(glm::normalize(residual * half_turn));
+    }
+    return glm::mat3_cast(glm::normalize(glm::quat(1.f + cosine, glm::cross(from, to))));
+}
 bool palm_rotation(const PoseSample& pose, const std::array<glm::vec3, 25>& rest,
                    glm::mat3& rotation) {
-    if (!pose.valid || !(pose.joint_mask & 1u))
+    if (!pose.valid || !tracked(pose, 0))
         return false;
     const auto point = [&](int joint) {
         return glm::vec3(pose.values[joint * 8], pose.values[joint * 8 + 1],
                          pose.values[joint * 8 + 2]);
     };
-    const auto tracked = [&](int joint) { return (pose.joint_mask & (1u << joint)) != 0; };
+    const auto observed = [&](int joint) { return tracked(pose, joint); };
     glm::mat3 rest_basis, observed_basis;
-    if (tracked(6) && tracked(11) && tracked(21) &&
+    if (observed(6) && observed(11) && observed(21) &&
         basis(rest[0], rest[6], rest[11], rest[21], rest_basis) &&
         basis(point(0), point(6), point(11), point(21), observed_basis)) {
         rotation = observed_basis * glm::transpose(rest_basis);
@@ -80,7 +109,7 @@ bool palm_rotation(const PoseSample& pose, const std::array<glm::vec3, 25>& rest
         {{6, 21}, {6, 16}, {11, 21}, {6, 11}, {11, 16}, {16, 21}}};
     for (const auto pair : pairs) {
         const int a = pair[0], b = pair[1];
-        if (tracked(a) && tracked(b) &&
+        if (observed(a) && observed(b) &&
             basis(rest[0], rest[size_t(a)], (rest[size_t(a)] + rest[size_t(b)]) * .5f,
                   rest[size_t(b)], rest_basis) &&
             basis(point(0), point(a), (point(a) + point(b)) * .5f, point(b), observed_basis)) {
@@ -202,7 +231,7 @@ HandAssets load_mano_assets(const std::filesystem::path& directory) {
 }
 
 bool hand_pose_supported(const PoseSample& pose, bool left, const HandAssets& assets) {
-    if (!is_mano(assets))
+    if (!is_mano(assets) && !is_anatomical(assets))
         return pose.valid && (pose.joint_mask & 1u);
     glm::mat3 rotation;
     return palm_rotation(pose, assets.rest[left ? 0 : 1], rotation);
@@ -210,38 +239,45 @@ bool hand_pose_supported(const PoseSample& pose, bool left, const HandAssets& as
 
 std::array<glm::mat4, 25> hand_transforms(const PoseSample& pose, bool left,
                                           const HandAssets& assets) {
-    if (!is_mano(assets))
+    const bool anatomical = is_anatomical(assets);
+    if (!is_mano(assets) && !anatomical)
         return hand_transforms(pose, left, assets.rest[left ? 0 : 1]);
     const auto& rest = assets.rest[left ? 0 : 1];
-    const auto tracked = [&](int joint) { return (pose.joint_mask & (1u << joint)) != 0; };
+    const auto observed = [&](int joint) { return tracked(pose, joint); };
     const auto point = [&](int joint) {
         return glm::vec3(pose.values[joint * 8], pose.values[joint * 8 + 1],
                          pose.values[joint * 8 + 2]);
     };
     std::array<glm::mat4, 25> result;
     result.fill(glm::mat4(1));
-    if (!pose.valid || !tracked(0))
+    if (!pose.valid || !observed(0))
         return result;
     glm::mat3 rotation(1);
     if (!palm_rotation(pose, rest, rotation))
         return result;
-    std::array<float, 19> ratios{};
+    const auto skinned = [&](int joint) {
+        return anatomical || std::find(targets.begin(), targets.end(), joint) != targets.end();
+    };
+    const auto tip = [&](int joint) {
+        return std::find(tips.begin(), tips.end(), joint) != tips.end();
+    };
+    std::array<float, 28> ratios{};
     size_t ratio_count = 0;
     for (int joint : {6, 11, 16, 21}) {
-        if (!tracked(joint))
+        if (!observed(joint))
             continue;
         const float original = glm::length(rest[size_t(joint)] - rest[0]);
-        const float observed = glm::length(point(joint) - point(0));
-        if (original > 1e-5f && observed > 1e-5f)
-            ratios[ratio_count++] = observed / original;
+        const float observed_length = glm::length(point(joint) - point(0));
+        if (original > 1e-5f && observed_length > 1e-5f && std::isfinite(observed_length))
+            ratios[ratio_count++] = observed_length / original;
     }
-    for (int joint : targets) {
-        if (!joint || !tracked(joint) || !tracked(joint + 1))
+    for (int joint = 1; joint < 25; ++joint) {
+        if (!skinned(joint) || tip(joint) || !observed(joint) || !observed(joint + 1))
             continue;
         const float original = glm::length(rest[size_t(joint + 1)] - rest[size_t(joint)]);
-        const float observed = glm::length(point(joint + 1) - point(joint));
-        if (original > 1e-5f && observed > 1e-5f)
-            ratios[ratio_count++] = observed / original;
+        const float observed_length = glm::length(point(joint + 1) - point(joint));
+        if (original > 1e-5f && observed_length > 1e-5f && std::isfinite(observed_length))
+            ratios[ratio_count++] = observed_length / original;
     }
     float scale = 1;
     if (ratio_count) {
@@ -252,24 +288,42 @@ std::array<glm::mat4, 25> hand_transforms(const PoseSample& pose, bool left,
                            glm::scale(glm::mat4(1), glm::vec3(scale)) *
                            glm::translate(glm::mat4(1), -rest[0]);
     result.fill(root);
-    for (int joint : targets) {
-        if (!joint || !tracked(joint))
+    std::array<glm::mat3, 25> rotations;
+    rotations.fill(rotation);
+    const auto palm_across = glm::normalize(rest[6] - rest[21]);
+    const auto palm_normal = glm::normalize(glm::cross(palm_across, rest[11] - rest[0]));
+    for (int joint = 1; joint < 25; ++joint) {
+        if (!skinned(joint))
             continue;
-        glm::mat3 oriented = rotation, stretch(scale);
-        if (tracked(joint + 1)) {
+        const int parent = anatomical ? joint_parents[size_t(joint)]
+                           : joint == 6 || joint == 11 || joint == 16 || joint == 21 ? 0
+                                                                                     : joint - 1;
+        result[size_t(joint)] = result[size_t(parent)];
+        rotations[size_t(joint)] = rotations[size_t(parent)];
+        if (!observed(joint))
+            continue;
+        auto linear = glm::mat3(result[size_t(parent)]);
+        if (!tip(joint) && observed(joint + 1)) {
             const auto from = rest[size_t(joint + 1)] - rest[size_t(joint)];
             const auto to = point(joint + 1) - point(joint);
             const float from_length = glm::length(from), to_length = glm::length(to);
-            if (from_length > 1e-5f && to_length > 1e-5f) {
+            if (from_length > 1e-5f && to_length > 1e-5f && std::isfinite(to_length)) {
                 const auto direction = from / from_length;
-                oriented =
-                    glm::mat3_cast(glm::rotation(rotation * direction, to / to_length)) * rotation;
+                // Align in the parent's bind-relative frame. Even an antiparallel
+                // bone then has a source-relative roll, independent of world axes.
+                const auto parent_rotation = rotations[size_t(parent)];
+                const auto aligned =
+                    align_bone(direction, glm::transpose(parent_rotation) * (to / to_length),
+                               palm_normal, palm_across);
+                const auto oriented = parent_rotation * aligned;
+                rotations[size_t(joint)] = oriented;
                 const float along = std::clamp(to_length / from_length, .25f, 3.f);
+                glm::mat3 stretch(scale);
                 stretch += (along - scale) * glm::outerProduct(direction, direction);
+                linear = oriented * stretch;
             }
         }
-        result[size_t(joint)] = glm::translate(glm::mat4(1), point(joint)) *
-                                glm::mat4(oriented * stretch) *
+        result[size_t(joint)] = glm::translate(glm::mat4(1), point(joint)) * glm::mat4(linear) *
                                 glm::translate(glm::mat4(1), -rest[size_t(joint)]);
     }
     return result;

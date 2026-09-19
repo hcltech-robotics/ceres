@@ -14,6 +14,9 @@ SPEC = importlib.util.spec_from_file_location("qualification", Path(__file__).pa
 qualification = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = qualification
 SPEC.loader.exec_module(qualification)
+HARDWARE_SPEC = importlib.util.spec_from_file_location("qualify_hardware", Path(__file__).parents[1] / "scripts/qualify_hardware.py")
+hardware = importlib.util.module_from_spec(HARDWARE_SPEC)
+HARDWARE_SPEC.loader.exec_module(hardware)
 
 
 class QualificationTests(unittest.TestCase):
@@ -194,6 +197,86 @@ class QualificationTests(unittest.TestCase):
         (artifacts / "windows-x64/ceres-viewer-1.2.3-windows-x64.zip").write_bytes(b"different archive")
         with self.assertRaisesRegex(ValueError, "manifest differs from the verified archive"):
             qualification.check(self.root, artifacts, receipts)
+
+
+class SceneAssetTests(unittest.TestCase):
+    def test_both_anatomical_hands_are_required_in_live_and_replay(self):
+        metrics = {"scene_assets": {
+            "hands": {"metadata": {"name": "soma-hand-mid", "retargeting": "webxr-anatomical-v1"},
+                      "meshes": [{"side": side, "vertices": 2859, "triangles": 5692} for side in ("left", "right")]},
+            "headset": {"triangles": 76260}}}
+        hardware.check_scene_assets(metrics)
+        for mutate in (lambda m: m["hands"]["metadata"].update(name="ceres-original-hand-rig"),
+                       lambda m: m["hands"]["meshes"].pop(),
+                       lambda m: m["hands"]["meshes"][0].update(vertices=778),
+                       lambda m: m["headset"].update(triangles=0)):
+            candidate = copy.deepcopy(metrics)
+            mutate(candidate["scene_assets"])
+            with self.assertRaises(RuntimeError):
+                hardware.check_scene_assets(candidate)
+
+
+class RenderedFixtureTests(unittest.TestCase):
+    colours = ((225, 20, 15), (18, 220, 30), (220, 230, 25),
+               (25, 20, 235), (230, 30, 220), (25, 225, 230))
+
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.path = Path(self.temporary.name) / "scene.ppm"
+
+    def fixture(self, colours=None, occluded=False):
+        width, height = 960, 640
+        pixels = bytearray(bytes((14, 16, 17)) * (width * height))
+        for index, colour in enumerate(colours or self.colours):
+            for y in range(128, 480):
+                if occluded and 280 <= y < 330:
+                    continue
+                offset = (y * width + 240 + index * 70) * 3
+                pixels[offset:offset + 70 * 3] = bytes(colour) * 70
+        self.path.write_bytes(b"P6\n960 640\n255\n" + pixels)
+        return pixels
+
+    def test_decoded_bars_survive_colour_rounding_and_scene_occlusion(self):
+        self.fixture(occluded=True)
+        result = hardware.check_rendered_fixture(self.path)
+        self.assertEqual(list(result["colour_bars"]), ["red", "green", "yellow", "blue", "magenta", "cyan"])
+
+    def test_missing_or_mirrored_bars_fail(self):
+        for colours in (self.colours[:-1] + ((30, 30, 30),), tuple(reversed(self.colours))):
+            with self.subTest(colours=colours):
+                self.fixture(colours)
+                with self.assertRaises(RuntimeError):
+                    hardware.check_rendered_fixture(self.path)
+
+    def test_many_colours_without_the_scene_geometry_fail(self):
+        tile = b"".join(bytes(colour) for colour in self.colours) + bytes(range(96, 129))
+        row = tile * (960 * 3 // len(tile) + 1)
+        pixels = row[:960 * 3] * 640
+        self.path.write_bytes(b"P6\n960 640\n255\n" + pixels)
+        self.assertGreater(len(set(pixels)), 16)
+        with self.assertRaisesRegex(RuntimeError, "left-to-right order"):
+            hardware.check_rendered_fixture(self.path)
+
+    def test_separate_coloured_panels_are_not_the_fixture(self):
+        pixels = bytearray(bytes((14, 16, 17)) * (960 * 640))
+        for index, colour in enumerate(self.colours):
+            top = 96 if index % 2 == 0 else 384
+            for y in range(top, top + 160):
+                offset = (y * 960 + 240 + index * 70) * 3
+                pixels[offset:offset + 70 * 3] = bytes(colour) * 70
+        self.path.write_bytes(b"P6\n960 640\n255\n" + pixels)
+        with self.assertRaisesRegex(RuntimeError, "not aligned"):
+            hardware.check_rendered_fixture(self.path)
+
+    def test_invalid_headers_dimensions_and_truncated_pixels_fail(self):
+        pixels = self.fixture()
+        for data in (b"P3\n960 640\n255\n" + pixels, b"P6\ninvalid\n255\n" + pixels,
+                     b"P6\n960 640\n255\n" + pixels[:-1], b"P6\n10 10\n255\n" + bytes(300)):
+            with self.subTest(header=data[:24]):
+                self.path.write_bytes(data)
+                with self.assertRaises(RuntimeError):
+                    hardware.check_rendered_fixture(self.path)
 
 
 if __name__ == "__main__":

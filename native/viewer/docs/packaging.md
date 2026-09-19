@@ -49,7 +49,7 @@ The Linux launcher resolves bundled libraries from the adjacent `lib` directory.
 
 The package contains `MANIFEST.json`, `SHA256SUMS` and an SPDX 2.3 inventory at `SBOM.spdx.json`. Adjacent archive sidecars contain the archive checksum, manifest and SPDX document. The manifest records the source revision, release version, platform, CUDA architectures and every payload file's size and SHA-256 digest. Symlink targets are recorded explicitly.
 
-The `provenance` directory retains the root package metadata, sibling exporter revision, Cargo lock, dependency declarations, exporter capabilities and FFmpeg source/build receipts. The positive asset allowlist in `assets/redistributable.json` includes fonts and the attributed Quest model. User-supplied MANO data is excluded.
+The `provenance` directory retains the root package metadata, sibling exporter revision, Cargo lock, dependency declarations, exporter capabilities and FFmpeg source/build receipts. The positive asset allowlist in `assets/redistributable.json` includes fonts, the Apache 2.0 SOMA-X hand meshes and the attributed Quest model. The hand metadata records the pinned model revisions and conversion checksum. User-supplied MANO data is excluded.
 
 Python 3.11 or later verifies a fresh extraction and runs a complete bundled export:
 

@@ -102,6 +102,72 @@ def check_metrics(metrics: dict, *, dual: bool = False) -> None:
             raise RuntimeError("Environment depth did not accumulate")
 
 
+def check_scene_assets(metrics: dict) -> None:
+    assets = metrics.get("scene_assets", {})
+    hands = assets.get("hands", {})
+    metadata = hands.get("metadata", {})
+    if metadata.get("name") != "soma-hand-mid" or metadata.get("retargeting") != "webxr-anatomical-v1":
+        raise RuntimeError("Public package did not load its anatomical hand meshes")
+    meshes = hands.get("meshes", [])
+    if len(meshes) != 2 or {mesh.get("side") for mesh in meshes} != {"left", "right"} or any(
+            mesh.get("vertices") != 2859 or mesh.get("triangles") != 5692 for mesh in meshes):
+        raise RuntimeError("Public package hand geometry differs from the bundled model")
+    if assets.get("headset", {}).get("triangles", 0) <= 0:
+        raise RuntimeError("Public package did not load its Quest model")
+
+
+def check_rendered_fixture(path: Path) -> dict:
+    """Find the decoded testsrc2 bars in the captured viewer scene."""
+    parts = path.read_bytes().split(b"\n", 3)
+    if len(parts) != 4 or parts[0] != b"P6" or parts[2] != b"255":
+        raise RuntimeError("Rendered qualification screenshot has an invalid PPM header")
+    try:
+        width, height = map(int, parts[1].split())
+    except ValueError as error:
+        raise RuntimeError("Rendered qualification screenshot has invalid dimensions") from error
+    pixels = parts[3]
+    if width < 960 or height < 640 or len(pixels) != width * height * 3:
+        raise RuntimeError("Rendered qualification screenshot is missing or incomplete")
+
+    # The fixture contains these six saturated bars, from left to right. Ignore
+    # antialiased edges, the moving pattern and the hands in front of the video.
+    bars = (("red", 4), ("green", 2), ("yellow", 6),
+            ("blue", 1), ("magenta", 5), ("cyan", 3))
+    samples = {mask: [0, 0, 0, height, -1] for _, mask in bars}
+    stride = max(1, min(width, height) // 160)
+    sample_count = len(range(0, width, stride)) * len(range(0, height, stride))
+    for y in range(0, height, stride):
+        for x in range(0, width, stride):
+            offset = (y * width + x) * 3
+            red, green, blue = pixels[offset:offset + 3]
+            if any(96 <= value < 160 for value in (red, green, blue)):
+                continue
+            mask = (4 if red >= 160 else 0) | (2 if green >= 160 else 0) | (1 if blue >= 160 else 0)
+            if mask not in samples:
+                continue
+            point = samples[mask]
+            point[0] += 1
+            point[1] += x
+            point[2] += y
+            point[3] = min(point[3], y)
+            point[4] = max(point[4], y)
+
+    result = {}
+    for name, mask in bars:
+        count, total_x, total_y, top, bottom = samples[mask]
+        if count < sample_count * 0.005 or bottom - top < height * 0.2:
+            raise RuntimeError(f"Rendered qualification screenshot lacks the fixture's {name} bar")
+        result[name] = {"coverage": count / sample_count, "x": total_x / count, "y": total_y / count}
+    centres = list(result.values())
+    if any(right["x"] - left["x"] < width * 0.025 for left, right in zip(centres, centres[1:])):
+        raise RuntimeError("Rendered qualification colour bars are not in the fixture's left-to-right order")
+    if centres[-1]["x"] - centres[0]["x"] < width * 0.25:
+        raise RuntimeError("Rendered qualification colour bars do not cover the fixture's scene width")
+    if max(point["y"] for point in centres) - min(point["y"] for point in centres) > height * 0.15:
+        raise RuntimeError("Rendered qualification colour bars are not aligned in the fixture's scene")
+    return {"width": width, "height": height, "colour_bars": result}
+
+
 def record(args: argparse.Namespace) -> dict:
     root = args.root.resolve()
     archive = args.archive.resolve()
@@ -159,11 +225,7 @@ def record(args: argparse.Namespace) -> dict:
                 "--screenshot", str(work / "record.ppm")], work, work / "record.log", env=environment, timeout=45)
     metrics = read_json(work / "record.json")
     check_metrics(metrics)
-    assets = metrics.get("scene_assets", {})
-    if assets.get("hands", {}).get("metadata", {}).get("name") != "ceres-original-hand-rig":
-        raise RuntimeError("Public package did not load the original hand meshes")
-    if assets.get("headset", {}).get("triangles", 0) <= 0:
-        raise RuntimeError("Public package did not load its Quest model")
+    check_scene_assets(metrics)
     if metrics.get("record_failed") or metrics.get("record_written_events", 0) < 2 or not recording.is_file():
         raise RuntimeError("Fixture recording did not finish")
     run([sys.executable, str(root / "native/viewer/scripts/verify-recording.py"), str(recording),
@@ -178,12 +240,9 @@ def record(args: argparse.Namespace) -> dict:
                 "--screenshot", str(work / "replay.ppm")], work, work / "replay.log", env=environment, timeout=45)
     replay = read_json(work / "replay.json")
     check_metrics(replay, dual=True)
+    check_scene_assets(replay)
     for name in ("record.ppm", "replay.ppm"):
-        data = (work / name).read_bytes()
-        if not data.startswith(b"P6\n") or len(data) < 960 * 640 * 3:
-            raise RuntimeError("Rendered qualification screenshot is missing or incomplete")
-        if len(set(data[-960 * 640 * 3:])) < 16:
-            raise RuntimeError("Rendered qualification image has no visible scene content")
+        check_rendered_fixture(work / name)
     receipt = {"schema": "ceres-native-hardware-qualification", "version": 1, "status": "passed",
                "platform": target, "input_sha256": fingerprint(root, inputs),
                "source_revision": inputs["source_revision"], "archive_name": archive.name,

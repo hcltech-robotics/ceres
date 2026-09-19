@@ -3,6 +3,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import shutil
 import struct
 import tarfile
 import tempfile
@@ -89,7 +90,9 @@ class PackageTests(unittest.TestCase):
         (source / "native/lerobot-exporter/Cargo.toml").write_text('[package]\nname = "ceres-native-exporter"\nversion = "0.1.0"\n')
         (build / "CMakeCache.txt").write_text("//Build type\nCMAKE_BUILD_TYPE:STRING=Release\n\n//Build tool\nCMAKE_MAKE_PROGRAM:FILEPATH=/tools/ninja\n")
         (package / "provenance/package.json").write_text('{"version":"1.2.3"}')
-        (package / "assets/redistributable.json").write_text('{"files": []}')
+        shutil.copytree(SCRIPTS.parent / "assets/hands", package / "assets/hands")
+        (package / "assets/redistributable.json").write_text(json.dumps({"files": [
+            "hands/" + name for name in ("geometry.bin", "model.json", "LICENSE", "NOTICE")]}))
         for name in ("ceres-viewer.bin", "ceres-native-exporter", "ffmpeg", "ffprobe"):
             (package / name).write_bytes(elf(machine, dependency) + b"Ceres viewer 1.2.3\0")
         def versions(directory, values):
@@ -169,6 +172,28 @@ class PackageTests(unittest.TestCase):
         asset.write_bytes(b"Model attribution\n")
         with self.assertRaisesRegex(ValueError, "Asset source checksum differs"):
             verify.verify_asset_checksums(self.root)
+
+    def test_hand_geometry_and_format_must_match_the_model(self):
+        directory = self.root / "hands"
+        shutil.copytree(SCRIPTS.parent / "assets/hands", directory)
+        verify.verify_hand_assets(directory)
+        model = directory / "model.json"
+        metadata = json.loads(model.read_text())
+        model.write_text(json.dumps(dict(metadata, version=1)))
+        with self.assertRaisesRegex(ValueError, "identity differs"):
+            verify.verify_hand_assets(directory)
+        model.write_text(json.dumps(metadata))
+        geometry = directory / "geometry.bin"
+        geometry.write_bytes(geometry.read_bytes()[:-1])
+        with self.assertRaisesRegex(ValueError, "source checksum differs"):
+            verify.verify_hand_assets(directory)
+
+    def test_hand_notices_are_required(self):
+        directory = self.root / "hands"
+        shutil.copytree(SCRIPTS.parent / "assets/hands", directory)
+        (directory / "NOTICE").unlink()
+        with self.assertRaisesRegex(ValueError, "notices are missing"):
+            verify.verify_hand_assets(directory)
 
 
 if __name__ == "__main__":

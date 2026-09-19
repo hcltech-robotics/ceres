@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <bit>
 #include <cmath>
+#include <fstream>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
 #include <glm/gtx/quaternion.hpp>
@@ -202,6 +203,25 @@ std::array<glm::mat4, 25> hand_transforms(const PoseSample& p, bool left,
 HandAssets original_hand_assets() {
     return {{hand_mesh(true), hand_mesh(false)}, {rest_hand(true), rest_hand(false)}};
 }
+HandAssets load_hand_assets(const std::filesystem::path& directory) {
+    const auto metadata_path = directory / "model.json";
+    const auto geometry_path = directory / "geometry.bin";
+    if (std::filesystem::file_size(metadata_path) > 1024 * 1024 ||
+        std::filesystem::file_size(geometry_path) > 40 * 1024 * 1024)
+        throw std::runtime_error("Hand asset exceeds its size limit");
+    std::ifstream metadata(metadata_path, std::ios::binary);
+    std::ifstream geometry(geometry_path, std::ios::binary);
+    if (!metadata || !geometry)
+        throw std::runtime_error("Cannot read bundled hand asset");
+    SessionEvent event;
+    event.kind = EventKind::Asset;
+    event.stream = "hand-rig";
+    event.attributes = Json::parse(metadata);
+    event.payload.assign(std::istreambuf_iterator<char>(geometry), {});
+    if (geometry.bad())
+        throw std::runtime_error("Cannot read bundled hand geometry");
+    return decode_hand_assets(event);
+}
 SessionEvent encode_hand_assets(const HandAssets& assets) {
     SessionEvent event;
     event.kind = EventKind::Asset;
@@ -285,12 +305,28 @@ HandAssets decode_hand_assets(const SessionEvent& event) {
     if (event.attributes.value("skin_influences", influences) != influences)
         throw std::runtime_error("Hand asset influence count does not match its version");
     const auto retargeting = event.attributes.value("retargeting", std::string{});
-    if (!retargeting.empty() && retargeting != "mano-landmark-lbs-v1")
+    if (!retargeting.empty() && retargeting != "mano-landmark-lbs-v1" &&
+        retargeting != "webxr-anatomical-v1")
         throw std::runtime_error("Unsupported hand asset retargeting");
+    const bool anatomical = retargeting == "webxr-anatomical-v1";
+    if (anatomical && event.attributes.value("units", std::string{}) != "metres")
+        throw std::runtime_error("Anatomical hand asset must use metre units");
     for (size_t side = 0; side < 2; ++side) {
         for (auto& point : result.rest[side])
             for (int c = 0; c < 3; ++c)
                 point[c] = number();
+        if (anatomical) {
+            const auto& rest = result.rest[side];
+            const auto across = rest[6] - rest[21];
+            if (glm::length(across) < .001f ||
+                glm::length(glm::cross(across, rest[11] - rest[0])) < 1e-7f)
+                throw std::runtime_error("Anatomical hand asset has a degenerate palm");
+            for (size_t joint = 1; joint < rest.size(); ++joint) {
+                const float length = glm::length(rest[joint] - rest[size_t(joint_parents[joint])]);
+                if (length < .001f || length > .3f)
+                    throw std::runtime_error("Anatomical hand bone is outside metre units");
+            }
+        }
         auto vertices = integer(), indices = integer();
         if (!vertices || vertices > 100000 || !indices || indices > 600000 || indices % 3 ||
             uint64_t(vertices) * (version == 1 ? 64 : 160) + uint64_t(indices) * 4 >
@@ -304,6 +340,8 @@ HandAssets decode_hand_assets(const SessionEvent& event) {
                 vertex.position[i] = number();
             for (int i = 0; i < 3; ++i)
                 vertex.normal[i] = number();
+            if (anatomical && std::abs(glm::length(vertex.normal) - 1) > 1e-3f)
+                throw std::runtime_error("Anatomical hand asset has an invalid surface normal");
             for (int i = 0; i < 2; ++i)
                 vertex.uv[i] = number();
             const auto read_bones = [&](glm::ivec4& bones) {

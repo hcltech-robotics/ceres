@@ -1,0 +1,13 @@
+NVIDIA SOMA-X native hand meshes
+Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES.
+Licensed under Apache License 2.0. See LICENSE.
+
+Derived from SOMA-X v0.3.1, source commit cc1f3967755f8e36d187d2e26114633dbd651cd5.
+Model asset revision 104578ed58857f6faa7592fb83d0a2dad43c36fa.
+https://github.com/NVlabs/SOMA-X
+https://huggingface.co/nvidia/SOMA-X
+
+CERES conversion extracts the native mid-resolution hand topology and rig,
+converts centimetres to wrist-local metres, retains source hand skinning
+weights with the published wrist-boundary rule and computes smooth normals.
+The mesh uses the template bind shape without optional third-party models.

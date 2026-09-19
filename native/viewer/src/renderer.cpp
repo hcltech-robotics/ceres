@@ -654,6 +654,9 @@ struct StereoBuffers {
 struct Renderer::Impl {
     GLFWwindow* window;
     GLuint shader = 0;
+    GLuint offscreen_framebuffer = 0, offscreen_colour = 0, offscreen_depth = 0;
+    int offscreen_width = 0, offscreen_height = 0;
+    bool offscreen = false;
     Mesh left, right, sphere, cube, grid, plane, headset;
     HandTrails hand_trails;
     TrailMesh trail_mesh;
@@ -709,6 +712,7 @@ struct Renderer::Impl {
     double gpu = 0, latency = 0;
     explicit Impl(GLFWwindow* w, const std::filesystem::path& assets)
         : window(w), local_assets(assets) {
+        offscreen = glfwGetWindowAttrib(window, GLFW_VISIBLE) == GLFW_FALSE;
         unsigned n = 0;
         int devs[8]{};
         cuda_check(cudaGLGetDevices(&n, devs, 8, cudaGLDeviceListAll),
@@ -726,7 +730,7 @@ struct Renderer::Impl {
         trail_mesh.initialise();
         hand_assets = std::filesystem::exists(assets / "local" / "mano" / "mano-left.json")
                           ? load_mano_assets(assets / "local" / "mano")
-                          : original_hand_assets();
+                          : load_hand_assets(assets / "hands");
         left.upload(hand_assets.meshes[0]);
         right.upload(hand_assets.meshes[1]);
         if (std::filesystem::exists(assets / "quest3" / "model.json"))
@@ -815,8 +819,37 @@ struct Renderer::Impl {
             cudaStreamDestroy(stream);
         glDeleteQueries(4, queries);
         glDeleteTextures(3, headset_textures.data());
+        glDeleteFramebuffers(1, &offscreen_framebuffer);
+        glDeleteRenderbuffers(1, &offscreen_colour);
+        glDeleteRenderbuffers(1, &offscreen_depth);
         if (shader)
             glDeleteProgram(shader);
+    }
+    void bind_target(int w, int h) {
+        if (!offscreen)
+            return;
+        // Hidden native windows do not always have a readable default framebuffer.
+        if (!offscreen_framebuffer) {
+            glCreateFramebuffers(1, &offscreen_framebuffer);
+            glCreateRenderbuffers(1, &offscreen_colour);
+            glCreateRenderbuffers(1, &offscreen_depth);
+        }
+        if (w != offscreen_width || h != offscreen_height) {
+            glNamedRenderbufferStorage(offscreen_colour, GL_RGBA8, w, h);
+            glNamedRenderbufferStorage(offscreen_depth, GL_DEPTH_COMPONENT24, w, h);
+            glNamedFramebufferRenderbuffer(offscreen_framebuffer, GL_COLOR_ATTACHMENT0,
+                                           GL_RENDERBUFFER, offscreen_colour);
+            glNamedFramebufferRenderbuffer(offscreen_framebuffer, GL_DEPTH_ATTACHMENT,
+                                           GL_RENDERBUFFER, offscreen_depth);
+            glNamedFramebufferDrawBuffer(offscreen_framebuffer, GL_COLOR_ATTACHMENT0);
+            glNamedFramebufferReadBuffer(offscreen_framebuffer, GL_COLOR_ATTACHMENT0);
+            if (glCheckNamedFramebufferStatus(offscreen_framebuffer, GL_FRAMEBUFFER) !=
+                GL_FRAMEBUFFER_COMPLETE)
+                throw std::runtime_error("Cannot create the hidden rendering framebuffer");
+            offscreen_width = w;
+            offscreen_height = h;
+        }
+        glBindFramebuffer(GL_FRAMEBUFFER, offscreen_framebuffer);
     }
     void resize(Camera& camera, int w, int h) {
         clear_textures(camera);
@@ -1041,7 +1074,7 @@ void Renderer::restore_live_assets() {
     auto directory = p.local_assets / "local";
     auto hands = std::filesystem::exists(directory / "mano" / "mano-left.json")
                      ? load_mano_assets(directory / "mano")
-                     : original_hand_assets();
+                     : load_hand_assets(p.local_assets / "hands");
     p.left.upload(hands.meshes[0]);
     p.right.upload(hands.meshes[1]);
     p.hand_assets = std::move(hands);
@@ -1498,6 +1531,7 @@ void Renderer::draw(const ReceiverSnapshot& s, const Calibration& c, const ViewO
     glfwGetFramebufferSize(p.window, &w, &h);
     if (w <= 0 || h <= 0)
         return;
+    p.bind_target(w, h);
     if (o.pose_time_offset_ms != p.pose_time_offset_ms) {
         invalidate_poses();
         p.pose_time_offset_ms = o.pose_time_offset_ms;
@@ -1863,8 +1897,15 @@ void Renderer::screenshot(const std::filesystem::path& path) {
     int w, h;
     glfwGetFramebufferSize(impl_->window, &w, &h);
     std::vector<unsigned char> pixels(size_t(w) * h * 3);
+    GLint previous_framebuffer = 0, previous_buffer = 0;
+    glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &previous_framebuffer);
+    glGetIntegerv(GL_READ_BUFFER, &previous_buffer);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, impl_->offscreen_framebuffer);
+    glReadBuffer(impl_->offscreen ? GL_COLOR_ATTACHMENT0 : GL_BACK);
     glPixelStorei(GL_PACK_ALIGNMENT, 1);
     glReadPixels(0, 0, w, h, GL_RGB, GL_UNSIGNED_BYTE, pixels.data());
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, static_cast<GLuint>(previous_framebuffer));
+    glReadBuffer(static_cast<GLenum>(previous_buffer));
     if (!path.parent_path().empty())
         std::filesystem::create_directories(path.parent_path());
     std::ofstream f(path, std::ios::binary);

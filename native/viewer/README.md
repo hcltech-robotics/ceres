@@ -45,7 +45,7 @@ Recordings containing both cameras retain independently decoded left/right image
 
 **Depth** contains the camera preview. **Telemetry** separates rendering, camera cadence and tracking packet rate, alongside decode time, GPU scene/UI time, depth updates, pose age, clock uncertainty and recorder queue use. The [instrument design system](docs/design-system.md) defines the shared controls, typography and signal colours.
 
-The built-in hand surfaces follow the 25 WebXR joints. The Quest rig uses the supplied USDZ mesh, base colour, normal and material maps. Its visual placement is independent of camera calibration. Optional authorised MANO assets retain all 16 skinning influences. Asset preparation is described in [the asset guide](assets/README.md).
+The bundled anatomical SOMA-X hands follow the 25 WebXR joints and retain their original mesh topology and skinning weights. The Quest rig uses the supplied USDZ mesh, base colour, normal and material maps. Its visual placement is independent of camera calibration. Optional authorised MANO assets retain all 16 skinning influences. Asset preparation is described in [the asset guide](assets/README.md).
 
 **Delay** selects earlier tracking from the live history. Replay also accepts negative values to inspect later tracking. The adjustment changes the displayed hands and headset, while recordings, exported observations and camera frame associations retain their source timestamps.
 

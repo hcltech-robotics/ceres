@@ -23,6 +23,7 @@ struct HandAssets {
     Json metadata = {{"name", "ceres-original-hand-rig"}, {"generator", "continuous-loft-v1"}};
 };
 HandAssets original_hand_assets();
+HandAssets load_hand_assets(const std::filesystem::path& directory);
 HandAssets load_mano_assets(const std::filesystem::path& directory);
 bool hand_pose_supported(const PoseSample& pose, bool left, const HandAssets& assets);
 SessionEvent encode_hand_assets(const HandAssets& assets);

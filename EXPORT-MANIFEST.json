@@ -2,7 +2,7 @@
   "version": 2,
   "packageVersion": "1.1.1",
   "generator": "ceres-public-core/2",
-  "treeDigest": "9432ed000efce14f1529eb236430aab8aafb5ad9c7c84984d7739f8b776da97f",
+  "treeDigest": "b69a0df3cdebec44e101fd67cde14500aa6ab082574092f622b1af952648e95b",
   "files": {
     ".dockerignore": {
       "sha256": "f4f0799e0c8f318b0d36a430909ba9dcb3eeca1d1b0ae8b3b7907b44cc2bedca",
@@ -220,8 +220,8 @@
       "mode": "100644"
     },
     "native/viewer/.gitattributes": {
-      "sha256": "a0f496de45ac618591662a67da3d21ff135163ef52b5c532d79615d08fd6090e",
-      "bytes": 77,
+      "sha256": "63d68245abb9adf84022517e63ad40e36087e438e6f48a082f10bc605f206c10",
+      "bytes": 99,
       "mode": "100644"
     },
     "native/viewer/.gitignore": {
@@ -230,8 +230,8 @@
       "mode": "100644"
     },
     "native/viewer/CMakeLists.txt": {
-      "sha256": "f85fd3eef269b82784acec1552acc79f17f7a475f566c17b1fb5e128a91918d4",
-      "bytes": 9920,
+      "sha256": "c9357d72c35d0b1c78210bf9ad8ae522813da70b53fc2fce1d12c997bc0e9488",
+      "bytes": 9990,
       "mode": "100644"
     },
     "native/viewer/LICENCE.md": {
@@ -240,13 +240,13 @@
       "mode": "100644"
     },
     "native/viewer/README.md": {
-      "sha256": "b6d2e5c6a56a94f693bf4945dca68c3f3824bbea3f7b3077c46442a2c11082b0",
-      "bytes": 15799,
+      "sha256": "0a337da59f10820bec5e5915939b723803ea56aa7bcdf3d7a6408067addffe4b",
+      "bytes": 15869,
       "mode": "100644"
     },
     "native/viewer/assets/README.md": {
-      "sha256": "72afa125a0ed25c6fe3422cfaef39fe5e06e92abd78e8507d3a4ad1ef465ee45",
-      "bytes": 2485,
+      "sha256": "5dfe578dd167643f28d7d98e1d8cc8af6758c075993c1f938095125ca38e4d03",
+      "bytes": 3508,
       "mode": "100644"
     },
     "native/viewer/assets/fonts/Cousine-LICENCE.txt": {
@@ -272,6 +272,26 @@
     "native/viewer/assets/fonts/Roboto-Medium.ttf": {
       "sha256": "8559132c89ad51d8a2ba5b171887a44a7ba93776e205f553573de228e64b45f8",
       "bytes": 162588,
+      "mode": "100644"
+    },
+    "native/viewer/assets/hands/LICENSE": {
+      "sha256": "d1a7d615ab8eff4de143b1456f46dabf232f54daf0fcf9a70442bb6f637a9e95",
+      "bytes": 11387,
+      "mode": "100644"
+    },
+    "native/viewer/assets/hands/NOTICE": {
+      "sha256": "6a2938d18cd872c08103ce94cd5d43677c5f753eab73aac9fb20fd0894e5eb1e",
+      "bytes": 651,
+      "mode": "100644"
+    },
+    "native/viewer/assets/hands/geometry.bin": {
+      "sha256": "a9da43ff9e7f48c6e48b977c4c57cd73f47d4d75a6103700e24ec80fd91eafc2",
+      "bytes": 1052108,
+      "mode": "100644"
+    },
+    "native/viewer/assets/hands/model.json": {
+      "sha256": "0046cf8f41cbac9b72c46e59a0ba9a761b40ef551f17ef1bf3d13e596b6bf4d3",
+      "bytes": 29720,
       "mode": "100644"
     },
     "native/viewer/assets/quest3/FORMAT.md": {
@@ -320,8 +340,8 @@
       "mode": "100644"
     },
     "native/viewer/assets/redistributable.json": {
-      "sha256": "d6aa6c61dd14a281a37ef336fb9312e03fab2ed24e2af8a99b7ab83c4a1a3dfc",
-      "bytes": 474,
+      "sha256": "82c27660e8dca06ff0399ad23268d74758ab310f82e28551c181bda4f082333b",
+      "bytes": 565,
       "mode": "100644"
     },
     "native/viewer/cmake/Dependencies.cmake": {
@@ -350,8 +370,8 @@
       "mode": "100644"
     },
     "native/viewer/docs/packaging.md": {
-      "sha256": "84ebc2c9652adb0042b4756411148ce755dd8959dd0c5f337531ed1744cbed41",
-      "bytes": 5362,
+      "sha256": "62a84fcdfe9624ce84a5f6a05454dafd95538debb640c01b34be6607f49b8000",
+      "bytes": 5475,
       "mode": "100644"
     },
     "native/viewer/docs/qualification.md": {
@@ -460,8 +480,8 @@
       "mode": "100644"
     },
     "native/viewer/include/ceres/mesh.hpp": {
-      "sha256": "70564ae6fc270066f1f83345c479631155573e377625269a9efa80ae94fa8532",
-      "bytes": 1653,
+      "sha256": "23ad516d2a268eb0c09519b70b77c8f166cd558f6034856d01f71e7ecde46c29",
+      "bytes": 1722,
       "mode": "100644"
     },
     "native/viewer/include/ceres/protocol.hpp": {
@@ -554,6 +574,11 @@
       "bytes": 19973,
       "mode": "100644"
     },
+    "native/viewer/scripts/convert-soma-hands.py": {
+      "sha256": "3d36f9f23fea192df8fe2bdc1c95ad3e0de7267b39cfee50005643c3027ebbd8",
+      "bytes": 10228,
+      "mode": "100644"
+    },
     "native/viewer/scripts/msvc-environment.cmd": {
       "sha256": "42522d9482ee5d8d1348caa07c6e57ceeaf3423d03f3afaa1e7199daaa21cd10",
       "bytes": 819,
@@ -595,8 +620,8 @@
       "mode": "100644"
     },
     "native/viewer/scripts/qualify_hardware.py": {
-      "sha256": "fa69f353dc182bff52f84b29ea2f0b1d053a819941edd27739b6401ec73861b7",
-      "bytes": 11001,
+      "sha256": "0051e4adeb7f71fc64622ca76b48354e34df7c60876b9f8b8fcaec29d95ffc23",
+      "bytes": 14062,
       "mode": "100644"
     },
     "native/viewer/scripts/verify-dataset.py": {
@@ -605,8 +630,8 @@
       "mode": "100644"
     },
     "native/viewer/scripts/verify-package.py": {
-      "sha256": "f9e5fc277e1328ff4937e577a46d02791a8216d76ea40c594cb5fc310747add6",
-      "bytes": 23680,
+      "sha256": "cf53bcad1ab98e06716bce614f7aff5fc799eccdf6ad13a92bc8eea6028e4c68",
+      "bytes": 25202,
       "mode": "100644"
     },
     "native/viewer/scripts/verify-recording.py": {
@@ -665,13 +690,13 @@
       "mode": "100644"
     },
     "native/viewer/src/mano.cpp": {
-      "sha256": "2c0062a2f3694763a24ea57932810cedea3e130e4b7d586ec715526ab1cd8975",
-      "bytes": 13384,
+      "sha256": "2d5d64a19c8412ff6567b08c2f290ed9436d83e96f3c170fa59a8cdd902cf7ab",
+      "bytes": 16379,
       "mode": "100644"
     },
     "native/viewer/src/mesh.cpp": {
-      "sha256": "f6e4edfd7547e614091e5de69f96ab15dd97303888d8d0bff1551bc026fc8694",
-      "bytes": 19044,
+      "sha256": "94f3067173a6adcf3384fa257ffe17ea27d4b7b7c472ab46184838576df76e23",
+      "bytes": 21152,
       "mode": "100644"
     },
     "native/viewer/src/nvdec.cpp": {
@@ -685,8 +710,8 @@
       "mode": "100644"
     },
     "native/viewer/src/renderer.cpp": {
-      "sha256": "59af2003c69a8a0096c7deed9cc71755f41c7f6bab89324473da098fabf05f9f",
-      "bytes": 83269,
+      "sha256": "408506c94d0384a2aa61d5dbcba5baa0bf8c9ca00b69ea461440ba1107e14b8a",
+      "bytes": 85675,
       "mode": "100644"
     },
     "native/viewer/src/session.cpp": {
@@ -835,8 +860,8 @@
       "mode": "100644"
     },
     "native/viewer/tests/test_mesh.cpp": {
-      "sha256": "bd7016ce39c5aa512873c0e76e003f29c2c8e3d207e087c6f06ae5361b109f65",
-      "bytes": 21136,
+      "sha256": "4b581bd526084b98848715b95754419b03e0e6f1d8f7e6f6f1568395e7c2c9d4",
+      "bytes": 31496,
       "mode": "100644"
     },
     "native/viewer/tests/test_nvdec.cpp": {
@@ -845,8 +870,8 @@
       "mode": "100644"
     },
     "native/viewer/tests/test_package.py": {
-      "sha256": "9e83a0fd6d42aedc3d494ec064c022effd520dc6ea2b60c571736ee8afc06cfb",
-      "bytes": 8417,
+      "sha256": "7868fac039189a4a05ea8d47911be9b5758c34f1057792182d248fb8fb3f7332",
+      "bytes": 9699,
       "mode": "100644"
     },
     "native/viewer/tests/test_protocol.cpp": {
@@ -855,8 +880,8 @@
       "mode": "100644"
     },
     "native/viewer/tests/test_qualification.py": {
-      "sha256": "1e9d7f873b6417b76f0537bd4749cf761ff9b1d6563cf587eafd45560c81b87d",
-      "bytes": 12054,
+      "sha256": "9c757f4603239f87c1509ac647cd8eec7ab72eed639b58b79d30c57500aec530",
+      "bytes": 16345,
       "mode": "100644"
     },
     "native/viewer/tests/test_recording_bar.cpp": {
