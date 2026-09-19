@@ -762,7 +762,7 @@ int run_app(const AppOptions& options) {
     };
     load_fonts();
     auto asset_directory = application_directory() / "assets";
-    if (!std::filesystem::exists(asset_directory / "local"))
+    if (!std::filesystem::exists(asset_directory / "redistributable.json"))
         asset_directory = std::filesystem::path(__FILE__).parent_path().parent_path() / "assets";
     auto renderer = std::make_unique<Renderer>(window, asset_directory);
     const auto fixture_assets =

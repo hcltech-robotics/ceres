@@ -1,0 +1,22 @@
+.monitor-run-position {
+  display: flex;
+  flex: 1 0 auto;
+  align-items: center;
+  justify-content: center;
+  align-self: stretch;
+  min-width: max-content;
+  height: 100%;
+  padding-inline: 16px;
+  color: #fff;
+  font: 900 clamp(16px, 1.6vw, 24px)/1 var(--font-family-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: .015em;
+  white-space: nowrap;
+  opacity: var(--run-position-opacity, 1);
+}
+
+.monitor-run-position[data-state="waiting"] { color: var(--colour-warning); }
+
+@media (prefers-reduced-motion: reduce) {
+  .monitor-run-position { opacity: 1; }
+}

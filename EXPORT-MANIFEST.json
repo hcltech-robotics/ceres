@@ -2,7 +2,7 @@
   "version": 2,
   "packageVersion": "1.1.1",
   "generator": "ceres-public-core/2",
-  "treeDigest": "619660298055dac73efcef48c783eefd62a45daa7718d1d0947b13cd0d47aab7",
+  "treeDigest": "b677970f67445e76be7e0be11c7f99afa14071dc1bb317e53d7059b34205a0dc",
   "files": {
     ".dockerignore": {
       "sha256": "f4f0799e0c8f318b0d36a430909ba9dcb3eeca1d1b0ae8b3b7907b44cc2bedca",
@@ -30,8 +30,8 @@
       "mode": "100644"
     },
     ".github/scripts/native-viewer-inputs.py": {
-      "sha256": "8744b1f10950da4d01a98986fa8d3ec525897d4b8fc7a107c8a7a7bcb0b30032",
-      "bytes": 3610,
+      "sha256": "4c7c95e0868709d841eafe930622ab0d4463cf4b8b3c8117ab0bfdefff4f10b7",
+      "bytes": 4247,
       "mode": "100644"
     },
     ".github/workflows/bridge-receiver.yml": {
@@ -40,8 +40,8 @@
       "mode": "100644"
     },
     ".github/workflows/native-viewer.yml": {
-      "sha256": "d0d9cb372e99b9ef474712a5997df566726d26b32c6b28effd99e2e82a783d96",
-      "bytes": 16609,
+      "sha256": "efe0beccb7e5ce30dccfc38b6eb2d05f647eebcaabd21c99ab0a769ca2cbb60e",
+      "bytes": 16931,
       "mode": "100644"
     },
     ".github/workflows/release.yml": {
@@ -210,8 +210,8 @@
       "mode": "100644"
     },
     "native/viewer/.gitattributes": {
-      "sha256": "842d5b133c73f485e16afead8b4738a3fea33b3f05a464e720e6706eb4dc3977",
-      "bytes": 54,
+      "sha256": "a0f496de45ac618591662a67da3d21ff135163ef52b5c532d79615d08fd6090e",
+      "bytes": 77,
       "mode": "100644"
     },
     "native/viewer/.gitignore": {
@@ -220,8 +220,8 @@
       "mode": "100644"
     },
     "native/viewer/CMakeLists.txt": {
-      "sha256": "e0fb75e98aa61c0e88730e945b2a9a873a798d9ae2c3d59cbbc28c4a1987776d",
-      "bytes": 9815,
+      "sha256": "f85fd3eef269b82784acec1552acc79f17f7a475f566c17b1fb5e128a91918d4",
+      "bytes": 9920,
       "mode": "100644"
     },
     "native/viewer/LICENCE.md": {
@@ -345,8 +345,8 @@
       "mode": "100644"
     },
     "native/viewer/docs/qualification.md": {
-      "sha256": "119af7d09dbaaeacde1e2729f17c144018188b00a68162e390b0457abd846e5f",
-      "bytes": 2610,
+      "sha256": "bee8e6b79a77db266f0fc428b6a4543a019dc3972ffc933a78c167c0cb3af5de",
+      "bytes": 3454,
       "mode": "100644"
     },
     "native/viewer/docs/session-format.md": {
@@ -475,8 +475,8 @@
       "mode": "100644"
     },
     "native/viewer/include/ceres/spatial_observation.hpp": {
-      "sha256": "be045169e2675ee70c81d315ce7985cabd9315af082b4ab1eb7f58fc5b64d49b",
-      "bytes": 8401,
+      "sha256": "d77fa536941d67b2bf3f5881505626406f9f93c7bd3c472196043383fb0d2513",
+      "bytes": 8449,
       "mode": "100644"
     },
     "native/viewer/include/ceres/static_model.hpp": {
@@ -555,8 +555,8 @@
       "mode": "100644"
     },
     "native/viewer/scripts/package-common.py": {
-      "sha256": "0f4ccf2b16071a957c0e1f60c35ab015b39547501602cd622182cd5b8cc2551f",
-      "bytes": 10414,
+      "sha256": "0a93057875989abde6943cff90e66fb52850800fde5d5b8cf6f325b0eb4df0d0",
+      "bytes": 10424,
       "mode": "100644"
     },
     "native/viewer/scripts/package-linux.sh": {
@@ -570,13 +570,13 @@
       "mode": "100644"
     },
     "native/viewer/scripts/package.cmake": {
-      "sha256": "38a40101481a2b2ba6eee55197aad1e730a37829cd05841b12d5091e2ee56e9b",
-      "bytes": 14368,
+      "sha256": "bad05d1fc5ec244e1f8b7f5f1154fbb8f2e247b65b5c05788976ce2b6b0aeadf",
+      "bytes": 14625,
       "mode": "100644"
     },
     "native/viewer/scripts/qualification.py": {
-      "sha256": "b0858b17e01c68c9dd9984c55f052d2622fe89691128326c14c13c3395196b24",
-      "bytes": 9618,
+      "sha256": "c249c9dff1452cbed51804f6cee317fa472bf8c92d65bb162ae7bef37a289f00",
+      "bytes": 12753,
       "mode": "100644"
     },
     "native/viewer/scripts/qualify-session.py": {
@@ -595,8 +595,8 @@
       "mode": "100644"
     },
     "native/viewer/scripts/verify-package.py": {
-      "sha256": "46e96d570c53a93e18d5020b1c7927fa89bf559d28a01828e9129309b51320f7",
-      "bytes": 22741,
+      "sha256": "720ef1c0ca66abd2b6b9f94bd98b2823c01c9344d7e6e57fa133ea7945b707d7",
+      "bytes": 23400,
       "mode": "100644"
     },
     "native/viewer/scripts/verify-recording.py": {
@@ -605,8 +605,8 @@
       "mode": "100644"
     },
     "native/viewer/src/app.cpp": {
-      "sha256": "67b8dbc731c719242ef37322963510e7be7e1df5008bf2f1db0296482511b4b2",
-      "bytes": 162388,
+      "sha256": "87bccb6f2907e3ae6db25de4a5c89cfab10d9373ec7e87b6df4d88ed151143fa",
+      "bytes": 162403,
       "mode": "100644"
     },
     "native/viewer/src/bridge.cpp": {
@@ -835,8 +835,8 @@
       "mode": "100644"
     },
     "native/viewer/tests/test_package.py": {
-      "sha256": "465777457695c56331b6f6038a841c04c999e75a66de30375c432004833c516a",
-      "bytes": 7552,
+      "sha256": "9e83a0fd6d42aedc3d494ec064c022effd520dc6ea2b60c571736ee8afc06cfb",
+      "bytes": 8417,
       "mode": "100644"
     },
     "native/viewer/tests/test_protocol.cpp": {
@@ -845,8 +845,8 @@
       "mode": "100644"
     },
     "native/viewer/tests/test_qualification.py": {
-      "sha256": "19a8ea2bde6e36d5a479d601f7171650c5c32a28821b60a6017d261f8090561b",
-      "bytes": 7923,
+      "sha256": "1e9d7f873b6417b76f0537bd4749cf761ff9b1d6563cf587eafd45560c81b87d",
+      "bytes": 12054,
       "mode": "100644"
     },
     "native/viewer/tests/test_recording_bar.cpp": {
@@ -2029,9 +2029,24 @@
       "bytes": 285945,
       "mode": "100644"
     },
+    "src/monitor-capture-metadata.css": {
+      "sha256": "33ea09f1eaf3de00a9c91af4517b5a68f1185d6459f97939cf5ccf60b055d361",
+      "bytes": 3228,
+      "mode": "100644"
+    },
     "src/monitor-capture-metadata.ts": {
       "sha256": "87bfdd81ee720f338006e8c4e7a084c2bcdf8918f185cfd03a9dd6abb171a59f",
       "bytes": 11843,
+      "mode": "100644"
+    },
+    "src/monitor-command-bar.css": {
+      "sha256": "fa88e7ebb8dddd8b631be05b92443465eb84a13d899776e14a23e08294c0a5f9",
+      "bytes": 3317,
+      "mode": "100644"
+    },
+    "src/monitor-depth.css": {
+      "sha256": "49b193a89a25b521ea1d4c9b91317335d0f43dec74b4a2005ad498c933618059",
+      "bytes": 744,
       "mode": "100644"
     },
     "src/monitor-depth.ts": {
@@ -2054,9 +2069,19 @@
       "bytes": 793,
       "mode": "100644"
     },
+    "src/monitor-export-preference.css": {
+      "sha256": "2265ebc64887f2da51819c84ea4ab80e52538b57ed8be499402198dd7e43d307",
+      "bytes": 2209,
+      "mode": "100644"
+    },
     "src/monitor-export-preference.ts": {
       "sha256": "dc456ede08d668724bf5d33a052856fa1ad122c0bba0183803f0d1740b009f08",
       "bytes": 3594,
+      "mode": "100644"
+    },
+    "src/monitor-hf-panel.css": {
+      "sha256": "f26501fdd773951edea3db4000d695b0426152fc71c9967ad44b7f708e39ba8f",
+      "bytes": 1823,
       "mode": "100644"
     },
     "src/monitor-hf-panel.ts": {
@@ -2079,14 +2104,29 @@
       "bytes": 32983,
       "mode": "100644"
     },
+    "src/monitor-run-position.css": {
+      "sha256": "3eb2abf5a1eca141d4abb9941d2ed2b85d0b1bffba3ec4cada5ab8e7c0cc8582",
+      "bytes": 573,
+      "mode": "100644"
+    },
     "src/monitor-run-position.ts": {
       "sha256": "c3533479dfa9514a8bd2b11476c98453aa2006ea8125f5a561cd655ab3af40a3",
       "bytes": 5589,
       "mode": "100644"
     },
+    "src/monitor-run-stack.css": {
+      "sha256": "47ed80889c016ebceafaaf399fea5076cd0c2c4f76621cfb86673bac441a60ec",
+      "bytes": 4464,
+      "mode": "100644"
+    },
     "src/monitor-run-stack.ts": {
       "sha256": "096355e4baceee7811f610784092ba142d74847cb654c807dc5d7d00b6e7809a",
       "bytes": 23482,
+      "mode": "100644"
+    },
+    "src/monitor-run-timeline.css": {
+      "sha256": "3c2c48b947630d5794e095bf268920f266e477bfedfd10aaf8cda173a808d59f",
+      "bytes": 1786,
       "mode": "100644"
     },
     "src/monitor-run-timeline.ts": {
@@ -2770,8 +2810,8 @@
       "mode": "100644"
     },
     "test/session-store.test.ts": {
-      "sha256": "82242cd58a33175b94b9ade7260130a7c2e17da928cf88daef4b5e14fb16adbd",
-      "bytes": 205677,
+      "sha256": "493b4ccc53bd477c758d0b0d1cd25683c528a0ccc77948ab4a990d946e0fe185",
+      "bytes": 207898,
       "mode": "100644"
     },
     "test/solo-export-controller.test.ts": {

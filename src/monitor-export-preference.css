@@ -1,0 +1,72 @@
+.export-destination-selector {
+  display: flex;
+  border-bottom: 1px solid var(--colour-border);
+  margin: -4px 0 10px;
+}
+
+.export-destination-selector button {
+  min-width: 0;
+  flex: 1 1 auto;
+  padding: 9px 4px;
+  border: 0;
+  background: transparent;
+  color: var(--colour-text-muted);
+  font: 650 var(--type-size-label)/1 var(--font-family-sans);
+  cursor: pointer;
+}
+
+.export-destination-selector button[aria-selected="true"] {
+  color: var(--colour-action);
+  box-shadow: inset 0 -2px var(--colour-action);
+}
+
+.export-destination-selector button:hover {
+  color: var(--colour-action);
+}
+
+.export-destination-selector button:focus-visible {
+  outline: 2px solid var(--colour-action);
+  outline-offset: -2px;
+}
+
+.export-destination-panel[hidden],
+.export-action[hidden],
+.export-destination-description:empty {
+  display: none;
+}
+
+.export-destination-description {
+  margin: 8px 0;
+  color: var(--colour-text-muted);
+  font-size: var(--type-size-label);
+  line-height: 1.5;
+}
+
+.export-action {
+  width: 100%;
+  margin-top: 9px;
+}
+
+.export-default-option,
+.export-cadence-label,
+.export-upload-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-block: 12px;
+  font-size: var(--type-size-label);
+}
+.export-default-option { justify-content: flex-start; }
+.export-cadence-label select,
+#hf-upload-cadence { min-width: 0; max-width: 130px; padding: 5px; }
+.stored-export-library { border-top: 1px solid var(--colour-border); margin-top: 18px; padding-top: 12px; }
+.stored-export-heading { display: flex; align-items: center; justify-content: space-between; }
+#stored-export-list { max-height: 270px; overflow: auto; }
+.stored-export-row { display: flex; align-items: start; gap: 7px; margin-block: 12px; min-width: 0; }
+.stored-export-row > span { display: grid; gap: 4px; min-width: 0; overflow-wrap: anywhere; }
+.stored-export-row b { font-size: var(--type-size-label); }
+.stored-export-row small { color: var(--colour-text-muted); }
+.stored-export-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+.stored-export-actions button { padding-inline: 4px; font-size: var(--type-size-label); }
+#delete-stored-exports { grid-column: 1/-1; }

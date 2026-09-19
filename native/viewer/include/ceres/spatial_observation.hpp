@@ -28,6 +28,7 @@ struct HandMaskSet {
     HandMaskCapsule capsules[hand_mask_max_capsules]{};
     HandMaskPalm palms[hand_mask_max_palms]{};
     unsigned capsule_count = 0, palm_count = 0;
+    CERES_SPATIAL_HD constexpr HandMaskSet() {}
 };
 
 // Invalid depth is represented by valid=0. view_from_input transforms organised

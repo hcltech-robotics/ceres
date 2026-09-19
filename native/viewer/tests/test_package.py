@@ -87,13 +87,17 @@ class PackageTests(unittest.TestCase):
         (source / "native/viewer/cmake/Dependencies.cmake").write_text("")
         (source / "native/lerobot-exporter/Cargo.lock").write_text('version = 4\n[[package]]\nname = "fixture"\nversion = "1.0.0"\n')
         (source / "native/lerobot-exporter/Cargo.toml").write_text('[package]\nname = "ceres-native-exporter"\nversion = "0.1.0"\n')
-        (build / "CMakeCache.txt").write_text("CMAKE_BUILD_TYPE:STRING=Release\n")
+        (build / "CMakeCache.txt").write_text("//Build type\nCMAKE_BUILD_TYPE:STRING=Release\n\n//Build tool\nCMAKE_MAKE_PROGRAM:FILEPATH=/tools/ninja\n")
         (package / "provenance/package.json").write_text('{"version":"1.2.3"}')
         (package / "assets/redistributable.json").write_text('{"files": []}')
         for name in ("ceres-viewer.bin", "ceres-native-exporter", "ffmpeg", "ffprobe"):
             (package / name).write_bytes(elf(machine, dependency) + b"Ceres viewer 1.2.3\0")
+        def versions(directory, values):
+            self.assertEqual(values["CMAKE_MAKE_PROGRAM"], "/tools/ninja")
+            self.assertEqual(values["CMAKE_BUILD_TYPE"], "Release")
+            return {"compiler_id": "fixture"}
         with patch.dict(os.environ, {"CERES_SOURCE_REVISION": "1" * 40, "CERES_RELEASE_VERSION": "1.2.3"}), \
-                patch.object(common, "toolchain_versions", return_value={"compiler_id": "fixture"}):
+                patch.object(common, "toolchain_versions", side_effect=versions):
             common.create_metadata(package, source, "linux-x64", build, "75;86;89")
         return package
 
@@ -155,6 +159,16 @@ class PackageTests(unittest.TestCase):
         self.assertEqual(sum(item["kind"] == "video" for item in messages), 3)
         self.assertEqual(sum(item["kind"] == "pose" for item in messages), 9)
         self.assertEqual(messages[-1]["session_time_us"], 100000)
+
+    def test_asset_source_checksums_reject_changed_line_endings(self):
+        asset = self.root / "NOTICE"
+        asset.write_bytes(b"Model attribution\r\n")
+        checksums = {"NOTICE": {"file": "NOTICE", "bytes": asset.stat().st_size, "sha256": verify.sha256(asset)}}
+        (self.root / "checksums.json").write_text(json.dumps(checksums))
+        verify.verify_asset_checksums(self.root)
+        asset.write_bytes(b"Model attribution\n")
+        with self.assertRaisesRegex(ValueError, "Asset source checksum differs"):
+            verify.verify_asset_checksums(self.root)
 
 
 if __name__ == "__main__":

@@ -8,6 +8,7 @@ import { canSetHandDisplay, handDisplayAuthorityError } from "../server/session-
 import { RecorderStoreError, SessionStore, type SessionConnection } from "../server/session-store.js";
 import { CAMERA_REGISTRATION_SCHEMA } from "../shared/camera-registration.js";
 import { canonicalTaskSpecification } from "../shared/task-specification.js";
+import { isExportableEpisode } from "../shared/lerobot-export.js";
 import {
   CAPTURE_PAIRING_REJECTED_CLOSE_CODE,
   decodeRecorderBlock,
@@ -3248,14 +3249,25 @@ test("stop ends an active or paused recording, the current take and the run", as
   }
 });
 
-test("demonstrator Finish completes and accepts a run only after durable finalisation", async (context) => {
+for (const actor of ["director", "demonstrator"] as const) test(`${actor} finish preserves a partial cycle after durable recorder and media finalisation`, async (context) => {
   const dataRoot = await mkdtemp(path.join(tmpdir(), "ceres-finish-recording-"));
   context.after(() => rm(dataRoot, { recursive: true, force: true }));
   const store = new SessionStore({ dataRoot, minimumFreeBytes: 0 });
-  const sessionId = "finish-recording-session";
+  const sessionId = `finish-recording-${actor}`;
+  const configuration = structuredClone(defaultConfiguration);
+  configuration.totalCycles = 3;
+  configuration.tasks = [
+    { id: "task-a", label: "Task A", instructions: "Reach", type: "open", repeatCount: 2, resetTimeS: 5 },
+    { id: "task-b", label: "Task B", instructions: "Place", type: "open", repeatCount: 1, resetTimeS: 5 },
+  ];
+  await store.setConfiguration(sessionId, configuration);
   await store.armRecorder(sessionId);
   const capture = connectReadyCapture(store, sessionId);
-  const episode = await recordValidTake(store, sessionId, capture, 0, Date.now() * 1_000);
+  const director: SessionConnection = { id: `director-${sessionId}`, role: "monitor-control", send: () => undefined };
+  store.connect(sessionId, director);
+  const control = actor === "director" ? director : capture;
+  const sourceTimestampUs = Date.now() * 1_000;
+  const episode = await recordValidTake(store, sessionId, capture, 0, sourceTimestampUs);
   const commands: string[] = [];
   capture.send = (type, payload) => {
     if (type === "control" && payload && typeof payload === "object" && "action" in payload) {
@@ -3263,15 +3275,15 @@ test("demonstrator Finish completes and accepts a run only after durable finalis
     }
   };
 
-  await assert.rejects(store.control(sessionId, "finish"), /Only the demonstrator can finish/);
-  await store.control(sessionId, "finish", capture);
+  await store.control(sessionId, "finish");
+  await store.control(sessionId, "finish", control);
   assert.equal(store.snapshot(sessionId).run.recordingState, "recording");
   assert.equal(commands.some((action) => action === "recording-event"), false);
-  await store.control(sessionId, "finish", capture, "stale-finish-cursor");
+  await store.control(sessionId, "finish", control, "stale-finish-cursor");
   assert.equal(store.snapshot(sessionId).run.recordingState, "recording");
   assert.equal(commands.some((action) => action === "recording-event"), false);
   const finishCursor = nextRunControlCursor(store.snapshot(sessionId), "finish");
-  await store.control(sessionId, "finish", capture, finishCursor);
+  await store.control(sessionId, "finish", control, finishCursor);
   assert.deepEqual(
     commands.filter((action) => action.startsWith("recording-")),
     ["recording-paused", "recording-event", "recording-stopping"],
@@ -3283,9 +3295,24 @@ test("demonstrator Finish completes and accepts a run only after durable finalis
   assert.equal(stopping.currentEpisode?.runFinalisation, "finish-requested");
   assert.equal(stopping.currentEpisode?.segments?.[0]?.outcome, "completed");
   assert.equal(stopping.episodes.length, 0);
+  assert.equal(stopping.run.phase, null);
+  assert.equal(stopping.run.resetDeadlineMs, null);
   const commandCount = commands.length;
-  await store.control(sessionId, "finish", capture, finishCursor);
+  await store.control(sessionId, "finish", control, finishCursor);
   assert.equal(commands.length, commandCount);
+  await assert.rejects(
+    store.control(sessionId, "finish", control, nextRunControlCursor(store.snapshot(sessionId), "finish")),
+    /already finalising/,
+  );
+
+  const terminalMedia = encodedBlock({
+    ...recorderInput(sessionId, episode.id, stopping.captureStatus.recorderDurableAckSequence + 1, 0, sourceTimestampUs),
+    flags: RecorderBlockFlags.MediaChunk,
+    payload: encodeRecorderMediaPayload("video/webm", Uint8Array.of(1, 2, 3)),
+  });
+  await store.recordRecorderBlock(sessionId, terminalMedia.decoded, terminalMedia.encoded);
+  assert.equal(store.snapshot(sessionId).run.recordingState, "stopping");
+  assert.equal(store.snapshot(sessionId).episodes.length, 0);
 
   await finaliseRequestedStop(store, sessionId, capture);
 
@@ -3302,6 +3329,17 @@ test("demonstrator Finish completes and accepts a run only after durable finalis
   assert.equal(complete.episodes[0]?.runFinalisation, "finish-completed");
   assert.equal(complete.episodes[0]?.segments?.[0]?.outcome, "completed");
   assert.equal(complete.episodes[0]?.segments?.[0]?.accepted, true);
+  assert.equal(complete.episodes[0]?.frameCount, 1);
+  assert.equal(complete.episodes[0]?.mediaChunkCount, 1);
+  assert.equal(isExportableEpisode(complete.episodes[0]), true);
+  assert.deepEqual(complete.episodes[0]?.segments?.map(({ taskId }) => taskId), ["task-a"]);
+  assert.equal(complete.run.cycle, 1);
+  assert.equal(complete.run.activeTaskIndex, 0);
+  assert.equal(complete.pendingEpisode, null);
+  const video = await readFile(path.join(dataRoot, "sessions", sessionId, "episodes", episode.id, "video", "passthrough.webm"));
+  assert.deepEqual([...video], [1, 2, 3]);
+  await store.control(sessionId, "finish", control, finishCursor);
+  assert.deepEqual(store.snapshot(sessionId), complete);
 });
 
 test("Finish rejects delayed server recorder acceptance without publishing a terminal boundary", async (context) => {

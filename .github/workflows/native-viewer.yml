@@ -138,7 +138,7 @@ jobs:
         run: |
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat" -vcvars_ver=14.44
           if errorlevel 1 exit /b %errorlevel%
-          cmake -S "%RUNNER_TEMP%/native-source/native/viewer" -B "%RUNNER_TEMP%/build-native" -G Ninja -DCMAKE_BUILD_TYPE=Release -DCERES_BUILD_TESTS=ON -DCMAKE_CUDA_COMPILER="%CUDA_PATH%\bin\nvcc.exe" -DCMAKE_CUDA_FLAGS="-allow-unsupported-compiler -D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH"
+          cmake -S "%RUNNER_TEMP%/native-source/native/viewer" -B "%RUNNER_TEMP%/build-native" -G Ninja -DCMAKE_BUILD_TYPE=Release -DCERES_BUILD_TESTS=ON -DPython_EXECUTABLE="%pythonLocation%\python.exe" -DPython3_EXECUTABLE="%pythonLocation%\python.exe" -DCMAKE_CUDA_COMPILER="%CUDA_PATH%\bin\nvcc.exe" -DCMAKE_CUDA_FLAGS="-allow-unsupported-compiler -D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH"
           if errorlevel 1 exit /b %errorlevel%
           cmake --build "%RUNNER_TEMP%/build-native" --parallel 2
           if errorlevel 1 exit /b %errorlevel%
@@ -156,7 +156,7 @@ jobs:
           python "$env:RUNNER_TEMP/native-source/native/viewer/scripts/verify-package.py" --archive "$output/$packageName.zip" --platform windows-x64 --version $env:CERES_RELEASE_VERSION --output "$env:RUNNER_TEMP/verified-windows-x64"
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           Copy-Item -LiteralPath "$env:RUNNER_TEMP/verified-windows-x64/report.json" -Destination "$output/$packageName.verification.json"
-          python "$env:RUNNER_TEMP/native-source/.github/scripts/native-viewer-inputs.py" --root "$env:RUNNER_TEMP/native-source" --build "$env:RUNNER_TEMP/build-native" --platform windows-x64 --runner windows-2022 --cuda 12.4.1 --ffmpeg "$ffmpegRoot/bin/ffmpeg.exe" --output "$output/workflow-inputs.json"
+          python "$env:RUNNER_TEMP/native-source/.github/scripts/native-viewer-inputs.py" --root "$env:RUNNER_TEMP/native-source" --build "$env:RUNNER_TEMP/build-native" --platform windows-x64 --runner windows-2022 --cuda 12.4.1 --ffmpeg "$ffmpegRoot/bin/ffmpeg.exe" --package-manifest "$output/$packageName.zip.manifest.json" --output "$output/workflow-inputs.json"
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           $tests = Join-Path $env:GITHUB_WORKSPACE 'release-tests'
           New-Item -ItemType Directory -Path $tests | Out-Null
@@ -240,7 +240,7 @@ jobs:
           echo "FFMPEG=$RUNNER_TEMP/ffmpeg-runtime/bin/ffmpeg" >> "$GITHUB_ENV"
       - name: Build the standalone viewer source and native tests
         run: |
-          cmake -S "$RUNNER_TEMP/native-source/native/viewer" -B "$RUNNER_TEMP/build-native" -G Ninja -DCMAKE_BUILD_TYPE=Release -DCERES_BUILD_TESTS=ON
+          cmake -S "$RUNNER_TEMP/native-source/native/viewer" -B "$RUNNER_TEMP/build-native" -G Ninja -DCMAKE_BUILD_TYPE=Release -DCERES_BUILD_TESTS=ON -DPython_EXECUTABLE="$(command -v python)" -DPython3_EXECUTABLE="$(command -v python)"
           cmake --build "$RUNNER_TEMP/build-native" --parallel 2
           ctest --test-dir "$RUNNER_TEMP/build-native" -C Release -LE gpu --output-on-failure
           cargo test --locked --manifest-path "$RUNNER_TEMP/native-source/native/lerobot-exporter/Cargo.toml"
@@ -256,7 +256,7 @@ jobs:
           bash "$RUNNER_TEMP/native-source/native/viewer/scripts/package-linux.sh"
           python "$RUNNER_TEMP/native-source/native/viewer/scripts/verify-package.py" --archive "$OUTPUT_DIRECTORY/$PACKAGE_NAME.tar.gz" --platform "$PACKAGE_PLATFORM" --version "$CERES_RELEASE_VERSION" --output "$RUNNER_TEMP/verified-$PACKAGE_PLATFORM"
           cp "$RUNNER_TEMP/verified-$PACKAGE_PLATFORM/report.json" "$OUTPUT_DIRECTORY/$PACKAGE_NAME.verification.json"
-          python "$RUNNER_TEMP/native-source/.github/scripts/native-viewer-inputs.py" --root "$RUNNER_TEMP/native-source" --build "$RUNNER_TEMP/build-native" --platform "$PACKAGE_PLATFORM" --runner '${{ matrix.runner }}' --image '${{ matrix.image }}' --cuda '${{ matrix.cuda }}' --ffmpeg "$FFMPEG_ROOT/bin/ffmpeg" --output "$OUTPUT_DIRECTORY/workflow-inputs.json"
+          python "$RUNNER_TEMP/native-source/.github/scripts/native-viewer-inputs.py" --root "$RUNNER_TEMP/native-source" --build "$RUNNER_TEMP/build-native" --platform "$PACKAGE_PLATFORM" --runner '${{ matrix.runner }}' --image '${{ matrix.image }}' --cuda '${{ matrix.cuda }}' --ffmpeg "$FFMPEG_ROOT/bin/ffmpeg" --package-manifest "$OUTPUT_DIRECTORY/$PACKAGE_NAME.tar.gz.manifest.json" --output "$OUTPUT_DIRECTORY/workflow-inputs.json"
           mkdir release-tests
           for name in test_image test_stereo_cuda test_voxel_cuda test_depth_cuda test_nvdec; do cp "$BUILD_DIRECTORY/$name" release-tests/; done
           cp -a "$OUTPUT_DIRECTORY/$PACKAGE_NAME/lib" release-tests/

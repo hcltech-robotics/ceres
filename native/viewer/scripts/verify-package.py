@@ -176,6 +176,18 @@ def binary_info(path):
     return {"format": "pe", "machine": machine, "imports": sorted(set(imports))}
 
 
+def verify_asset_checksums(directory):
+    manifest = directory / "checksums.json"
+    if not manifest.exists():
+        return
+    for name, record in json.loads(manifest.read_text(encoding="utf-8")).items():
+        relative = safe_name(name)
+        require(record["file"] == name, "Asset checksum filename differs")
+        path = directory.joinpath(*relative.parts)
+        require(path.resolve().is_relative_to(directory.resolve()), "External asset checksum path")
+        require(path.stat().st_size == record["bytes"] and sha256(path) == record["sha256"], "Asset source checksum differs: " + name)
+
+
 def verify_contents(root, platform, version):
     require(platform in PLATFORMS, "Unsupported platform")
     manifest = json.loads((root / "MANIFEST.json").read_text(encoding="utf-8"))
@@ -207,6 +219,7 @@ def verify_contents(root, platform, version):
     allowed_assets = {"assets/" + name for name in assets["files"]} | {"assets/redistributable.json"}
     require({name for name in files if name.startswith("assets/")} == allowed_assets, "Asset inventory differs")
     require(not any("mano" in name.lower() for name in allowed_assets), "Package contains a licensed MANO asset")
+    verify_asset_checksums(root / "assets/quest3")
     source = json.loads((root / "provenance/source.json").read_text(encoding="utf-8"))
     for key in ("platform", "release_version", "source_revision"):
         require(source[key] == manifest[key], "Source provenance differs: " + key)

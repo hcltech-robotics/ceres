@@ -82,7 +82,7 @@ def create_metadata(package, source, platform, build, cuda_architectures):
     epoch = int(os.environ.get("SOURCE_DATE_EPOCH", "946684800"))
     created = datetime.datetime.fromtimestamp(epoch, datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     cache = (build / "CMakeCache.txt").read_text(encoding="utf-8", errors="replace")
-    values = dict(re.findall(r"^([^#/:=][^:=]*):[^=]*=(.*)$", cache, re.MULTILINE))
+    values = dict(re.findall(r"^([A-Za-z_][^:=\r\n]*):[^=\r\n]*=(.*)$", cache, re.MULTILINE))
     source_record = {
         "release_version": version, "source_revision": revision,
         "exporter_source": "native/lerobot-exporter", "exporter_revision": revision,

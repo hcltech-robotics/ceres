@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 
 
 def compiler_version(build):
@@ -37,6 +38,7 @@ def main():
     parser.add_argument("--image")
     parser.add_argument("--cuda", required=True)
     parser.add_argument("--ffmpeg", type=Path, required=True)
+    parser.add_argument("--package-manifest", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     configured_revision = os.environ.get("CERES_SOURCE_REVISION")
@@ -54,12 +56,18 @@ def main():
     architectures = re.search(r"^CMAKE_CUDA_ARCHITECTURES:[^=]*=([0-9;]+)$", cache, re.MULTILINE)
     if not architectures:
         raise ValueError("The configured CUDA architectures are missing")
+    release_version = json.loads((args.root / "package.json").read_text(encoding="utf-8"))["version"]
+    manifest = json.loads(args.package_manifest.read_text(encoding="utf-8-sig"))
+    if manifest.get("platform") != args.platform or manifest.get("source_revision") != revision or manifest.get("release_version") != release_version:
+        raise ValueError("Package manifest identity differs from the build inputs")
+    sys.path.insert(0, str(args.root.resolve() / "native/viewer/scripts"))
+    from qualification import runtime_dependency_hashes
     result = {
         "schema": "ceres-native-build-inputs",
         "version": 1,
         "platform": args.platform,
         "source_revision": revision,
-        "release_version": json.loads((args.root / "package.json").read_text(encoding="utf-8"))["version"],
+        "release_version": release_version,
         "toolchain": {
             "runner": args.runner,
             "build_image": args.image,
@@ -71,6 +79,7 @@ def main():
             "compiler": compiler_version(args.build),
         },
         "ffmpeg": {"version": ffmpeg},
+        "runtime_dependencies": runtime_dependency_hashes(manifest),
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8", newline="\n")

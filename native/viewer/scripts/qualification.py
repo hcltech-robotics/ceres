@@ -6,7 +6,7 @@ import argparse
 import hashlib
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import platform
 import re
 import subprocess
@@ -32,6 +32,45 @@ def read_json(path: Path) -> dict:
     if not isinstance(value, dict):
         raise ValueError(f"Expected a JSON object: {path.name}")
     return value
+
+
+def runtime_dependency_hashes(manifest: dict) -> dict[str, str]:
+    if manifest.get("schema") != "ceres-viewer-package" or manifest.get("version") != 1 or not isinstance(manifest.get("files"), dict):
+        raise ValueError("Unsupported package manifest for runtime dependencies")
+    selected = {}
+    executables = {"ffmpeg": 0, "ffprobe": 0}
+    for name, entry in manifest["files"].items():
+        path = PurePosixPath(name)
+        if path.is_absolute() or ".." in path.parts or "\\" in name:
+            raise ValueError("Unsafe runtime dependency path")
+        basename = path.name.lower()
+        executable = basename.removesuffix(".exe")
+        if executable in executables:
+            executables[executable] += 1
+        if executable in executables or basename.endswith(".dll") or (name.startswith("lib/") and re.search(r"\.so(?:\.[A-Za-z0-9._-]+)?$", basename)):
+            checksum = entry.get("sha256", "") if isinstance(entry, dict) else ""
+            if not re.fullmatch(r"[a-f0-9]{64}", checksum):
+                raise ValueError(f"Invalid runtime dependency hash: {name}")
+            selected[name] = checksum
+    if any(count != 1 for count in executables.values()):
+        raise ValueError("Runtime dependencies require one packaged FFmpeg and FFprobe")
+    return dict(sorted(selected.items()))
+
+
+def validate_package_runtime(inputs: dict, archive: Path, archive_sha256: str) -> None:
+    manifest = read_json(Path(str(archive) + ".manifest.json"))
+    suffix = ".zip" if inputs["platform"] == "windows-x64" else ".tar.gz"
+    report = read_json(archive.with_name(archive.name.removesuffix(suffix) + ".verification.json"))
+    for document in (manifest, report):
+        for key in ("platform", "release_version", "source_revision"):
+            if document.get(key) != inputs.get(key):
+                raise ValueError("Verified package identity differs from the runtime inputs")
+    if report.get("schema") != "ceres-viewer-package-verification" or report.get("version") != 1 or report.get("passed") is not True:
+        raise ValueError("Runtime dependencies require a successful package verification")
+    if report.get("archive_sha256") != archive_sha256 or report.get("manifest") != manifest:
+        raise ValueError("Runtime dependency manifest differs from the verified archive")
+    if runtime_dependency_hashes(manifest) != inputs.get("runtime_dependencies"):
+        raise ValueError("Packaged runtime dependencies differ from the build inputs")
 
 
 def runtime_files(root: Path) -> dict[str, str]:
@@ -83,10 +122,17 @@ def qualification_inputs(root: Path, inputs: dict) -> dict:
             raise ValueError(f"Build inputs omit the {key} toolchain identity")
     if not inputs.get("ffmpeg", {}).get("version"):
         raise ValueError("Build inputs omit the FFmpeg identity")
+    dependencies = inputs.get("runtime_dependencies")
+    if not isinstance(dependencies, dict) or not dependencies:
+        raise ValueError("Build inputs omit packaged runtime dependency hashes")
+    checked = runtime_dependency_hashes({"schema": "ceres-viewer-package", "version": 1,
+                                         "files": {name: {"sha256": value} for name, value in dependencies.items()}})
+    if checked != dependencies:
+        raise ValueError("Build inputs contain an invalid runtime dependency inventory")
     return {"schema": "ceres-native-qualification-inputs", "version": 1,
             "platform": inputs["platform"], "files": runtime_files(root),
             "toolchain": {k: v for k, v in toolchain.items() if k != "runner"},
-            "ffmpeg": inputs["ffmpeg"]}
+            "ffmpeg": inputs["ffmpeg"], "runtime_dependencies": dependencies}
 
 
 def fingerprint(root: Path, inputs: dict) -> str:
@@ -142,6 +188,7 @@ def check(root: Path, artifacts: Path, receipts: Path) -> dict:
         if len(archives) != 1:
             raise ValueError(f"Expected exactly one archive for {target}")
         actual = digest(archives[0])
+        validate_package_runtime(inputs, archives[0], actual)
         by_platform[target] = {"input_sha256": expected, "archive_sha256": actual,
                                "qualification_archive_sha256": receipt["archive_sha256"],
                                "qualification_reused": actual != receipt["archive_sha256"]}

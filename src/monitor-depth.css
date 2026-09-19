@@ -1,0 +1,40 @@
+.monitor-depth-view {
+  position: relative;
+  grid-row: 2;
+  grid-column: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px;
+  background: var(--surface-camera, #0b0f12);
+}
+
+.monitor-depth-view[hidden],
+.monitor-depth-view [hidden] {
+  display: none;
+}
+
+.monitor-depth-view canvas {
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: calc(100% - 32px);
+  object-fit: contain;
+  image-rendering: pixelated;
+}
+
+.monitor-depth-message,
+.monitor-depth-details {
+  margin: 0;
+  text-align: center;
+  font-size: 11px;
+  color: var(--text-muted, #8a9baa);
+}
+
+.monitor-depth-details {
+  font-family: var(--font-mono, monospace);
+}

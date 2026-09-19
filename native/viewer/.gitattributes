@@ -2,3 +2,4 @@
 *.bin binary
 *.ttf binary
 *.h264 binary
+/assets/quest3/* -text
