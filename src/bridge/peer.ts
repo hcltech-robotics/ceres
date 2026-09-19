@@ -16,6 +16,8 @@ export class BridgePeer {
   depth: RTCDataChannel | null = null;
   epoch = 0;
   depthMetadataVersion: 1 | 2 = 1;
+  depthEnabled = false;
+  private depthControlSupported = false;
   private paused = false;
   private videoSender: RTCRtpSender | null = null;
   private audioSender: RTCRtpSender | null = null;
@@ -54,6 +56,7 @@ export class BridgePeer {
       quaternion: "xyzw", joints: XR_HAND_JOINTS,
       ...(this.camera ? { camera: describeCamera(this.camera) } : {}),
       environment_depth: { ...DEPTH_FEATURE },
+      depth_control_version: 1,
     };
     let acknowledged = false, remoteEnd = false, localEndSent = false, offered = false;
     let remoteSet = false;
@@ -98,8 +101,13 @@ export class BridgePeer {
         if (message.epoch !== this.epoch) return;
         if (message.type === "ack") {
           this.depthMetadataVersion = "depth_metadata_version" in message && message.depth_metadata_version === 2 ? 2 : 1;
+          this.depthControlSupported = message.depth_control_version === 1;
+          this.depthEnabled = this.depthControlSupported ? message.depth_enabled! : true;
           acknowledged = true;
           finish();
+        }
+        else if (message.type === "depth-control") {
+          if (acknowledged && this.depthControlSupported) this.depthEnabled = message.enabled;
         }
         else if (message.type === "ping" && meta.bufferedAmount < 4096) {
           meta.send(JSON.stringify({ ...message, type: "pong", t1, t2: nowUs() }));
@@ -223,6 +231,8 @@ export class BridgePeer {
 
   private cleanup() {
     this.depthMetadataVersion = 1;
+    this.depthEnabled = false;
+    this.depthControlSupported = false;
     this.videoSender = null;
     this.audioSender = null;
     if (this.timer) clearTimeout(this.timer);

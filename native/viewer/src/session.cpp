@@ -744,6 +744,7 @@ struct ReplaySource::Impl {
     int64_t anchor_position = 0, anchor_wall = 0;
     double multiplier = 1;
     bool active = false, playing = true, pending_seek = true, stopping = false;
+    bool contains_depth_frames = false;
     uint64_t generation = 0;
     size_t cursor = 0;
     explicit Impl(const std::filesystem::path& path) : source_path(path), index(index_file(path)) {
@@ -756,6 +757,8 @@ struct ReplaySource::Impl {
                 episode_entries.push_back(i);
             else if (index.entries[i].kind == EventKind::Video && index.entries[i].camera_primary)
                 video_entries.push_back(i);
+            else if (index.entries[i].kind == EventKind::Depth)
+                contains_depth_frames = true;
         }
         std::stable_sort(pose_entries.begin(), pose_entries.end(), [&](size_t a, size_t b) {
             return index.entries[a].time < index.entries[b].time;
@@ -1151,6 +1154,9 @@ int64_t ReplaySource::duration_us() const {
 int64_t ReplaySource::position_us() const {
     std::lock_guard lock(impl_->mutex);
     return impl_->position_locked();
+}
+bool ReplaySource::has_depth_frames() const {
+    return impl_->contains_depth_frames;
 }
 const std::filesystem::path& ReplaySource::path() const {
     return impl_->source_path;

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "ceres/depth_display.hpp"
+
 #include <imgui.h>
 #include <span>
 
@@ -17,6 +19,18 @@ inline const ImVec4 green{.655f, .729f, .545f, 1.f};
 inline const ImVec4 red{.914f, .604f, .537f, 1.f};
 } // namespace colour
 
+// Font sizes are unscaled pixels at 96 DPI. The host bakes each role at its DPI.
+namespace typography {
+inline constexpr float body = 16.f;
+inline constexpr float mono = 16.f;
+inline constexpr float title = 20.f;
+inline constexpr float instrument_label = 12.f;
+inline constexpr float compact_readout = 18.f;
+inline constexpr float readout = 24.f;
+inline constexpr float timer = 32.f;
+inline constexpr float count_in = 60.f;
+} // namespace typography
+
 struct Metrics {
     float dpi = 1.f;
     float unit = 4.f;
@@ -24,11 +38,13 @@ struct Metrics {
     float section_gap = 12.f;
     float row_height = 28.f;
     float lamp_size = 6.f;
+    float field_label_width = 96.f;
+    float field_min_width = 152.f;
 };
 
 // The host owns the font atlas. Reapply only when the host's DPI changes.
 void apply_style(float dpi = 1.f);
-void set_fonts(ImFont* body, ImFont* mono);
+void set_fonts(ImFont* body, ImFont* mono, ImFont* instrument_label = nullptr);
 const Metrics& metrics();
 
 // Open state belongs to the caller. Repeated components need a surrounding PushID.
@@ -39,7 +55,14 @@ void metric(const char* label, const char* value, const char* unit = "");
 bool primary_button(const char* label, bool recording = false);
 void muted(const char* text);
 void help(const char* text);
-void small_label(const char* label);
+void field_label(const char* label);
+void subsection(const char* label, bool first = false);
+
+// A successful begin owns the table, ID and body font until end_field().
+// A false result closes its scopes and the caller must skip the field contents.
+bool begin_field(const char* label);
+void end_field();
+bool gradient_picker(const char* label, DepthGradient& gradient);
 
 // Full-height instrument fields share their hit area, text clip and dividers.
 struct InstrumentCell {

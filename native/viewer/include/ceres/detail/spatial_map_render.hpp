@@ -24,15 +24,18 @@ layout(location=11) in vec4 source_colour;
 layout(location=12) in float point_valid;
 layout(location=13) in uvec2 observed_us;
 layout(location=14) in uvec2 support_flags;
-uniform mat4 vp;
+layout(location=15) in float first_observed_seconds;
+uniform mat4 vp,world_from_map;
 uniform float point_size,opacity;
 uniform vec3 headset_origin,depth_palette[8];
 uniform int headset_origin_valid;
 uniform int map_shader;
 uniform uvec2 now_us;
 uniform float density,recency_seconds;
+uniform float fade_now_seconds,fade_duration_seconds;
 uniform vec2 depth_range;
 out float confidence;
+flat out int established;
 out vec4 point_colour;
 out float eye_depth;
 float age_seconds() {
@@ -42,15 +45,27 @@ float age_seconds() {
     return float(high)*4294.967296+float(low)*.000001;
 }
 float stable_fraction() {
-    uvec3 coordinate=floatBitsToUint(position);
+    // Fused positions move within their evidence cell as sweeps refine them.
+    // Select by the fixed world-grid cell rather than the position mantissa.
+    uvec3 coordinate=uvec3(ivec3(floor(position/max(point_valid,.000001))));
     uint value=coordinate.x*73856093u ^ coordinate.y*19349663u ^ coordinate.z*83492791u;
+    value^=floatBitsToUint(point_valid)*2654435761u;
     value^=value>>16; value*=0x7feb352du; value^=value>>15; value*=0x846ca68bu; value^=value>>16;
     return float(value>>8)*(.000000059604644775390625);
 }
+float retained_fraction(float reliability) {
+    // A display limit removes tentative samples first. At full density every
+    // measured point remains eligible, irrespective of its confidence.
+    return pow(density,mix(4.0,.25,reliability));
+}
 void main() {
+    vec3 world_position=(world_from_map*vec4(position,1)).xyz;
     confidence=clamp(source_colour.a,0,1);
-    float alpha=opacity*confidence;
-    float fraction=clamp((length(position-headset_origin)-depth_range.x)/
+    float fade=first_observed_seconds<0 || fade_duration_seconds<=0 ? 1 :
+        clamp((fade_now_seconds-first_observed_seconds)/fade_duration_seconds,0,1);
+    established=confidence>=.8 && support_flags.x>=4u && fade>=.999 ? 1 : 0;
+    float alpha=opacity*confidence*fade;
+    float fraction=clamp((length(world_position-headset_origin)-depth_range.x)/
                          max(.0001,depth_range.y-depth_range.x),0,1);
     if(map_shader==1) fraction=clamp(age_seconds()/max(.001,recency_seconds),0,1);
     if(map_shader==2) fraction=1-confidence;
@@ -60,14 +75,18 @@ void main() {
                     palette_position-float(palette_index));
     if(map_shader==3) colour=vec3(.74,.78,.82);
     point_colour=vec4(map_shader!=0 || headset_origin_valid!=0 ? colour : vec3(.72),alpha);
-    vec4 clip=vp*vec4(position,1);
+    vec4 clip=vp*vec4(world_position,1);
     eye_depth=clip.w;
     gl_PointSize=point_size;
-    bool visible=point_valid>0 && support_flags.x>0u && density>0 && stable_fraction()<density;
+    float independent_support=clamp(log2(1+float(support_flags.x))/3,0,1);
+    float reliability=confidence*independent_support;
+    bool visible=point_valid>0 && support_flags.x>0u && density>0 &&
+                 stable_fraction()<retained_fraction(reliability);
     gl_Position=visible && alpha>.001 && clip.w>0 ? clip : vec4(2,2,2,1);
 })GLSL";
         constexpr const char* fragment = R"GLSL(#version 450 core
 in float confidence;
+flat in int established;
 in vec4 point_colour;
 in float eye_depth;
 uniform int point_pass,premultiplied;
@@ -75,7 +94,7 @@ layout(location=0) out vec4 colour;
 layout(location=1) out float linear_depth;
 void main() {
     if(point_colour.a<=.001) discard;
-    bool supported=confidence>=.999;
+    bool supported=established!=0;
     if((point_pass<2 && !supported) || (point_pass==2 && supported)) discard;
     colour=point_colour;
     if(premultiplied!=0) colour.rgb*=colour.a;
@@ -158,6 +177,7 @@ void main() {
             throw;
         }
         vp_ = location("vp");
+        world_from_map_ = location("world_from_map");
         size_ = location("point_size");
         opacity_ = location("opacity");
         origin_ = location("headset_origin");
@@ -169,6 +189,8 @@ void main() {
         now_ = location("now_us");
         density_ = location("density");
         recency_ = location("recency_seconds");
+        fade_now_ = location("fade_now_seconds");
+        fade_duration_ = location("fade_duration_seconds");
         premultiplied_ = location("premultiplied");
         GLfloat sizes[2]{};
         glGetFloatv(GL_POINT_SIZE_RANGE, sizes);
@@ -187,13 +209,17 @@ void main() {
               const std::optional<glm::vec3>& headset_origin, float near_distance,
               float far_distance, SpatialMapShader shader = SpatialMapShader::distance,
               int64_t now_us = 0, float density = 1.f, float recency_seconds = 30.f,
-              SpatialMapStyle style = SpatialMapStyle::points, float relief_strength = 1.f) const {
+              SpatialMapStyle style = SpatialMapStyle::points, float relief_strength = 1.f,
+              const glm::mat4& world_from_map = glm::mat4(1.f), bool occluding = true,
+              float fade_now_seconds = 0.f, float fade_duration_seconds = 0.f,
+              DepthGradient gradient = DepthGradient::spectral) const {
         if (count <= 0 || !std::isfinite(opacity) || opacity <= 0)
             return;
         State previous;
         glUseProgram(program_);
         glBindVertexArray(vao);
         glUniformMatrix4fv(vp_, 1, GL_FALSE, glm::value_ptr(vp));
+        glUniformMatrix4fv(world_from_map_, 1, GL_FALSE, glm::value_ptr(world_from_map));
         glUniform1f(size_, std::clamp(std::isfinite(size_pixels) ? size_pixels : 1.f,
                                     1.f, maximum_size_));
         glUniform1f(opacity_, std::clamp(opacity, 0.f, 1.f));
@@ -206,11 +232,14 @@ void main() {
         glUniform2ui(now_, GLuint(time & 0xffffffffu), GLuint(time >> 32));
         glUniform1f(density_, std::clamp(std::isfinite(density) ? density : 1.f, 0.f, 1.f));
         glUniform1f(recency_, std::isfinite(recency_seconds) ? std::max(.001f, recency_seconds) : 30.f);
+        glUniform1f(fade_now_, std::isfinite(fade_now_seconds) ? fade_now_seconds : 0.f);
+        glUniform1f(fade_duration_, std::isfinite(fade_duration_seconds) ?
+                                          std::max(0.f, fade_duration_seconds) : 0.f);
         glUniform1i(premultiplied_, 0);
-        static const auto palette = [] {
+        const auto palette = [gradient] {
             std::array<float, 24> result{};
             for (int i = 0; i < 8; ++i) {
-                const auto colour = spectral_depth_colour(float(i) / 7.f);
+                const auto colour = depth_gradient_colour(gradient, float(i) / 7.f);
                 result[size_t(i) * 3] = colour.r;
                 result[size_t(i) * 3 + 1] = colour.g;
                 result[size_t(i) * 3 + 2] = colour.b;
@@ -227,11 +256,13 @@ void main() {
         glBlendEquation(GL_FUNC_ADD);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         glDepthFunc(GL_LESS);
-        glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
-        glDepthMask(GL_TRUE);
-        glUniform1i(pass_, 0);
-        glDrawArrays(GL_POINTS, 0, count);
-        if (style == SpatialMapStyle::shape) {
+        if (occluding) {
+            glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+            glDepthMask(GL_TRUE);
+            glUniform1i(pass_, 0);
+            glDrawArrays(GL_POINTS, 0, count);
+        }
+        if (occluding && style == SpatialMapStyle::shape) {
             draw_shape(vao, count, previous, relief_strength);
             return;
         }
@@ -509,7 +540,8 @@ void main() {
     mutable std::array<GLuint, 2> textures_{};
     mutable int width_ = 0, height_ = 0, samples_ = 0;
     mutable GLenum depth_format_ = 0;
-    GLint vp_, size_, opacity_, origin_, origin_valid_, range_, palette_, pass_, shader_, now_, density_, recency_, premultiplied_;
+    GLint vp_, world_from_map_, size_, opacity_, origin_, origin_valid_, range_, palette_, pass_, shader_, now_, density_, recency_, premultiplied_;
+    GLint fade_now_, fade_duration_;
     float maximum_size_ = 1;
 };
 } // namespace ceres::detail

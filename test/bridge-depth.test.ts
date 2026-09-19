@@ -23,8 +23,9 @@ function image(values = [0, 1, 2, 3]): DepthImage {
 }
 function fixture(mode: "cpu-optimized" | "gpu-optimized" | null = "cpu-optimized") {
   let depthImage: DepthImage | null = image();
-  let acquired = 0, resume = 0;
+  let acquired = 0, resume = 0, pause = 0;
   const session = { depthUsage: mode, depthDataFormat: "float32", depthActive: true,
+    pauseDepthSensing() { pause++; this.depthActive = false; },
     resumeDepthSensing() { resume++; this.depthActive = true; } } as unknown as XRSession;
   const frame = { session, getViewerPose: () => ({ views: [view] }),
     getDepthInformation: () => { acquired++; return depthImage; } } as unknown as XRFrame;
@@ -33,7 +34,8 @@ function fixture(mode: "cpu-optimized" | "gpu-optimized" | null = "cpu-optimized
   const peer = { epoch: 1, depthMetadataVersion: 2, depth: channel, sendDepthStatus: (status: unknown) => { statuses.push(status); return true; } } as unknown as DepthPeer;
   const space = {} as XRReferenceSpace;
   return { session, frame, channel, peer, packets, statuses, space,
-    set image(next: DepthImage | null) { depthImage = next; }, get acquired() { return acquired; }, get resume() { return resume; } };
+    set image(next: DepthImage | null) { depthImage = next; }, get acquired() { return acquired; },
+    get resume() { return resume; }, get pause() { return pause; } };
 }
 function decodeSingle(packet: Uint8Array) {
   const body = packet.subarray(24);
@@ -236,6 +238,52 @@ test("Depth backpressure, paused capture and null views leave pose/video indepen
   assert.equal(f.packets.length, 1);
   depth.stop();
 });
+test("Receiver demand pauses the depth sensor and CPU acquisition until explicitly enabled", () => {
+  const f = fixture(), depth = new BridgeDepth();
+  depth.start(f.session);
+  f.peer.depthEnabled = false;
+  depth.publish(f.frame, f.space, 5, f.peer, 0, false, 0);
+  depth.publish(f.frame, f.space, 505, f.peer, 0, false, 500);
+  assert.equal(f.pause, 1);
+  assert.equal(f.resume, 0);
+  assert.equal(f.acquired, 0);
+  assert.equal(f.packets.length, 0);
+  assert.equal(f.statuses.at(-1).status, "paused");
+  f.peer.epoch++;
+  depth.publish(f.frame, f.space, 521, f.peer, 1, false, 516);
+  assert.equal(f.acquired, 0, "epoch changes cannot override disabled demand");
+  f.peer.depthEnabled = true;
+  depth.publish(f.frame, f.space, 537, f.peer, 1, false, 532);
+  assert.equal(f.resume, 1);
+  assert.equal(f.acquired, 1);
+  assert.equal(f.packets.length, 1);
+  f.peer.depthEnabled = false;
+  depth.publish(f.frame, f.space, 553, f.peer, 1, false, 548);
+  assert.equal(f.pause, 2);
+  f.peer.depthEnabled = true;
+  depth.publish(f.frame, f.space, 569, f.peer, 1, true, 564);
+  assert.equal(f.acquired, 1, "receiver demand cannot override the headset pause");
+  depth.publish(f.frame, f.space, 585, f.peer, 1, false, 580);
+  assert.equal(f.resume, 2);
+  assert.equal(f.packets.length, 2);
+  depth.stop();
+});
+
+test("Disabled depth skips acquisition on runtimes without sensor pause support", () => {
+  const f = fixture(), depth = new BridgeDepth();
+  delete (f.session as any).pauseDepthSensing;
+  delete (f.session as any).resumeDepthSensing;
+  depth.start(f.session);
+  f.peer.depthEnabled = false;
+  depth.publish(f.frame, f.space, 5, f.peer, 0, false, 0);
+  assert.equal(f.acquired, 0);
+  assert.equal(f.packets.length, 0);
+  f.peer.depthEnabled = true;
+  depth.publish(f.frame, f.space, 21, f.peer, 0, false, 16);
+  assert.equal(f.packets.length, 1);
+  depth.stop();
+});
+
 test("Depth reports granted mode, gracefully rejects unsupported sessions and resumes inactive depth", () => {
   const missing = fixture(null), depth = new BridgeDepth();
   depth.start(missing.session);
@@ -300,6 +348,40 @@ test("Depth GPU lease cancels on reset, reconnect, age, pause and stop", () => {
   publish(2020, 1); publish(2030, 1, true); assert.ok(!pending);
   depth.stop(); assert.equal(disposed, 1);
 });
+test("Receiver demand cancels pending GPU depth without polling or transmitting its readback", () => {
+  const f = fixture("gpu-optimized");
+  let captured = 0, polled = 0, cancelled = 0, acquired = 0;
+  const gpu = { busy: false, capture() { captured++; return true; },
+    poll() { polled++; return new Uint16Array([1, 2, 3, 4]); }, cancel() { cancelled++; }, dispose() {} };
+  const depth = new BridgeDepth(() => gpu);
+  depth.start(f.session, { getContext: () => ({} as WebGL2RenderingContext), xr: {
+    getBinding: () => ({ getDepthInformation: () => {
+      acquired++;
+      return { ...image(), texture: {}, textureType: "texture" as const };
+    } }) } });
+  depth.publish(f.frame, f.space, 5, f.peer, 0, false, 0);
+  assert.equal(captured, 1);
+  const before = cancelled;
+  f.peer.depthEnabled = false;
+  depth.publish(f.frame, f.space, 21, f.peer, 0, false, 16);
+  depth.publish(f.frame, f.space, 505, f.peer, 0, false, 500);
+  assert.ok(cancelled > before);
+  assert.equal(polled, 0);
+  assert.equal(acquired, 1);
+  assert.equal(captured, 1);
+  assert.equal(f.packets.length, 0);
+  assert.equal(f.pause, 1);
+  f.peer.depthEnabled = true;
+  depth.publish(f.frame, f.space, 521, f.peer, 0, false, 516);
+  assert.equal(captured, 2);
+  depth.publish(f.frame, f.space, 537, f.peer, 0, false, 532);
+  assert.equal(f.resume, 1);
+  assert.equal(polled, 1);
+  assert.equal(f.packets.length, 1);
+  assert.equal(decodeSingle(f.packets[0]).header.observed_us, 516000);
+  depth.stop();
+});
+
 test("Delayed GPU depth preserves the capture pose, provenance and times while the camera moves", () => {
   for (const source of ["sensor", "view", "view-fallback"] as const) {
     const f = fixture("gpu-optimized");

@@ -47,6 +47,19 @@ SpatialMapFileInfo save_spatial_map(const std::filesystem::path& path,
 SpatialMapReadResult load_spatial_map(const std::filesystem::path& path,
                                      std::uint64_t max_bytes = spatial_map_default_max_bytes);
 
+// Keeps a selected source outside managed autosave pruning for this lifetime.
+// Other loads and explicit writes retain their normal behaviour.
+class SpatialMapFileProtection {
+  public:
+    explicit SpatialMapFileProtection(const std::filesystem::path& path);
+    ~SpatialMapFileProtection();
+    SpatialMapFileProtection(const SpatialMapFileProtection&) = delete;
+    SpatialMapFileProtection& operator=(const SpatialMapFileProtection&) = delete;
+
+  private:
+    std::filesystem::path path_;
+};
+
 struct SpatialMapStoreStatus {
     bool busy = false;
     std::uint64_t submitted_generation = 0, saved_generation = 0;
@@ -57,6 +70,7 @@ struct SpatialMapStoreStatus {
 
 // One immutable, complete snapshot replaces the pending snapshot. Saves never
 // merge old geometry back into a newer map. Load/save work runs off the caller.
+// Failed saves retain their latest snapshot and retry three times with backoff.
 class SpatialMapStore {
   public:
     // A nonzero history count keeps that many recent managed autosave files
@@ -69,13 +83,17 @@ class SpatialMapStore {
     SpatialMapStore& operator=(const SpatialMapStore&) = delete;
 
     bool submit(std::shared_ptr<const SpatialMapSnapshot> map);
+    // Requeue an idle failed save, including after automatic retries are spent.
+    // A successful save clears the error. Loads are never retried as writes.
+    bool retry_save();
     void set_max_bytes(std::uint64_t max_bytes);
     // A nonzero point limit coarsens the loaded snapshot on the worker without
     // changing the source file. Zero retains every validated stored point.
     void request_load(std::size_t max_points = 0);
     std::shared_ptr<const SpatialMapSnapshot> take_loaded();
     SpatialMapStoreStatus status() const;
-    // Wait only during an explicit save barrier or shutdown. Errors remain in status().
+    // Wait through bounded retries during a save barrier or shutdown, starting
+    // a fresh cycle for an idle failed save. Persistent errors remain in status().
     void flush();
 
   private:

@@ -14,6 +14,7 @@
 #include <glad/gl.h>
 #include <GLFW/glfw3.h>
 #include <algorithm>
+#include <bit>
 #include <cmath>
 #include <cstring>
 #include <cuda_gl_interop.h>
@@ -46,6 +47,26 @@ bool fresh_pose(const ReceiverSnapshot& snapshot, const PoseSample& pose, double
 bool finite_position(const glm::vec3& point) {
     return std::isfinite(point.x) && std::isfinite(point.y) && std::isfinite(point.z);
 }
+bool valid_map_transform(const glm::mat4& transform) {
+    for (int column = 0; column < 4; ++column)
+        for (int row = 0; row < 4; ++row)
+            if (!std::isfinite(transform[column][row]))
+                return false;
+    if (std::abs(transform[0][3]) > .0001f || std::abs(transform[1][3]) > .0001f ||
+        std::abs(transform[2][3]) > .0001f || std::abs(transform[3][3] - 1.f) > .0001f)
+        return false;
+    std::array<glm::vec3, 3> axes;
+    for (int axis = 0; axis < 3; ++axis) {
+        const float length = glm::length(glm::vec3(transform[axis]));
+        if (!std::isfinite(length) || length <= .000001f)
+            return false;
+        axes[axis] = glm::vec3(transform[axis]) / length;
+    }
+    return std::abs(glm::dot(axes[0], axes[1])) <= .0001f &&
+           std::abs(glm::dot(axes[0], axes[2])) <= .0001f &&
+           std::abs(glm::dot(axes[1], axes[2])) <= .0001f &&
+           glm::dot(glm::cross(axes[0], axes[1]), axes[2]) > 0;
+}
 bool finite_pose(const float* values) {
     for (int i = 0; i < 7; ++i)
         if (!std::isfinite(values[i]))
@@ -73,6 +94,16 @@ struct SceneBounds {
     glm::vec3 centre() const { return minimum * .5f + maximum * .5f; }
     float radius() const { return std::max(.15f, glm::length(maximum - minimum) * .5f); }
 };
+SceneBounds transformed_bounds(const SceneBounds& bounds, const glm::mat4& transform) {
+    SceneBounds result;
+    if (bounds.valid)
+        for (unsigned corner = 0; corner < 8; ++corner)
+            result.include(glm::vec3(transform * glm::vec4(
+                corner & 1 ? bounds.maximum.x : bounds.minimum.x,
+                corner & 2 ? bounds.maximum.y : bounds.minimum.y,
+                corner & 4 ? bounds.maximum.z : bounds.minimum.z, 1.f)));
+    return result;
+}
 GLuint program() {
     const char* vertex = R"GLSL(#version 450 core
 layout(location=0) in vec3 position;
@@ -418,6 +449,8 @@ struct StereoBuffers {
         std::array<VideoFrameLease, 2> leases;
         uint16_t* depth_upload = nullptr;
         int64_t depth_submitted_us = 0;
+        int64_t fade_observation_us = -1;
+        float fade_interval_seconds = .1f;
         SessionEvent frame;
     };
     std::array<Slot, 3> slots{};
@@ -441,11 +474,19 @@ struct StereoBuffers {
     bool adaptive_lod = true, published_adaptive_lod = true, have_lod_snapshot = false;
     int64_t last_lod_refresh_us = 0;
     bool frozen = false;
-    size_t maximum_points = stereo_voxel_capacity, occupied_points = 0;
+    size_t maximum_points = stereo_voxel_initial_capacity, occupied_points = 0;
+    size_t failed_capacity = 0;
+    int64_t capacity_retry_after_us = 0;
+    std::string capacity_error;
     SceneBounds scene_bounds;
     uint64_t content_generation = 1;
     std::optional<glm::vec3> colour_origin;
     int64_t display_time_us = 0, display_wall_us = 0;
+    std::optional<int64_t> cadence_observation_us;
+    float update_interval_seconds = .1f, long_interval_seconds = 0;
+    unsigned cadence_samples = 0;
+    int64_t fade_observation_us = -1, fade_wall_us = 0;
+    float fade_interval_seconds = .1f;
     struct Readback {
         SpatialMapPoint* device = nullptr;
         SpatialMapPoint* host = nullptr;
@@ -453,14 +494,167 @@ struct StereoBuffers {
         std::shared_ptr<SpatialMapSnapshot> result;
         bool pending = false;
         uint64_t geometry_generation = 0;
+        size_t capacity = 0;
     } readback;
     struct ImportUpload {
         SpatialMapPoint* device = nullptr;
         SpatialMapPoint* host = nullptr;
         cudaEvent_t ready = nullptr;
         bool pending = false;
+        size_t capacity = 0;
     } import_upload;
 
+    void observe_cadence(int64_t observation_us, float initial_interval) {
+        if (!cadence_observation_us) {
+            update_interval_seconds = initial_interval;
+        } else if (observation_us > *cadence_observation_us) {
+            const float interval = float(double(observation_us - *cadence_observation_us) / 1000000.0);
+            // One long pause does not redefine capture cadence. Two consecutive
+            // intervals at a slower rate do, including deliberately slow updates.
+            if (cadence_samples >= 2 && interval > 4.f * update_interval_seconds) {
+                if (long_interval_seconds > 0 && std::abs(interval - long_interval_seconds) < .25f * interval) {
+                    update_interval_seconds = interval;
+                    long_interval_seconds = 0;
+                } else {
+                    long_interval_seconds = interval;
+                }
+            } else {
+                update_interval_seconds = interval;
+                long_interval_seconds = 0;
+            }
+        } else {
+            return;
+        }
+        cadence_observation_us = observation_us;
+        ++cadence_samples;
+    }
+    void capture_fade_clock(Slot& slot) const {
+        slot.fade_observation_us = cadence_observation_us.value_or(-1);
+        slot.fade_interval_seconds = update_interval_seconds;
+    }
+    std::pair<float, float> fade_timing(double playback_rate) const {
+        if (fade_observation_us < 0 || !time_origin_us)
+            return {0.f, 0.f};
+        const auto rate = std::isfinite(playback_rate) && playback_rate > 0 ? playback_rate : 1.;
+        const auto elapsed = double(std::max<int64_t>(0, monotonic_us() - fade_wall_us)) / 1000000.0;
+        return {float(double(fade_observation_us - *time_origin_us) / 1000000.0 + elapsed * rate),
+                fade_interval_seconds};
+    }
+    void collect_readback() {
+        auto& points = readback.result->points;
+        points.reserve(readback.capacity);
+        for (size_t i = 0; i < readback.capacity; ++i)
+            if (readback.host[i].weight)
+                points.push_back(readback.host[i]);
+        readback.pending = false;
+    }
+    static void release_slots(std::array<Slot, 3>& buffers) {
+        for (auto& slot : buffers) {
+            if (slot.fence) {
+                glClientWaitSync(slot.fence, GL_SYNC_FLUSH_COMMANDS_BIT, 1000000000);
+                glDeleteSync(slot.fence);
+            }
+            if (slot.resource)
+                cudaGraphicsUnregisterResource(slot.resource);
+            if (slot.started)
+                cudaEventDestroy(slot.started);
+            if (slot.ready)
+                cudaEventDestroy(slot.ready);
+            if (slot.vbo)
+                glDeleteBuffers(1, &slot.vbo);
+            if (slot.vao)
+                glDeleteVertexArrays(1, &slot.vao);
+            cudaFreeHost(slot.depth_upload);
+            slot = {};
+        }
+    }
+    static std::array<Slot, 3> create_slots(size_t capacity, bool depth_upload) {
+        std::array<Slot, 3> buffers{};
+        try {
+            for (auto& slot : buffers) {
+                glGenVertexArrays(1, &slot.vao);
+                glGenBuffers(1, &slot.vbo);
+                glBindVertexArray(slot.vao);
+                glBindBuffer(GL_ARRAY_BUFFER, slot.vbo);
+                const auto bytes = GLsizeiptr(capacity * (sizeof(SpatialMapPoint) + sizeof(float)));
+                glBufferData(GL_ARRAY_BUFFER, bytes, nullptr, GL_DYNAMIC_DRAW);
+                GLint64 allocated = 0;
+                glGetBufferParameteri64v(GL_ARRAY_BUFFER, GL_BUFFER_SIZE, &allocated);
+                if (allocated != bytes)
+                    throw std::runtime_error("Cannot allocate spatial map display buffer");
+                for (const auto location : {0u, 11u, 12u, 13u, 14u, 15u})
+                    glEnableVertexAttribArray(location);
+                glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(SpatialMapPoint), nullptr);
+                glVertexAttribPointer(11, 4, GL_FLOAT, GL_FALSE, sizeof(SpatialMapPoint),
+                                      reinterpret_cast<void*>(offsetof(SpatialMapPoint, r)));
+                glVertexAttribPointer(12, 1, GL_FLOAT, GL_FALSE, sizeof(SpatialMapPoint),
+                                      reinterpret_cast<void*>(offsetof(SpatialMapPoint, cell_size)));
+                glVertexAttribIPointer(13, 2, GL_UNSIGNED_INT, sizeof(SpatialMapPoint),
+                                       reinterpret_cast<void*>(offsetof(SpatialMapPoint, observed_us)));
+                glVertexAttribIPointer(14, 2, GL_UNSIGNED_INT, sizeof(SpatialMapPoint),
+                                       reinterpret_cast<void*>(offsetof(SpatialMapPoint, weight)));
+                glVertexAttribPointer(15, 1, GL_FLOAT, GL_FALSE, sizeof(float),
+                                      reinterpret_cast<void*>(capacity * sizeof(SpatialMapPoint)));
+                cuda_check(cudaGraphicsGLRegisterBuffer(&slot.resource, slot.vbo,
+                                                        cudaGraphicsRegisterFlagsWriteDiscard),
+                           "Register spatial map display buffer");
+                cuda_check(cudaEventCreate(&slot.started), "Create spatial map start event");
+                cuda_check(cudaEventCreate(&slot.ready), "Create spatial map completion event");
+                if (depth_upload)
+                    cuda_check(cudaHostAlloc(&slot.depth_upload, 256 * 256 * sizeof(uint16_t),
+                                             cudaHostAllocDefault), "Allocate environment depth upload");
+            }
+            glBindVertexArray(0);
+        } catch (...) {
+            release_slots(buffers);
+            throw;
+        }
+        return buffers;
+    }
+    void reserve(size_t required) {
+        if (!volume || required <= volume->capacity())
+            return;
+        if (failed_capacity == required && monotonic_us() < capacity_retry_after_us)
+            throw std::runtime_error(capacity_error);
+        const auto capacity = std::bit_ceil(required);
+        // Budget changes are infrequent explicit operations. Retire old CUDA
+        // leases and GL draws before replacing their presentation allocations.
+        cuda_check(cudaStreamSynchronize(stream), "Retire spatial map buffers");
+        poll();
+        if (readback.pending)
+            collect_readback();
+        std::array<Slot, 3> replacement{};
+        try {
+            replacement = create_slots(capacity, depth_samples != nullptr);
+            cuda_check(volume->reserve(capacity, stream), "Grow spatial map capacity");
+        } catch (const std::exception& error) {
+            release_slots(replacement);
+            failed_capacity = required;
+            capacity_retry_after_us = monotonic_us() + 30000000;
+            capacity_error = error.what();
+            throw;
+        }
+        failed_capacity = 0;
+        capacity_error.clear();
+        glFinish();
+        release_slots(slots);
+        slots = std::move(replacement);
+        current = -1;
+        displayed = 0;
+        have_lod_snapshot = false;
+        last_lod_refresh_us = 0;
+        cudaFree(readback.device);
+        cudaFreeHost(readback.host);
+        readback.device = nullptr;
+        readback.host = nullptr;
+        readback.capacity = 0;
+        cudaFree(import_upload.device);
+        cudaFreeHost(import_upload.host);
+        import_upload.device = nullptr;
+        import_upload.host = nullptr;
+        import_upload.capacity = 0;
+        import_upload.pending = false;
+    }
     void configure(bool freeze, float spacing, size_t budget) {
         frozen = freeze;
         const bool resolution_changed = voxel_size != spacing;
@@ -468,6 +662,12 @@ struct StereoBuffers {
         if (!resolution_changed && !budget_changed)
             return;
         if (volume) {
+            if (budget > volume->capacity())
+                reserve(budget);
+            else if (budget_changed) {
+                failed_capacity = 0;
+                capacity_error.clear();
+            }
             if (resolution_changed && !reset_volume)
                 cuda_check(volume->reconfigure(spacing, stream), "Change spatial map spacing");
             if (budget_changed)
@@ -499,6 +699,7 @@ struct StereoBuffers {
         if (!readback.ready)
             cuda_check(cudaEventCreateWithFlags(&readback.ready, cudaEventDisableTiming),
                        "Create spatial map readback event");
+        readback.capacity = volume->capacity();
         try {
             cuda_check(volume->snapshot_metadata(readback.device, result->time_origin_us, stream),
                        "Read spatial map geometry");
@@ -523,12 +724,7 @@ struct StereoBuffers {
             if (ready == cudaErrorNotReady)
                 return {};
             cuda_check(ready, "Complete spatial map readback");
-            auto& points = readback.result->points;
-            points.reserve(volume->capacity());
-            for (size_t i = 0; i < volume->capacity(); ++i)
-                if (readback.host[i].weight)
-                    points.push_back(readback.host[i]);
-            readback.pending = false;
+            collect_readback();
         }
         if (readback.geometry_generation == generation) {
             occupied_points = readback.result->points.size();
@@ -547,6 +743,7 @@ struct StereoBuffers {
             import_upload.pending = false;
         }
         initialise_volume();
+        reserve(source.points.size());
         const auto bytes = volume->capacity() * sizeof(SpatialMapPoint);
         if (!import_upload.device)
             cuda_check(cudaMalloc(&import_upload.device, bytes), "Allocate spatial map import");
@@ -556,6 +753,7 @@ struct StereoBuffers {
         if (!import_upload.ready)
             cuda_check(cudaEventCreateWithFlags(&import_upload.ready, cudaEventDisableTiming),
                        "Create spatial map import event");
+        import_upload.capacity = volume->capacity();
         std::copy(source.points.begin(), source.points.end(), import_upload.host);
         try {
             if (!source.points.empty())
@@ -591,8 +789,9 @@ struct StereoBuffers {
 
     cudaError_t snapshot(SpatialMapPoint* output) {
         const auto origin = time_origin_us.value_or(0);
-        const auto result = adaptive_lod ? volume->snapshot_metadata_lod(output, lod_view, origin, stream)
-                                         : volume->snapshot_metadata(output, origin, stream);
+        auto* births = reinterpret_cast<float*>(output + volume->capacity());
+        const auto result = adaptive_lod ? volume->snapshot_metadata_lod(output, lod_view, origin, stream, births)
+                                         : volume->snapshot_metadata(output, origin, stream, births);
         if (result == cudaSuccess) {
             published_lod_view = lod_view;
             published_adaptive_lod = adaptive_lod;
@@ -604,7 +803,9 @@ struct StereoBuffers {
     void refresh_lod(const glm::vec3& eye, float focal_pixels, bool enabled) {
         std::copy_n(glm::value_ptr(eye), 3, lod_view.view_position);
         lod_view.focal_length_pixels = focal_pixels;
-        lod_view.target_pixels = 10.f;
+        // Display aggregation may combine subpixel samples. Spatial confidence
+        // controls evidence detail independently of the desktop camera position.
+        lod_view.target_pixels = .75f;
         adaptive_lod = enabled;
         float motion_squared = 0;
         for (int i = 0; i < 3; ++i) {
@@ -638,7 +839,7 @@ struct StereoBuffers {
                 cuda_check(cudaGraphicsResourceGetMappedPointer(reinterpret_cast<void**>(&output),
                                                                 &bytes, slot.resource),
                            "Access detail buffer");
-                if (bytes < volume->capacity() * sizeof(SpatialMapPoint))
+                if (bytes < volume->capacity() * (sizeof(SpatialMapPoint) + sizeof(float)))
                     throw std::runtime_error("Detail buffer is too small");
                 cuda_check(cudaEventRecord(slot.started, stream), "Start detail update");
                 cuda_check(snapshot(output), "Update world detail");
@@ -655,6 +856,7 @@ struct StereoBuffers {
             slot.generation = generation;
             slot.serial = ++serial;
             slot.frame = submitted[0];
+            capture_fade_clock(slot);
             return;
         }
     }
@@ -676,6 +878,12 @@ struct StereoBuffers {
         scene_bounds = {};
         colour_origin.reset();
         display_time_us = display_wall_us = 0;
+        cadence_observation_us.reset();
+        cadence_samples = 0;
+        update_interval_seconds = fade_interval_seconds = .1f;
+        long_interval_seconds = 0;
+        fade_observation_us = -1;
+        fade_wall_us = 0;
         depth_timing = {};
     }
     void poll() {
@@ -722,6 +930,11 @@ struct StereoBuffers {
                 }
                 current = int(i);
                 displayed = slot.serial;
+                if (slot.fade_observation_us >= 0 && slot.fade_observation_us != fade_observation_us) {
+                    fade_observation_us = slot.fade_observation_us;
+                    fade_interval_seconds = slot.fade_interval_seconds;
+                    fade_wall_us = monotonic_us();
+                }
             }
         }
     }
@@ -739,24 +952,7 @@ struct StereoBuffers {
         if (import_upload.ready)
             cudaEventDestroy(import_upload.ready);
         import_upload = {};
-        for (auto& slot : slots) {
-            if (slot.fence) {
-                glClientWaitSync(slot.fence, GL_SYNC_FLUSH_COMMANDS_BIT, 1000000000);
-                glDeleteSync(slot.fence);
-            }
-            if (slot.resource)
-                cudaGraphicsUnregisterResource(slot.resource);
-            if (slot.started)
-                cudaEventDestroy(slot.started);
-            if (slot.ready)
-                cudaEventDestroy(slot.ready);
-            if (slot.vbo)
-                glDeleteBuffers(1, &slot.vbo);
-            if (slot.vao)
-                glDeleteVertexArrays(1, &slot.vao);
-            cudaFreeHost(slot.depth_upload);
-            slot = {};
-        }
+        release_slots(slots);
         workspace.reset();
         volume.reset();
         cudaFree(reconstructed);
@@ -794,40 +990,27 @@ struct StereoBuffers {
     void initialise_volume() {
         if (volume)
             return;
+        if (failed_capacity == maximum_points && monotonic_us() < capacity_retry_after_us)
+            throw std::runtime_error(capacity_error);
         if (!stream)
             cuda_check(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking),
                        "Create spatial map stream");
-        volume = std::make_unique<StereoVoxelVolume>();
-        cuda_check(volume->set_max_points(maximum_points, stream), "Set spatial map budget");
-        reset_volume = true;
-        for (auto& slot : slots) {
-            glGenVertexArrays(1, &slot.vao);
-            glGenBuffers(1, &slot.vbo);
-            glBindVertexArray(slot.vao);
-            glBindBuffer(GL_ARRAY_BUFFER, slot.vbo);
-            glBufferData(GL_ARRAY_BUFFER, volume->capacity() * sizeof(SpatialMapPoint), nullptr,
-                         GL_DYNAMIC_DRAW);
-            glEnableVertexAttribArray(0);
-            glEnableVertexAttribArray(11);
-            glEnableVertexAttribArray(12);
-            glEnableVertexAttribArray(13);
-            glEnableVertexAttribArray(14);
-            glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(SpatialMapPoint), nullptr);
-            glVertexAttribPointer(11, 4, GL_FLOAT, GL_FALSE, sizeof(SpatialMapPoint),
-                                  reinterpret_cast<void*>(offsetof(SpatialMapPoint, r)));
-            glVertexAttribPointer(12, 1, GL_FLOAT, GL_FALSE, sizeof(SpatialMapPoint),
-                                  reinterpret_cast<void*>(offsetof(SpatialMapPoint, cell_size)));
-            glVertexAttribIPointer(13, 2, GL_UNSIGNED_INT, sizeof(SpatialMapPoint),
-                                   reinterpret_cast<void*>(offsetof(SpatialMapPoint, observed_us)));
-            glVertexAttribIPointer(14, 2, GL_UNSIGNED_INT, sizeof(SpatialMapPoint),
-                                   reinterpret_cast<void*>(offsetof(SpatialMapPoint, weight)));
-            cuda_check(cudaGraphicsGLRegisterBuffer(&slot.resource, slot.vbo,
-                                                    cudaGraphicsRegisterFlagsWriteDiscard),
-                       "Register stereo point buffer");
-            cuda_check(cudaEventCreate(&slot.started), "Create stereo start event");
-            cuda_check(cudaEventCreate(&slot.ready), "Create stereo completion event");
+        try {
+            auto initial = std::make_unique<StereoVoxelVolume>(std::bit_ceil(maximum_points));
+            cuda_check(initial->set_max_points(maximum_points, stream), "Set spatial map budget");
+            auto presentation = create_slots(initial->capacity(), false);
+            volume = std::move(initial);
+            slots = std::move(presentation);
+        } catch (const std::exception& error) {
+            cudaStreamSynchronize(stream);
+            failed_capacity = maximum_points;
+            capacity_retry_after_us = monotonic_us() + 30000000;
+            capacity_error = error.what();
+            throw;
         }
-        glBindVertexArray(0);
+        failed_capacity = 0;
+        capacity_error.clear();
+        reset_volume = true;
     }
     void prepare_depth() {
         if (depth_samples)
@@ -880,6 +1063,7 @@ struct Renderer::Impl {
     std::array<SceneBounds, 4> reference_bounds;
     glm::vec3 reference_offset{0, 1.5f, -.45f};
     std::optional<glm::mat4> headset_camera;
+    std::optional<glm::mat4> current_headset_transform;
     std::optional<glm::vec3> headset_origin;
     uint32_t headset_epoch = 0, headset_space_epoch = 0;
     float yaw = .48f, pitch = .23f, distance = 1.85f;
@@ -909,7 +1093,12 @@ struct Renderer::Impl {
         SessionEvent presented;
     };
     std::array<Camera, 2> cameras{};
-    StereoBuffers stereo, environment;
+    StereoBuffers stereo, environment, saved;
+    SavedMapState saved_state;
+    SpatialMapSnapshot saved_metadata;
+    int64_t saved_input_anchor_us = 0, saved_clock_anchor_us = 0;
+    std::optional<uint64_t> saved_replay_generation;
+    cudaEvent_t saved_input_ready = nullptr, saved_fusion_ready = nullptr;
     cudaStream_t stream = nullptr;
     int device = 0;
     uint64_t count = 0;
@@ -1021,6 +1210,12 @@ struct Renderer::Impl {
         camera.presented = {};
     }
     ~Impl() {
+        if (saved.stream)
+            cudaStreamSynchronize(saved.stream);
+        if (saved_input_ready)
+            cudaEventDestroy(saved_input_ready);
+        if (saved_fusion_ready)
+            cudaEventDestroy(saved_fusion_ready);
         if (query_open)
             glEndQuery(GL_TIME_ELAPSED);
         for (auto& camera : cameras)
@@ -1130,8 +1325,11 @@ struct Renderer::Impl {
         reference_bounds[static_cast<size_t>(SceneReference::world)].include(glm::vec3(0));
         auto& model = reference_bounds[static_cast<size_t>(SceneReference::model)];
         auto& hands = reference_bounds[static_cast<size_t>(SceneReference::hands)];
-        if (options.depth)
+        if (options.depth && options.recorded_map_visible)
             model.include((options.environment_depth ? environment : stereo).scene_bounds);
+        if (saved_state.loaded && options.saved_map_visible)
+            model.include(transformed_bounds(saved.scene_bounds,
+                saved_state.placed ? glm::mat4(1.f) : saved_state.world_from_map));
         if (held[0] && finite_pose(held[0]->values.data())) {
             headset_camera = pose_transform(held[0]->values.data());
             const auto position = glm::vec3((*headset_camera)[3]);
@@ -1165,6 +1363,64 @@ struct Renderer::Impl {
             target = bounds.centre() + reference_offset;
         if (scene_view == SceneView::hmd && !headset_camera)
             scene_view = SceneView::orbit;
+    }
+    void fuse_saved(StereoBuffers& source, const SessionEvent& event, int64_t observation_time_us,
+                    size_t point_count, const VoxelGpuConfig& config,
+                    const ProjectiveDepthObservation& observation) {
+        if (!saved_state.loaded || !saved_state.placed || !saved_state.fusing)
+            return;
+        const auto replay_generation = event.attributes.value("replay_generation", uint64_t(0));
+        if (event.epoch != saved_metadata.epoch || event.space_epoch != saved_metadata.space_epoch ||
+            (saved_replay_generation && *saved_replay_generation != replay_generation)) {
+            saved_state.fusing = false;
+            return;
+        }
+        // An observation queued before placement belongs to the acquisition
+        // layer but must not advance or disable the newly placed saved map.
+        if (observation_time_us < saved_input_anchor_us)
+            return;
+        const auto elapsed = observation_time_us - saved_input_anchor_us;
+        if (elapsed > std::numeric_limits<int64_t>::max() - saved_clock_anchor_us) {
+            saved_state.fusing = false;
+            return;
+        }
+        const auto map_time = saved_clock_anchor_us + elapsed;
+        if (map_time <= saved.last_observation_us)
+            return;
+        if (!saved_input_ready)
+            cuda_check(cudaEventCreateWithFlags(&saved_input_ready, cudaEventDisableTiming),
+                       "Create saved map input event");
+        if (!saved_fusion_ready)
+            cuda_check(cudaEventCreateWithFlags(&saved_fusion_ready, cudaEventDisableTiming),
+                       "Create saved map fusion event");
+        auto fusion = config;
+        fusion.voxel_size = saved.voxel_size;
+        fusion.sample_time_seconds = fusion.now_seconds =
+            float(double(map_time - saved.time_origin_us.value_or(0)) / 1000000.0);
+        cuda_check(cudaEventRecord(saved_input_ready, source.stream), "Order saved map observations");
+        cuda_check(cudaStreamWaitEvent(saved.stream, saved_input_ready, 0), "Wait for saved map observations");
+        try {
+            cuda_check(saved.volume->integrate_projective(source.reconstructed, point_count, fusion,
+                                                          observation, saved.stream),
+                       "Fuse observations into saved map");
+            cuda_check(cudaEventRecord(saved_fusion_ready, saved.stream), "Complete saved map fusion");
+            cuda_check(cudaStreamWaitEvent(source.stream, saved_fusion_ready, 0),
+                       "Retain observations until saved map fusion completes");
+        } catch (...) {
+            cudaStreamSynchronize(saved.stream);
+            saved_state.fusing = false;
+            throw;
+        }
+        saved_replay_generation = replay_generation;
+        saved.observe_cadence(map_time, source.update_interval_seconds);
+        saved.update_interval_seconds = source.update_interval_seconds;
+        saved.last_observation_us = map_time;
+        saved.submitted[0] = event;
+        saved.have_submission = true;
+        saved.have_lod_snapshot = false;
+        saved.display_time_us = map_time;
+        saved.display_wall_us = monotonic_us();
+        ++saved.content_generation;
     }
     bool cursor_in_scene(double x, double y) const {
         int w, h;
@@ -1297,6 +1553,9 @@ SceneCameraState Renderer::scene_camera() const {
     return {p.scene_reference, p.scene_view, p.target + p.direction() * p.distance,
             p.target, p.view_up()};
 }
+std::optional<glm::mat4> Renderer::headset_transform() const {
+    return impl_->current_headset_transform;
+}
 void Renderer::process_input(double dt, bool mouse, bool keyboard) {
     auto& p = *impl_;
     double x, y;
@@ -1374,6 +1633,7 @@ void Renderer::update_headset_position(const ReceiverSnapshot& snapshot, double)
     auto& p = *impl_;
     if (p.headset_epoch != snapshot.epoch || p.headset_space_epoch != snapshot.space_epoch) {
         p.headset_origin.reset();
+        p.current_headset_transform.reset();
         p.headset_epoch = snapshot.epoch;
         p.headset_space_epoch = snapshot.space_epoch;
     }
@@ -1384,6 +1644,8 @@ void Renderer::update_headset_position(const ReceiverSnapshot& snapshot, double)
     if (std::isfinite(head.values[0]) && std::isfinite(head.values[1]) &&
         std::isfinite(head.values[2]))
         p.headset_origin = glm::vec3(head.values[0], head.values[1], head.values[2]);
+    if (finite_pose(head.values.data()))
+        p.current_headset_transform = pose_transform(head.values.data());
 }
 SessionEvent Renderer::hand_asset_event() const {
     return encode_hand_assets(impl_->hand_assets);
@@ -1450,6 +1712,7 @@ Json Renderer::scene_assets() const {
 void Renderer::invalidate_video() {
     auto& p = *impl_;
     p.headset_origin.reset();
+    p.current_headset_transform.reset();
     p.hand_trails.clear();
     cuda_check(cudaStreamSynchronize(p.stream), "Finish pending image conversion");
     for (auto& camera : p.cameras) {
@@ -1638,6 +1901,7 @@ bool Renderer::update_stereo(VideoFrameLease left, VideoFrameLease right,
     if (!available)
         return false;
     auto& slot = *available;
+    stereo.observe_cadence(observation_time_us, .5f);
     slot.leases = {left, right};
     bool mapped = false;
     try {
@@ -1649,7 +1913,7 @@ bool Renderer::update_stereo(VideoFrameLease left, VideoFrameLease right,
         cuda_check(cudaGraphicsResourceGetMappedPointer(reinterpret_cast<void**>(&output), &bytes,
                                                         slot.resource),
                    "Access stereo point buffer");
-        if (bytes < stereo.volume->capacity() * sizeof(SpatialMapPoint))
+        if (bytes < stereo.volume->capacity() * (sizeof(SpatialMapPoint) + sizeof(float)))
             throw std::runtime_error("Stereo point buffer is too small");
         const auto input = [](const GpuImage& image) {
             return StereoNv12{reinterpret_cast<const unsigned char*>(image.data),
@@ -1706,6 +1970,8 @@ bool Renderer::update_stereo(VideoFrameLease left, VideoFrameLease right,
                                             size_t(config.width) * config.height, fusion,
                                             observation, stereo.stream),
                    "Integrate stereo voxels");
+        p.fuse_saved(stereo, a.event, observation_time_us,
+                     size_t(config.width) * config.height, fusion, observation);
         cuda_check(stereo.snapshot(output), "Publish stereo voxel volume");
         cuda_check(cudaGraphicsUnmapResources(1, &slot.resource, stereo.stream),
                    "Release stereo point buffer");
@@ -1723,6 +1989,7 @@ bool Renderer::update_stereo(VideoFrameLease left, VideoFrameLease right,
     slot.pending = true;
     slot.generation = stereo.generation;
     slot.reconstruction = true;
+    stereo.capture_fade_clock(slot);
     slot.serial = ++stereo.serial;
     slot.frame = a.event;
     stereo.last_observation_us = observation_time_us;
@@ -1780,6 +2047,7 @@ bool Renderer::update_environment_depth(const SessionEvent& event, float min_dep
     if (!available)
         return false;
     auto& slot = *available;
+    volume.observe_cadence(observation_time_us, .1f);
     DepthGpuConfig config;
     config.width = frame.width;
     config.height = frame.height;
@@ -1802,7 +2070,7 @@ bool Renderer::update_environment_depth(const SessionEvent& event, float min_dep
         cuda_check(cudaGraphicsResourceGetMappedPointer(reinterpret_cast<void**>(&output), &bytes,
                                                         slot.resource),
                    "Access environment volume");
-        if (bytes < volume.volume->capacity() * sizeof(SpatialMapPoint))
+        if (bytes < volume.volume->capacity() * (sizeof(SpatialMapPoint) + sizeof(float)))
             throw std::runtime_error("Environment point buffer is too small");
         cuda_check(cudaEventRecord(slot.started, volume.stream), "Start environment update");
         if (volume.reset_volume) {
@@ -1836,6 +2104,8 @@ bool Renderer::update_environment_depth(const SessionEvent& event, float min_dep
         cuda_check(volume.volume->integrate_projective(volume.reconstructed, frame.millimetres.size(),
                                                        fusion, observation, volume.stream),
                    "Integrate environment depth");
+        impl_->fuse_saved(volume, event, observation_time_us, frame.millimetres.size(), fusion,
+                          observation);
         cuda_check(volume.snapshot(output), "Publish environment volume");
         cuda_check(cudaGraphicsUnmapResources(1, &slot.resource, volume.stream),
                    "Release environment volume");
@@ -1851,6 +2121,7 @@ bool Renderer::update_environment_depth(const SessionEvent& event, float min_dep
     slot.pending = true;
     slot.generation = volume.generation;
     slot.reconstruction = true;
+    volume.capture_fade_clock(slot);
     slot.serial = ++volume.serial;
     slot.frame = event;
     volume.last_observation_us = observation_time_us;
@@ -1871,7 +2142,9 @@ const DepthPipelineTiming& Renderer::environment_depth_timing() const {
 size_t Renderer::depth_map_bytes(bool environment) const {
     const auto& map = environment ? impl_->environment : impl_->stereo;
     return map.volume ? map.volume->scratch_bytes() +
-                            map.slots.size() * map.volume->capacity() * sizeof(SpatialMapPoint)
+                            (map.slots.size() * map.volume->capacity() + map.readback.capacity +
+                             map.import_upload.capacity) * sizeof(SpatialMapPoint) +
+                            map.slots.size() * map.volume->capacity() * sizeof(float)
                       : 0;
 }
 void Renderer::configure_spatial_map(bool frozen, float spacing, size_t max_points) {
@@ -1880,6 +2153,8 @@ void Renderer::configure_spatial_map(bool frozen, float spacing, size_t max_poin
         throw std::invalid_argument("Invalid spatial map spacing or point budget");
     impl_->environment.configure(frozen, spacing, max_points);
     impl_->stereo.configure(frozen, spacing, max_points);
+    if (impl_->saved_state.loaded)
+        impl_->saved.configure(true, impl_->saved.voxel_size, max_points);
 }
 bool Renderer::request_map_snapshot(bool environment, std::string world_id,
                                     uint32_t epoch, uint32_t space_epoch) {
@@ -1927,17 +2202,153 @@ bool Renderer::import_spatial_map(const SpatialMapSnapshot& snapshot) {
     return (snapshot.source == SpatialMapSource::environment_depth ? impl_->environment : impl_->stereo)
         .restore_snapshot(snapshot);
 }
+bool Renderer::load_saved_map(const SpatialMapSnapshot& snapshot) {
+    validate_spatial_map_import(snapshot);
+    auto& p = *impl_;
+    finish_saved_map_snapshot();
+    p.saved.take_snapshot();
+    p.saved.configure(true, snapshot.base_voxel_size, p.environment.maximum_points);
+    if (!p.saved.restore_snapshot(snapshot))
+        return false;
+    p.saved.content_generation = std::max(p.saved.content_generation, snapshot.generation);
+    p.saved_metadata = {snapshot.world_id, snapshot.source, snapshot.epoch, snapshot.space_epoch,
+                         snapshot.time_origin_us, snapshot.generation, snapshot.base_voxel_size, {}};
+    p.saved_state = {};
+    p.saved_state.loaded = true;
+    p.saved_replay_generation.reset();
+    return true;
+}
+void Renderer::clear_saved_map() {
+    auto& p = *impl_;
+    p.saved.clear(true);
+    p.saved_state = {};
+    p.saved_metadata = {};
+    p.saved_replay_generation.reset();
+}
+bool Renderer::begin_saved_map_placement() {
+    auto& p = *impl_;
+    if (!p.saved_state.loaded)
+        return false;
+    p.saved_state.placed = p.saved_state.fusing = false;
+    p.saved_state.world_from_map = glm::mat4(1.f);
+    p.saved_replay_generation.reset();
+    return true;
+}
+void Renderer::set_saved_map_transform(const glm::mat4& transform) {
+    if (!valid_map_transform(transform))
+        throw std::invalid_argument("Invalid saved map placement");
+    auto& p = *impl_;
+    if (p.saved_state.loaded && !p.saved_state.placed)
+        p.saved_state.world_from_map = transform;
+}
+bool Renderer::place_saved_map(const glm::mat4& transform, uint32_t epoch,
+                              uint32_t space_epoch, int64_t observation_time_us) {
+    if (!valid_map_transform(transform) || observation_time_us < 0)
+        throw std::invalid_argument("Invalid saved map placement");
+    auto& p = *impl_;
+    if (!p.saved_state.loaded || p.saved_state.placed ||
+        p.saved.last_observation_us == std::numeric_limits<int64_t>::max())
+        return false;
+    if (p.saved.scene_bounds.valid) {
+        const auto& bounds = p.saved.scene_bounds;
+        const float limit = p.saved.voxel_size * 1048576.f;
+        for (unsigned corner = 0; corner < 8; ++corner) {
+            const auto point = glm::vec3(transform * glm::vec4(
+                corner & 1 ? bounds.maximum.x : bounds.minimum.x,
+                corner & 2 ? bounds.maximum.y : bounds.minimum.y,
+                corner & 4 ? bounds.maximum.z : bounds.minimum.z, 1.f));
+            if (!finite_position(point) || point.x < -limit || point.x >= limit ||
+                point.y < -limit || point.y >= limit || point.z < -limit || point.z >= limit)
+                throw std::invalid_argument("Saved map placement exceeds the spatial grid");
+        }
+    }
+    cuda_check(p.saved.volume->transform(glm::value_ptr(transform), p.saved.voxel_size,
+                                         p.saved.time_origin_us.value_or(0), p.saved.stream),
+               "Place saved map in the tracking world");
+    p.saved.scene_bounds = transformed_bounds(p.saved.scene_bounds, transform);
+    ++p.saved.generation;
+    ++p.saved.content_generation;
+    p.saved.current = -1;
+    p.saved.displayed = 0;
+    p.saved.have_lod_snapshot = false;
+    p.saved.last_lod_refresh_us = 0;
+    p.saved.submitted[0].epoch = epoch;
+    p.saved.submitted[0].space_epoch = space_epoch;
+    p.saved_metadata.epoch = epoch;
+    p.saved_metadata.space_epoch = space_epoch;
+    p.saved_state.world_from_map = transform;
+    p.saved_state.placed = true;
+    p.saved_state.fusing = false;
+    p.saved_input_anchor_us = observation_time_us;
+    p.saved_clock_anchor_us = p.saved.last_observation_us + 1;
+    p.saved_replay_generation.reset();
+    return true;
+}
+bool Renderer::set_saved_map_fusion(bool enabled, std::optional<int64_t> observation_time_us) {
+    auto& p = *impl_;
+    if (enabled && (!p.saved_state.loaded || !p.saved_state.placed))
+        return false;
+    if (enabled) {
+        if (observation_time_us) {
+            if (*observation_time_us < 0 ||
+                p.saved.last_observation_us == std::numeric_limits<int64_t>::max())
+                return false;
+            p.saved_input_anchor_us = *observation_time_us;
+            p.saved_clock_anchor_us = p.saved.last_observation_us + 1;
+        }
+        p.saved_replay_generation.reset();
+    }
+    p.saved_state.fusing = enabled;
+    return true;
+}
+void Renderer::stop_saved_map_fusion() {
+    impl_->saved_state.fusing = false;
+}
+SavedMapState Renderer::saved_map_state() const {
+    auto result = impl_->saved_state;
+    result.points = result.loaded ? impl_->saved.occupied_points : 0;
+    result.capacity = impl_->saved.volume ? impl_->saved.volume->capacity() : 0;
+    result.point_budget = impl_->saved.maximum_points;
+    result.update_interval_seconds = impl_->saved.cadence_observation_us ? impl_->saved.update_interval_seconds : 0.f;
+    result.generation = result.loaded ? impl_->saved.content_generation : 0;
+    return result;
+}
+bool Renderer::request_saved_map_snapshot() {
+    auto& p = *impl_;
+    if (!p.saved_state.loaded || !p.saved_state.placed)
+        return false;
+    return p.saved.request_snapshot(std::make_shared<SpatialMapSnapshot>(p.saved_metadata));
+}
+std::shared_ptr<SpatialMapSnapshot> Renderer::take_saved_map_snapshot() {
+    return impl_->saved.take_snapshot();
+}
+void Renderer::finish_saved_map_snapshot() {
+    if (impl_->saved.readback.pending)
+        cuda_check(cudaEventSynchronize(impl_->saved.readback.ready), "Finish saved map readback");
+}
 uint64_t Renderer::map_generation(bool environment) const {
     return (environment ? impl_->environment : impl_->stereo).content_generation;
 }
 size_t Renderer::map_point_count(bool environment) const {
     return (environment ? impl_->environment : impl_->stereo).occupied_points;
 }
+size_t Renderer::map_point_capacity(bool environment) const {
+    const auto& map = environment ? impl_->environment : impl_->stereo;
+    return map.volume ? map.volume->capacity() : 0;
+}
+size_t Renderer::map_point_budget(bool environment) const {
+    return (environment ? impl_->environment : impl_->stereo).maximum_points;
+}
+float Renderer::map_update_interval(bool environment) const {
+    const auto& map = environment ? impl_->environment : impl_->stereo;
+    return map.cadence_observation_us ? map.update_interval_seconds : 0.f;
+}
 void Renderer::draw(const ReceiverSnapshot& s, const Calibration& c, const ViewOptions& o,
                     int64_t trail_time_us, double trail_time_scale, int64_t scene_time_us) {
     auto& p = *impl_;
     p.stereo.poll();
     p.environment.poll();
+    p.saved.poll();
     int w, h;
     glfwGetFramebufferSize(p.window, &w, &h);
     if (w <= 0 || h <= 0)
@@ -1948,6 +2359,9 @@ void Renderer::draw(const ReceiverSnapshot& s, const Calibration& c, const ViewO
         p.pose_time_offset_ms = o.pose_time_offset_ms;
     }
     if (s.epoch != p.epoch || s.space_epoch != p.space_epoch) {
+        if (p.saved_state.fusing && (s.epoch != p.saved_metadata.epoch ||
+                                   s.space_epoch != p.saved_metadata.space_epoch))
+            p.saved_state.fusing = false;
         p.clear_pose_state();
         // A newly decoded pair can precede the first draw of this reference space.
         if (!p.stereo.have_submission || p.stereo.submitted[0].epoch != s.epoch ||
@@ -2201,9 +2615,9 @@ void Renderer::draw(const ReceiverSnapshot& s, const Calibration& c, const ViewO
     glDepthMask(GL_TRUE);
     auto& depth_volume = o.environment_depth ? p.environment : p.stereo;
     const float voxel_focal = float(scene_height) / (2.f * std::tan(glm::radians(24.f)));
-    if (o.depth)
+    if (o.depth && o.recorded_map_visible)
         depth_volume.refresh_lod(p.eye, voxel_focal, o.depth_lod);
-    if (o.depth && depth_volume.current >= 0) {
+    if (o.depth && o.recorded_map_visible && depth_volume.current >= 0) {
         auto& slot = depth_volume.slots[depth_volume.current];
         const bool current = depth_volume.frozen ||
                              (slot.frame.epoch == s.epoch && slot.frame.space_epoch == s.space_epoch);
@@ -2222,11 +2636,44 @@ void Renderer::draw(const ReceiverSnapshot& s, const Calibration& c, const ViewO
             const auto map_time = depth_volume.display_time_us > std::numeric_limits<int64_t>::max() - elapsed
                                       ? std::numeric_limits<int64_t>::max()
                                       : depth_volume.display_time_us + elapsed;
+            const auto [fade_now, fade_duration] = depth_volume.fade_timing(trail_time_scale);
             p.map_shader->draw(slot.vao, GLsizei(depth_volume.volume->capacity()), vp,
-                               o.point_size, o.depth_opacity, depth_volume.colour_origin,
+                               o.point_size, o.depth_opacity * o.recorded_map_opacity,
+                               depth_volume.colour_origin,
                                o.depth_min, o.depth_max, o.map_shader, map_time,
                                o.map_density, o.map_recency_seconds, o.map_style,
-                               o.map_relief_strength);
+                               o.map_relief_strength, glm::mat4(1.f), true, fade_now, fade_duration,
+                               o.map_gradient);
+            if (slot.fence)
+                glDeleteSync(slot.fence);
+            slot.fence = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+        }
+    }
+    if (p.saved_state.loaded && o.saved_map_visible) {
+        const bool placed = p.saved_state.placed;
+        const auto transform = placed ? glm::mat4(1.f) : p.saved_state.world_from_map;
+        const auto local_eye = glm::vec3(glm::inverse(transform) * glm::vec4(p.eye, 1.f));
+        const auto scale = std::max({glm::length(glm::vec3(transform[0])),
+                                    glm::length(glm::vec3(transform[1])),
+                                    glm::length(glm::vec3(transform[2]))});
+        p.saved.refresh_lod(local_eye, voxel_focal * scale, o.depth_lod);
+        if (p.saved.current >= 0) {
+            auto& slot = p.saved.slots[p.saved.current];
+            if (p.current_headset_transform && (!placed || (p.headset_epoch == p.saved_metadata.epoch &&
+                                                            p.headset_space_epoch == p.saved_metadata.space_epoch)))
+                p.saved.colour_origin = glm::vec3((*p.current_headset_transform)[3]);
+            const auto elapsed = std::max<int64_t>(0, monotonic_us() - p.saved.display_wall_us);
+            const auto time = p.saved.display_time_us > std::numeric_limits<int64_t>::max() - elapsed
+                ? std::numeric_limits<int64_t>::max() : p.saved.display_time_us + elapsed;
+            const auto [fade_now, fade_duration] = p.saved.fade_timing(trail_time_scale);
+            p.map_shader->draw(slot.vao, GLsizei(p.saved.volume->capacity()), vp,
+                               o.point_size, (placed ? o.depth_opacity : .12f) * o.saved_map_opacity,
+                               p.saved.colour_origin, o.depth_min, o.depth_max,
+                               placed ? o.map_shader : SpatialMapShader::distance, time,
+                               o.map_density, o.map_recency_seconds,
+                               placed ? o.map_style : SpatialMapStyle::points,
+                               o.map_relief_strength, transform, placed, fade_now, fade_duration,
+                               o.map_gradient);
             if (slot.fence)
                 glDeleteSync(slot.fence);
             slot.fence = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);

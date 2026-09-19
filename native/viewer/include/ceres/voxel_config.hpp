@@ -2,7 +2,8 @@
 #include <cstddef>
 
 namespace ceres {
-inline constexpr size_t stereo_voxel_capacity = 262144;
+inline constexpr size_t stereo_voxel_initial_capacity = 262144;
+inline constexpr size_t stereo_voxel_capacity = 8388608;
 inline constexpr size_t stereo_voxel_max_samples = 1048576;
 
 struct VoxelGpuConfig {
@@ -32,9 +33,12 @@ struct VoxelLodConfig {
     // World-space eye position. Coarser cells remain aligned to the original grid.
     float view_position[3]{};
     float focal_length_pixels = 900.f;
-    float target_pixels = 6.f;
+    float target_pixels = .75f;
     float minimum_distance = 1.5f;
     // Zero preserves the normal snapshot. Levels 1 to 6 merge 2 to 64 cells per axis.
     unsigned max_level = 3;
+    // Shared ancestor decisions keep uncertain regions sparse without merging
+    // a well-supported neighbour. This never changes retained acquisition data.
+    bool confidence_adaptive = true;
 };
 } // namespace ceres

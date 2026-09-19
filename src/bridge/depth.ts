@@ -31,6 +31,7 @@ export interface DepthRenderer {
 export interface DepthPeer {
   epoch: number;
   depthMetadataVersion?: 1 | 2;
+  depthEnabled?: boolean;
   depth: Pick<RTCDataChannel, "readyState" | "bufferedAmount" | "send"> | null;
   sendDepthStatus(status: DepthStatus): boolean;
 }
@@ -104,6 +105,7 @@ export class BridgeDepth {
   private sequence = 0;
   private nextAt = 0;
   private lastAt = -1;
+  private capturePaused = false;
   constructor(private readonly createGpu = defaultGpu) {}
   start(session: XRSession, renderer?: DepthRenderer) {
     this.stop();
@@ -145,6 +147,7 @@ export class BridgeDepth {
     this.error = undefined;
     this.epoch = this.spaceEpoch = -1;
     this.sequence = 0;
+    this.capturePaused = false;
     this.reset();
   }
   publish(frame: XRFrame, space: XRReferenceSpace, displayTime: number, peer: DepthPeer | null,
@@ -156,9 +159,21 @@ export class BridgeDepth {
       this.spaceEpoch = spaceEpoch;
     }
     this.lastAt = now;
-    if (paused) {
+    if (paused || peer.depthEnabled === false) {
       this.gpu?.cancel();
       this.pending = null;
+      this.nextAt = 0;
+      if (!this.capturePaused && this.usage) {
+        try {
+          const session = this.session as XRSession & { pauseDepthSensing?(): void };
+          session.pauseDepthSensing?.();
+          this.capturePaused = true;
+        } catch (error) {
+          this.error = error instanceof Error ? error.message.slice(0, 160) : "Depth pause failed";
+          this.sendStatus(peer, "error");
+          return;
+        }
+      }
       this.sendStatus(peer, "paused");
       return;
     }
@@ -193,9 +208,10 @@ export class BridgeDepth {
       }
       this.nextAt = now + 500;
       const depthSession = this.session as XRSession & { depthActive?: boolean; resumeDepthSensing?(): void };
-      if (depthSession.depthActive === false) {
+      if (this.capturePaused || depthSession.depthActive === false) {
         depthSession.resumeDepthSensing?.();
         if (depthSession.depthActive === false) { this.sendStatus(peer, "waiting"); return; }
+        this.capturePaused = false;
       }
       const pose = frame.getViewerPose(space);
       if (!pose || !this.usage || !this.format) { this.sendStatus(peer, "waiting"); return; }
@@ -253,7 +269,7 @@ export class BridgeDepth {
   }
   private transmit(peer: DepthPeer, header: DepthHeader, pixels: Uint16Array) {
     const channel = peer.depth;
-    if (!channel || channel.readyState !== "open" || channel.bufferedAmount !== 0
+    if (peer.depthEnabled === false || !channel || channel.readyState !== "open" || channel.bufferedAmount !== 0
       || peer.epoch !== header.epoch || this.spaceEpoch !== header.space_epoch) return;
     const { geometry_source, readback_us, target_lead_us, mapping_version, ...legacyHeader } = header;
     const wireHeader = peer.depthMetadataVersion === 2 ? header : legacyHeader;

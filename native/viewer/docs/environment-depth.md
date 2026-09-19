@@ -6,50 +6,57 @@ calibration to place these measurements.
 
 ## Viewing depth
 
-Select **DEPTH** in the sidebar footer, then choose a source in **Spatial map**:
-
-| Source | Behaviour |
-| --- | --- |
-| Automatic | Uses Quest depth when available, with image stereo as the fallback |
-| Quest depth | Uses only depth supplied by the headset |
-| Stereo | Uses the two camera images and the active stereo calibration |
+Select **DEPTH** in the sidebar footer to show the map, then use **Spatial map**
+to adjust acquisition, appearance and storage.
 
 **Freeze map** stops both Quest depth integration and stereo reconstruction. Video,
 tracking and recording continue. The stored world geometry stays visible and distance
-colours follow the headset on every frame. **Resume acquisition** accepts new observations.
+colours follow the headset on every frame. **Resume map** accepts new observations.
+**Clear map** sits beside this control and starts a new map. The full-width gauge
+shows retained points against the live point limit.
 
 **Spacing** sets the fusion resolution and **Near**/**Far** bound the accepted depth range.
 The defaults are 3 cm cells and a range of 0.2 to 5 metres. Changing spacing retains existing
-geometry. **Density** selects the proportion of samples shown without changing the stored
-map. **Points** sets the exact point width in framebuffer pixels, independent of distance,
+geometry. **Density** controls how many samples are shown, prioritising stronger
+evidence without changing the stored map. **Point size** sets the exact point width in framebuffer pixels, independent of distance,
 voxel size, adaptive detail and display scaling. A 1 px point occupies one pixel.
 
-**Detail > Adaptive** keeps nearby geometry fine and groups distant cells according to
-their projected size. The groups stay on the original world grid. Moving the viewer
-changes the displayed detail. **Full** uses retained surface samples without additional
-display grouping.
-The CUDA working set is bounded. **Max size** also limits the retained surface samples
-to fit the selected saved-map budget. Spatial aggregation combines neighbouring samples
-as the map fills. **Telemetry > Map memory** shows the allocated map and presentation
-storage. Revisiting a coarsened region restores finer detail when fresh observations cover
-the retained cells.
+**Detail > Adaptive** keeps confident geometry dense and represents weaker regions more
+sparsely. It also reduces samples whose projected cells are smaller than a pixel. The
+groups stay on the original world grid. **Full** uses retained surface samples without
+additional display grouping and shows every retained sample at **Density** 100%.
+Display density does not change the stored geometry.
+
+GPU storage is allocated for the live limit selected with **Max size** when a source becomes active,
+and grows when a larger budget needs more capacity. Under real
+memory pressure, weaker neighbouring regions merge first and confident detail remains
+fine for as long as the budget permits. The point limit recalculates beside the slider
+as its value changes. **Telemetry > Map memory** reports
+the map and presentation allocations. Revisiting a coarsened region restores finer detail
+as fresh observations confirm its surface.
 
 **View > Shape** adds depth-aware shading to make boundaries and overlapping surfaces
 easier to see. **Relief** controls its strength. The shading uses the measured depth of
 nearby visible samples, ignores gaps and preserves the selected point size. **Points**
 shows the same geometry with its unshaded palette.
 
-**Colour > Distance** uses a spectral scale from warm near surfaces to cool distant surfaces.
+**Colour > Distance** defaults to a spectral scale from warm near surfaces to cool distant surfaces.
 Colour follows each point's distance from the headset's current tracked position and
 updates on every rendered frame, including while depth capture is idle. Moving the
 headset or changing **Near** or **Far** updates the colours. Orbiting the desktop view
 does not change them. Tracking gaps retain the last accepted headset position. The scale appears below
-those controls. **Recency** shades observation age using **Age span**, while **Confidence**
+the paired **Near**/**Far** controls. Select it to open the palette list to the left,
+with Spectral, Viridis, Plasma, Inferno and Greys. The choice persists between runs.
+**Recency** shades observation age using **Age span**, while **Confidence**
 shows retained surface support. **Neutral** uses a single pale material for inspecting
 geometry with Shape shading. Geometry, observation timestamps and evidence are stored
 independently of these display palettes. **Opacity** sets
 supported geometry's visibility. A surface loses opacity as newer measurements contradict
 it, and disappears when its evidence is exhausted. Time alone does not fade the map.
+
+New points fade in over one measured interval between independent depth updates.
+Further observations refine existing points without restarting their fade. Loaded maps
+appear immediately, and retained geometry stays visible while acquisition is idle.
 
 **Mask hands** is enabled by default. Valid tracked joints define finger capsules and
 filled palm volumes at the depth capture's time. Points inside those volumes are excluded,
@@ -59,12 +66,15 @@ surface protects that background surface from being erased.
 Only measured free space contradicts an old surface. Invalid depth, surfaces outside the
 current view and geometry hidden behind a closer object retain their earlier evidence.
 Agreement reinforces an existing cell. Repeated or older observations do not refresh or
-weaken the map again.
+weaken the map again. Support counts independent capture times, so several depth pixels
+from one capture cannot make a surface appear repeatedly confirmed. Confidence grows
+when later measurements agree with the retained surface and falls when they contradict it.
 
 Repeatedly confirmed surfaces require consecutive, consistent free-space measurements
 before confidence decreases, and stronger support slows that decrease. Inconsistent
-depth readings break the contradiction sequence. Under memory pressure, further
-spatial coarsening preserves accumulated coverage within the sample budget.
+depth readings break the contradiction sequence. Under memory pressure, neighbouring
+regions with weaker confidence coarsen first, preserving finer detail in reliable regions
+and retaining coverage of the rest of the map.
 
 CPU and GPU refer to the depth access mode selected by the headset browser. Both arrive
 as metric measurements and use CUDA for unprojection and TSDF fusion in the viewer.
@@ -90,19 +100,43 @@ Quest and stereo together. Older autosaves are removed after a new file has been
 successfully. Other map filenames are left untouched.
 
 **Max size** ranges from 1 to 256 MiB per completed map file, with a default of 16 MiB.
-The live GPU cache holds up to 262144 surface samples, with a smaller file budget reducing
-that count. **Live limit** shows the active sample budget.
-Neighbouring samples merge spatially when needed, retaining representative world positions,
-latest observation times and evidence. Atomic replacement temporarily keeps one pending
+**Point budget** uses the full selected file allowance after its 256-byte header, with one
+48-byte record per retained sample. The default allows 349520 samples and 256 MiB allows
+5592400. Each active source allocates GPU working storage for its selected budget, shown
+separately from the completed file size.
+Saved snapshots keep every retained sample while they fit the file budget. When a snapshot
+exceeds that budget, the least confident neighbouring groups merge first. Confident regions
+keep their fine samples while weaker regions retain coarser representatives, each with its
+own cell width on the same world grid used during fusion and loading. Positions and measured colour use confidence-weighted support, observation
+times retain the latest capture and merged support retains the strongest independent count
+instead of adding neighbouring counts. Saving and loading preserve these mixed cell sizes.
+Atomic replacement temporarily keeps one pending
 file beside the completed file. A valid pending save is recoverable after interruption.
 The file contains a versioned header, explicitly encoded point records and checksums.
 
-Enter a `.cmap` path and select **Open saved map** to inspect it. Saved maps open frozen.
-Maps larger than the live sample budget are spatially coarsened during loading without
-rewriting the selected file.
-Resuming acquisition starts a map in the current tracking space, so a saved coordinate
-frame cannot accidentally receive observations from another session. The source MCAP
-recording remains independent of map display, sampling and storage settings.
+In **Scene > Spatial map**, enter a `.cmap` path and select **Open saved map**. Loading
+disables live depth capture and reconstruction. The map appears as a very transparent
+placement preview, coloured by distance from the current headset. Maps larger than the
+live sample budget are spatially coarsened during loading without rewriting the selected file.
+
+The placement adjuster has two rows and three columns: **X**, **Y** and **Z** for translation
+in metres, then **Yaw**, **Pitch** and **Roll** in degrees. **Scale X**, **Scale Y** and
+**Scale Z** set each axis independently beneath those rows. Adjustments position the
+preview relative to the headset. Select **Place** to capture the headset transform and
+anchor the map in the current tracking world. Headset movement then updates distance
+colours while the map keeps its placed position, orientation and scale.
+
+While a saved map is loaded, the footer's **DEPTH** button becomes **FUSE**. After placement,
+enable **FUSE** to resume depth acquisition and merge incoming observations into the loaded
+map. Fusion retains the existing geometry and updates it with new observations. Disable **FUSE** to stop acquisition
+and retain the resulting map. **Unload** removes the saved map and restores normal acquisition.
+
+Recording depth and the saved map have separate visibility and opacity controls in
+**Scene > Spatial map**. Hiding a layer preserves its geometry and leaves the other layer's
+appearance unchanged. A recording depth layer is available only when the recording contains
+actual depth frames. Video tracks and stereo reconstruction settings do not determine its
+availability. Recorded depth can render independently while live capture is disabled.
+The source MCAP recording remains independent of map display, sampling and storage settings.
 
 The command-line equivalents are `--map-directory DIRECTORY`, `--load-map FILE.cmap`
 and `--freeze-map-after SECONDS`.
@@ -155,8 +189,8 @@ target times are not presented as the sensor's physical exposure timestamp.
 Hand association uses the original recorded
 timeline during replay, so changing playback speed does not change the mask.
 
-Connection and reference-space changes and seeks start a new map while acquisition is active.
-Frozen maps survive these transitions. Changing spacing preserves existing geometry.
+During normal acquisition, connection and reference-space changes and seeks start a new map.
+Frozen maps and the loaded saved-map layer survive these transitions. Changing spacing preserves existing geometry.
 Switching depth sources retains their separate
 maps, and recording pause/resume markers preserve the current world. Hiding depth or an interval without depth
 observations preserves the map. Zero samples are invalid and never become geometry or
@@ -234,6 +268,8 @@ Replay uses the same unprojection and TSDF path as live input. With acquisition 
 a seek saves the previous surface cache, starts a new volume and restores the most recent
 depth observation in the selected reference space.
 Further observations rebuild the visible space as playback advances.
+The recording depth layer remains independent of saved-map placement and live capture
+demand, with its own visibility and opacity in **Scene > Spatial map**.
 
 CERES-compatible LeRobot v3 export keeps its existing features. The pinned exporter retains
 depth event headers in `meta/ceres-source-events.jsonl`, while the raw depth payload remains

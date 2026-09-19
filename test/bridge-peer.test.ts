@@ -154,6 +154,46 @@ test("Bridge enables depth metadata only for an explicit current receiver acknow
   assert.deepEqual(env.errors, []);
 });
 
+test("Bridge depth demand waits for acknowledgement and rejects stale or unnegotiated controls", async t => {
+  const env = environment(t);
+  const selected = camera("right");
+  const peer = new BridgePeer(binding, selected, "local-floor", () => {}, error => env.errors.push(error));
+  t.after(() => peer.stop());
+  const { pc, description } = await env.offer(peer);
+  assert.equal(description.type === "description" && description.depth_control_version, 1);
+  const meta = pc.channels.find((channel: any) => channel.label === "ceres.meta.v1");
+  const receive = (value: unknown) => meta.onmessage({ data: JSON.stringify(value) });
+  const control = (enabled: boolean, epoch = peer.epoch) => ({ type: "depth-control", version: 1, epoch, enabled });
+  assert.equal(peer.depthEnabled, false, "depth waits for the initial receiver demand");
+  receive(control(true));
+  assert.equal(peer.depthEnabled, false, "control before negotiation is ignored");
+  receive({ type: "ack", version: 1, epoch: peer.epoch });
+  assert.equal(peer.depthEnabled, true, "legacy receivers retain normal acquisition");
+  receive(control(false));
+  assert.equal(peer.depthEnabled, true, "legacy acknowledgement does not negotiate control");
+  receive({ type: "ack", version: 1, epoch: peer.epoch, depth_control_version: 1, depth_enabled: false });
+  assert.equal(peer.depthEnabled, false);
+  receive(control(true, peer.epoch + 1));
+  assert.equal(peer.depthEnabled, false, "foreign epoch cannot enable capture");
+  receive(control(true));
+  assert.equal(peer.depthEnabled, true);
+  receive(control(false));
+  assert.equal(peer.depthEnabled, false);
+  assert.equal(pc.transceivers[0].sender.track, selected.track, "depth demand preserves camera publication");
+  const oldEpoch = peer.epoch;
+  const next = await env.offer(peer);
+  assert.equal(peer.depthEnabled, false, "reconnection waits for the receiver demand again");
+  const nextMeta = next.pc.channels.find((channel: any) => channel.label === "ceres.meta.v1");
+  nextMeta.onmessage({ data: JSON.stringify(control(true, oldEpoch)) });
+  assert.equal(peer.depthEnabled, false);
+  nextMeta.onmessage({ data: JSON.stringify({ type: "ack", version: 1, epoch: peer.epoch,
+    depth_control_version: 1, depth_enabled: false }) });
+  assert.equal(peer.depthEnabled, false, "disabled reconnect has no transient acquisition");
+  nextMeta.onmessage({ data: JSON.stringify(control(true)) });
+  assert.equal(peer.depthEnabled, true);
+  assert.deepEqual(env.errors, []);
+});
+
 test("Bridge uses one camera metadata snapshot when measured settings change during setup", async t => {
   const env = environment(t);
   const right = camera("right");

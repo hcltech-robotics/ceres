@@ -104,7 +104,7 @@ struct Points {
         glGenBuffers(1, &buffer);
         glBindVertexArray(vao);
         glBindBuffer(GL_ARRAY_BUFFER, buffer);
-        for (const auto location : {0u, 11u, 12u, 13u, 14u})
+        for (const auto location : {0u, 11u, 12u, 13u, 14u, 15u})
             glEnableVertexAttribArray(location);
         glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(ceres::SpatialMapPoint), nullptr);
         glVertexAttribPointer(11, 4, GL_FLOAT, GL_FALSE, sizeof(ceres::SpatialMapPoint),
@@ -120,10 +120,19 @@ struct Points {
         glDeleteBuffers(1, &buffer);
         glDeleteVertexArrays(1, &vao);
     }
-    void upload(const std::vector<ceres::SpatialMapPoint>& points) {
+    void upload(const std::vector<ceres::SpatialMapPoint>& points,
+                const std::vector<float>& births = {}) {
         count = GLsizei(points.size());
+        require(births.empty() || births.size() == points.size(), "Invalid birth fixture size");
+        const auto times = births.empty() ? std::vector<float>(points.size(), -1.f) : births;
+        const auto point_bytes = GLsizeiptr(points.size() * sizeof(points[0]));
+        const auto birth_bytes = GLsizeiptr(times.size() * sizeof(float));
+        glBindVertexArray(vao);
         glBindBuffer(GL_ARRAY_BUFFER, buffer);
-        glBufferData(GL_ARRAY_BUFFER, GLsizeiptr(points.size() * sizeof(points[0])), points.data(), GL_STATIC_DRAW);
+        glBufferData(GL_ARRAY_BUFFER, point_bytes + birth_bytes, nullptr, GL_STATIC_DRAW);
+        glBufferSubData(GL_ARRAY_BUFFER, 0, point_bytes, points.data());
+        glBufferSubData(GL_ARRAY_BUFFER, point_bytes, birth_bytes, times.data());
+        glVertexAttribPointer(15, 1, GL_FLOAT, GL_FALSE, sizeof(float), reinterpret_cast<void*>(point_bytes));
     }
     std::vector<ceres::SpatialMapPoint> read() const {
         std::vector<ceres::SpatialMapPoint> points(static_cast<size_t>(count));
@@ -293,6 +302,85 @@ int main(int argc, char** argv) {
         require(std::memcmp(original.data(), unchanged.data(), sizeof(p)) == 0,
                 "Presentation altered stored map vertices");
 
+        const auto render_gradient = [&](ceres::DepthGradient gradient, ceres::SpatialMapStyle style,
+                                         const glm::mat4& transform = glm::mat4(1.f),
+                                         bool placed = true, float opacity = 1.f) {
+            target.clear();
+            shader.draw(points.vao, points.count, projection, 1, opacity, glm::vec3(0), 0, 10,
+                        ceres::SpatialMapShader::distance, 0, 1, 30, style, 1, transform, placed,
+                        0, 0, gradient);
+            return target.read();
+        };
+        const auto default_gradient = render(projection, {}, ceres::SpatialMapShader::distance);
+        require(render_gradient(ceres::DepthGradient::spectral, ceres::SpatialMapStyle::points) ==
+                    default_gradient,
+                "Explicit spectrum changed the default rendered colours");
+        size_t gradient_cases = 0;
+        for (const auto style : {ceres::SpatialMapStyle::points, ceres::SpatialMapStyle::shape}) {
+            for (int palette = 0; palette < 5; ++palette) {
+                const auto gradient = static_cast<ceres::DepthGradient>(palette);
+                for (int layer = 0; layer < 3; ++layer) {
+                    const auto transform = layer ? glm::translate(glm::mat4(1.f), glm::vec3(.15f, 0, 0))
+                                                 : glm::mat4(1.f);
+                    const bool placed = layer != 2;
+                    const float opacity = placed ? 1.f : .12f;
+                    const auto image = render_gradient(gradient, style, transform, placed, opacity);
+                    const auto reference = render_gradient(ceres::DepthGradient::spectral, style,
+                                                           transform, placed, opacity);
+                    require(coverage(image) == 1, "Depth gradient changed the point footprint");
+                    const float fraction = glm::length(glm::vec3(transform * glm::vec4(0, 0, -2, 1))) / 10.f;
+                    const auto expected = ceres::depth_gradient_colour(gradient, fraction);
+                    const auto pixel = colour(image);
+                    const float channels[] = {expected.r, expected.g, expected.b};
+                    for (size_t channel = 0; channel < 3; ++channel)
+                        require(std::abs(int(pixel[channel]) -
+                                         int(std::lround(channels[channel] * opacity * 255))) <= 1,
+                                "Rendered depth gradient differs from the shared palette");
+                    if (palette)
+                        require(pixel != colour(reference),
+                                "Selected gradient did not change live or saved map colours");
+                    ++gradient_cases;
+                }
+            }
+        }
+        require(std::memcmp(original.data(), points.read().data(), sizeof(p)) == 0,
+                "Gradient selection altered stored map vertices");
+
+        // New evidence fades over one source update interval. The source birth
+        // stays fixed when observations refresh its timestamp or support.
+        auto arriving = point(-2);
+        points.upload({arriving}, {10.f});
+        const auto fade = [&](float age, float interval) {
+            target.clear();
+            shader.draw(points.vao, points.count, projection, 1, 1, {}, 0, 10,
+                        ceres::SpatialMapShader::neutral, 0, 1, 30,
+                        ceres::SpatialMapStyle::points, 1, glm::mat4(1.f), true, 10.f + age, interval);
+            return target.read();
+        };
+        require(coverage(fade(0, .5f)) == 0, "New evidence appeared before its fade began");
+        const auto fade_middle = colour(fade(.25f, .5f));
+        const auto fade_complete = colour(fade(.5f, .5f));
+        for (size_t channel = 0; channel < 3; ++channel)
+            require(std::abs(int(fade_middle[channel]) * 2 - int(fade_complete[channel])) <= 2,
+                    "Evidence did not fade linearly over one update interval");
+        require(colour(fade(.05f, .1f)) == fade_middle && colour(fade(.1f, .1f)) == fade_complete,
+                "Fade duration did not follow the inverse update frequency");
+        arriving.observed_us += 500000;
+        ++arriving.weight;
+        points.upload({arriving}, {10.f});
+        require(colour(fade(.75f, .5f)) == fade_complete,
+                "A later supporting sweep restarted an established point's fade");
+        require(colour(fade(20.f, .5f)) == fade_complete,
+                "Stopped acquisition made completed evidence fade again");
+        points.upload({arriving});
+        require(colour(fade(0, .5f)) == fade_complete,
+                "A deliberately imported map acquired a new-data fade");
+        points.upload({point(-2), point(-1)}, {-1.f, 10.f});
+        const auto fading_foreground = colour(fade(.25f, .5f));
+        for (size_t channel = 0; channel < 3; ++channel)
+            require(std::abs(int(fading_foreground[channel]) - int(fade_complete[channel])) <= 1,
+                    "A partially faded point occluded established geometry before becoming opaque");
+
         // A weak rear point must not leak through the supported surface, even
         // when it is submitted first. The depth and colour footprints coincide.
         auto rear = point(-3, .5f);
@@ -310,13 +398,14 @@ int main(int argc, char** argv) {
         require(coverage(render(projection, {}, ceres::SpatialMapShader::distance)) == 0,
                 "Unused map slot produced a fragment");
 
-        // Density selects an invariant subset from world positions.
+        // Density selects an invariant subset from measured world positions,
+        // retaining repeated reliable observations ahead of tentative samples.
         std::vector<ceres::SpatialMapPoint> grid;
         for (int y = -4; y <= 4; ++y)
             for (int x = -4; x <= 4; ++x) {
                 auto sample = point(-2);
-                sample.x = float(x) * .1f;
-                sample.y = float(y) * .1f;
+                sample.x = (float(x * 4) + .5f) * .03f;
+                sample.y = (float(y * 4) + .5f) * .03f;
                 grid.push_back(sample);
             }
         points.upload(grid);
@@ -326,6 +415,39 @@ int main(int argc, char** argv) {
         require(coverage(full) == grid.size() && coverage(half) > 0 && coverage(half) < grid.size(),
                 "Density did not reduce the displayed subset");
         require(half == repeated, "Density subset flickered without a geometry change");
+        const auto established_count = coverage(half);
+        const auto stable_cells = render(projection, {}, ceres::SpatialMapShader::neutral, 0, .5f);
+        for (auto& sample : grid) {
+            sample.x += .001f;
+            sample.y += .001f;
+        }
+        points.upload(grid);
+        const auto compensated = projection * glm::translate(glm::mat4(1.f), glm::vec3(-.001f, -.001f, 0));
+        require(render(compensated, {}, ceres::SpatialMapShader::neutral, 0, .5f) == stable_cells,
+                "Subvoxel position refinement changed density selection within unchanged evidence cells");
+        for (auto& sample : grid) {
+            sample.confidence = .2f;
+            sample.weight = 1;
+        }
+        points.upload(grid);
+        const auto tentative_full = render(projection, {}, ceres::SpatialMapShader::neutral);
+        const auto tentative_half = render(projection, {}, ceres::SpatialMapShader::neutral, 0, .5f);
+        require(coverage(tentative_full) == grid.size(), "Full density discarded tentative measured geometry");
+        require(established_count > coverage(tentative_half) * 3,
+                "Density did not prioritise repeatedly supported reliable geometry");
+        for (auto& sample : grid)
+            sample.confidence = 1.f;
+        points.upload(grid);
+        const auto one_observation = render(projection, {}, ceres::SpatialMapShader::neutral, 0, .5f);
+        require(established_count > coverage(one_observation),
+                "A single confident observation received the same priority as repeated evidence");
+        const auto tentative_original = points.read();
+        for (const auto density : {.1f, .25f, .75f, 1.f})
+            (void)render(projection, {}, ceres::SpatialMapShader::confidence, 0, density);
+        const auto tentative_unchanged = points.read();
+        require(std::memcmp(tentative_original.data(), tentative_unchanged.data(),
+                            tentative_original.size() * sizeof(ceres::SpatialMapPoint)) == 0,
+                "Confidence density changed stored geometry or supporting evidence");
 
         // Relief uses measured depth differences, not distance palette changes.
         // A constant-depth plane, its gaps and its boundary remain unshaded.
@@ -536,6 +658,7 @@ int main(int argc, char** argv) {
             write_image(output / "head-far.ppm", far_head, target.width);
             write_image(output / "density-full.ppm", full, target.width);
             write_image(output / "density-half.ppm", half, target.width);
+            write_image(output / "density-tentative-half.ppm", tentative_half, target.width);
             write_image(output / "shape-flat.ppm", shape_flat, target.width);
             write_image(output / "shape-depth-step.ppm", shape_step, target.width);
             write_image(output / "shape-zero-relief.ppm", plain_step, target.width);
@@ -544,14 +667,17 @@ int main(int argc, char** argv) {
                   << ",\"point_widths_px\":[1,2,4],\"samples\":[1,4],\"framebuffer_extents\":[64,128,256],"
                      "\"frozen_vertex_recolour\":true,\"orbit_invariant_colour\":true,"
                      "\"recency_low_word_borrow\":true,\"same_depth_colour_footprint\":true,"
-                     "\"stable_density\":true,\"state_restored\":true,"
+                     "\"stable_density\":true,\"confidence_prioritised_density\":true,\"update_interval_fade\":true,\"state_restored\":true,"
                      "\"shape_flat_neutral\":true,\"shape_depth_relief\":true,"
                      "\"shape_scene_occlusion\":true,\"shape_trail_depth\":true,"
                      "\"shape_viewport_scissor\":true,\"shape_premultiplied_alpha\":true,"
-                     "\"shape_sample_cases\":" << shape_cases << "}\n";
+                     "\"shape_sample_cases\":" << shape_cases
+                  << ",\"gradient_cases\":" << gradient_cases
+                  << ",\"gradient_default_preserved\":true,\"gradient_shared_palette\":true}\n";
         }
         std::cout << "Spatial map rendering passed: " << footprint_cases
-                  << " pixel-footprint cases, frozen recolouring, orbit invariance, recency, density, occlusion and shape relief\n";
+                  << " pixel-footprint cases, " << gradient_cases
+                  << " gradient cases, frozen recolouring, orbit invariance, recency, density, occlusion and shape relief\n";
         return 0;
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';

@@ -2,6 +2,24 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createPoseBuffer, writePoseHeader, decodePose, newerSequence, canSendObservation, parseMetadata, XR_HAND_JOINTS } from "../shared/bridge-protocol.js";
 
+test("Bridge depth demand uses an epoch-bound boolean control and optional acknowledgement", () => {
+  for (const enabled of [true, false]) {
+    const control = { type: "depth-control", version: 1, epoch: 7, enabled };
+    assert.deepEqual(parseMetadata(JSON.stringify(control)), control);
+    const ack = { type: "ack", version: 1, epoch: 7, depth_control_version: 1, depth_enabled: enabled };
+    assert.deepEqual(parseMetadata(JSON.stringify(ack)), ack);
+  }
+  assert.doesNotThrow(() => parseMetadata(JSON.stringify({ type: "ack", version: 1, epoch: 7 })));
+  for (const enabled of [undefined, null, 0, 1, "false", [], {}]) {
+    assert.throws(() => parseMetadata(JSON.stringify({ type: "depth-control", version: 1, epoch: 7, enabled })), /depth control/);
+    assert.throws(() => parseMetadata(JSON.stringify({ type: "ack", version: 1, epoch: 7,
+      depth_control_version: 1, depth_enabled: enabled })), /depth acknowledgement/);
+  }
+  for (const epoch of [-1, 0x100000000, .5, "7"]) {
+    assert.throws(() => parseMetadata(JSON.stringify({ type: "depth-control", version: 1, epoch, enabled: false })));
+  }
+});
+
 test("Bridge packets preserve clock domains and fixed little-endian layout", () => {
   const buffer = createPoseBuffer(1);
   const view = writePoseHeader(buffer, { kind: 1, valid: true, epoch: 15, spaceEpoch: 9, sequence: 0xffffffff, observedUs: 123456789, targetUs: 123467899 });

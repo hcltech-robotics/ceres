@@ -8,9 +8,12 @@
 #include <glm/gtc/type_ptr.hpp>
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <iostream>
 #include <limits>
 #include <stdexcept>
+#include <thread>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -78,8 +81,9 @@ std::shared_ptr<ceres::SpatialMapSnapshot> snapshot(ceres::Renderer& renderer, b
     require(bool(result), "Finished snapshot was not available");
     return result;
 }
-ceres::SessionEvent depth_event(uint32_t sequence, int64_t time) {
-    auto header = depth_fixture::header(sequence, 7, 2, 32, 32);
+ceres::SessionEvent depth_event(uint32_t sequence, int64_t time, uint32_t epoch = 7,
+                               uint32_t space_epoch = 2) {
+    auto header = depth_fixture::header(sequence, epoch, space_epoch, 32, 32);
     const auto projection = glm::perspective(glm::radians(70.f), 1.f, .1f, 10.f);
     header["projection"] = std::vector<float>(glm::value_ptr(projection), glm::value_ptr(projection) + 16);
     header["observed_us"] = time;
@@ -114,6 +118,465 @@ ceres::VideoFrameLease video_frame(uint32_t sequence, int side, int solid_luma =
     image->event.receive_us = image->event.time_us = 3000000 + sequence * 100000;
     image->event.attributes = {{"head_pose", {0, 0, 0, 0, 0, 0, 1}}};
     return {std::move(image)};
+}
+std::shared_ptr<ceres::SpatialMapSnapshot> saved_snapshot(ceres::Renderer& renderer) {
+    require(renderer.request_saved_map_snapshot(), "Saved map snapshot request was rejected");
+    renderer.finish_saved_map_snapshot();
+    auto result = renderer.take_saved_map_snapshot();
+    require(bool(result), "Completed saved map snapshot was unavailable");
+    return result;
+}
+void require_same_points(const ceres::SpatialMapSnapshot& expected,
+                         const ceres::SpatialMapSnapshot& actual, const char* message) {
+    require(expected.points.size() == actual.points.size(), message);
+    for (const auto& point : expected.points) {
+        const auto found = std::find_if(actual.points.begin(), actual.points.end(), [&](const auto& candidate) {
+            return std::abs(point.x - candidate.x) < .000001f &&
+                   std::abs(point.y - candidate.y) < .000001f &&
+                   std::abs(point.z - candidate.z) < .000001f &&
+                   point.cell_size == candidate.cell_size && point.weight == candidate.weight &&
+                   point.confidence == candidate.confidence && point.observed_us == candidate.observed_us &&
+                   point.r == candidate.r && point.g == candidate.g && point.b == candidate.b &&
+                   point.flags == candidate.flags;
+        });
+        require(found != actual.points.end(), message);
+    }
+}
+void check_capacity_growth(ceres::Renderer& renderer) {
+    renderer.configure_spatial_map(false, .03f, 256);
+    require(renderer.map_point_capacity(true) == 0 && renderer.map_point_capacity(false) == 0 &&
+                renderer.saved_map_state().capacity == 0,
+            "Selecting a map budget eagerly allocated inactive layers");
+    auto imported = fixture(ceres::SpatialMapSource::environment_depth);
+    for (auto& point : imported.points) {
+        // Real fused samples are not snapped to the nominal voxel centre.
+        point.x += .002f;
+        point.y -= .001f;
+    }
+    require(renderer.import_spatial_map(imported), "Capacity fixture import was rejected");
+    const auto before = snapshot(renderer, true);
+    require(renderer.map_point_capacity(true) == 256 && renderer.map_point_capacity(false) == 0,
+            "Initial allocation did not follow the selected active-layer budget");
+    require(renderer.request_map_snapshot(true, "before-growth", 7, 2), "Pending growth snapshot was rejected");
+    renderer.configure_spatial_map(true, .03f, 1025);
+    require(renderer.map_point_capacity(true) == 2048 && renderer.map_point_budget(true) == 1025 &&
+                renderer.map_point_capacity(false) == 0,
+            "Growing the active map did not honour its budget independently");
+    renderer.finish_map_snapshot(true);
+    auto pending = renderer.take_map_snapshot(true);
+    require(pending && pending->world_id == "before-growth", "Capacity growth discarded a pending snapshot");
+    require_same_points(*before, *pending, "Capacity growth changed a pending snapshot's fused evidence");
+    require_same_points(*before, *snapshot(renderer, true), "Capacity growth lost fused point positions or metadata");
+
+    require(renderer.load_saved_map(imported), "Saved capacity fixture import was rejected");
+    require(renderer.place_saved_map(glm::mat4(1.f), 7, 2, 3000000), "Saved capacity fixture placement failed");
+    const auto placed = saved_snapshot(renderer);
+    require(renderer.request_saved_map_snapshot(), "Pending saved growth snapshot was rejected");
+    renderer.configure_spatial_map(true, .03f, 8193);
+    const auto grown = renderer.saved_map_state();
+    require(grown.loaded && grown.placed && grown.capacity == 16384 && grown.point_budget == 8193 &&
+                renderer.map_point_capacity(false) == 0,
+            "Saved-map growth changed placement or eagerly allocated the stereo layer");
+    renderer.finish_saved_map_snapshot();
+    const auto pending_saved = renderer.take_saved_map_snapshot();
+    require(bool(pending_saved), "Saved-map growth discarded its pending readback");
+    require_same_points(*placed, *pending_saved, "Saved-map growth changed pending fused evidence");
+    require_same_points(*placed, *saved_snapshot(renderer), "Saved-map growth changed placed geometry");
+    renderer.clear_saved_map();
+
+    renderer.configure_spatial_map(true, .03f, 262145);
+    require(renderer.map_point_capacity(true) == 524288 && renderer.map_point_budget(true) == 262145 &&
+                renderer.map_point_capacity(false) == 0,
+            "Selected capacity remained capped at 262144 points");
+    require_same_points(*before, *snapshot(renderer, true), "Large-budget growth lost retained evidence");
+    renderer.configure_spatial_map(true, .03f, 256);
+    require_same_points(*before, *snapshot(renderer, true), "A sufficient smaller budget flattened retained evidence");
+    renderer.clear_environment_depth(true);
+    renderer.configure_spatial_map(false, .03f, 262144);
+}
+void check_compacted_map_restore(ceres::Renderer& renderer) {
+    auto map = fixture(ceres::SpatialMapSource::environment_depth);
+    map.base_voxel_size = .01f;
+    map.points.clear();
+    for (int region = 0; region < 2; ++region)
+        for (int i = 0; i < 8; ++i) {
+            ceres::SpatialMapPoint point;
+            point.x = .001f + .16f * region + .02f * (i % 4) - .127f;
+            point.y = .001f + .02f * (i / 4) - .014f;
+            point.z = -.037f;
+            point.cell_size = .01f;
+            point.confidence = region == 0 ? .95f : .2f;
+            point.weight = region == 0 ? 8 : 1;
+            point.observed_us = 2000000;
+            map.points.push_back(point);
+        }
+    struct TemporaryMap {
+        std::filesystem::path path = std::filesystem::temp_directory_path() /
+            ("ceres-confidence-roundtrip-" + std::to_string(ceres::monotonic_us()) + ".cmap");
+        ~TemporaryMap() {
+            std::error_code error;
+            std::filesystem::remove(path, error);
+            std::filesystem::remove(path.string() + ".pending", error);
+        }
+    } temporary;
+    const auto limit = ceres::spatial_map_header_bytes + 10 * ceres::spatial_map_record_bytes;
+    ceres::save_spatial_map(temporary.path, map, limit);
+    const auto loaded = ceres::load_spatial_map(temporary.path, limit);
+    require(loaded.map.points.size() <= 10, "Mixed-confidence map did not honour its saved-file budget");
+    const auto fine = std::count_if(loaded.map.points.begin(), loaded.map.points.end(), [](const auto& point) {
+        return point.confidence > .9f && point.cell_size == .01f;
+    });
+    require(fine == 8, "Saved-file pressure flattened the established region before the weak region");
+    renderer.configure_spatial_map(true, .01f, 1024);
+    require(renderer.import_spatial_map(loaded.map), "Mixed-confidence saved map was rejected by the GPU");
+    require_same_points(loaded.map, *snapshot(renderer, true),
+                        "GPU restore changed signed, non-aligned fine/coarse confidence regions");
+    renderer.clear_environment_depth(true);
+    renderer.configure_spatial_map(false, .03f, 262144);
+}
+void check_confidence_detail(ceres::Renderer& renderer) {
+    renderer.reset_view();
+    renderer.invalidate_poses();
+    renderer.clear_saved_map();
+    renderer.configure_spatial_map(true, .03f, 4096);
+    auto map = fixture(ceres::SpatialMapSource::environment_depth);
+    map.points.clear();
+    for (int region = 0; region < 2; ++region)
+        for (int y = 0; y < 16; ++y)
+            for (int x = 0; x < 16; ++x) {
+                ceres::SpatialMapPoint point;
+                point.x = (region == 0 ? -.585f : .135f) + float(x) * .03f;
+                point.y = -.225f + float(y) * .03f;
+                point.z = -2.025f;
+                point.cell_size = .03f;
+                point.confidence = region == 0 ? 1.f : .2f;
+                point.weight = region == 0 ? 16 : 1;
+                point.observed_us = 2000000;
+                map.points.push_back(point);
+            }
+    require(renderer.import_spatial_map(map), "Confidence display fixture was rejected");
+    const auto retained = snapshot(renderer, true);
+    ceres::ReceiverSnapshot receiver;
+    receiver.epoch = 7;
+    receiver.space_epoch = 2;
+    receiver.now_us = 2000000;
+    receiver.clock.valid = true;
+    ceres::PoseSample head;
+    head.valid = true;
+    head.epoch = 7;
+    head.space_epoch = 2;
+    head.received_us = head.observed_us = receiver.now_us;
+    head.values[6] = 1;
+    receiver.poses[0] = head;
+    ceres::ViewOptions options;
+    options.hands = options.trails = options.grid = options.frusta = options.headset = options.projection = false;
+    options.depth = false;
+    options.environment_depth = options.map_frozen = true;
+    options.point_size = options.depth_opacity = 1;
+    options.map_shader = ceres::SpatialMapShader::neutral;
+    options.map_style = ceres::SpatialMapStyle::points;
+    using Pixel = std::array<unsigned char, 4>;
+    const auto draw = [&] {
+        renderer.update_headset_position(receiver);
+        renderer.draw(receiver, ceres::Calibration{}, options);
+        renderer.finish_frame();
+        cuda_check(cudaDeviceSynchronize());
+        std::vector<Pixel> pixels(128 * 128);
+        glReadPixels(0, 0, 128, 128, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+        return pixels;
+    };
+    draw();
+    require(renderer.select_scene_view(ceres::SceneView::hmd), "Confidence fixture HMD view was unavailable");
+    const auto empty = draw();
+    options.depth = true;
+    draw();
+    const auto detail = draw();
+    const auto regional_coverage = [&](const auto& pixels) {
+        std::array<size_t, 2> result{};
+        for (int y = 0; y < 128; ++y)
+            for (int x = 0; x < 128; ++x)
+                result[x < 64 ? 0 : 1] += pixels[size_t(y) * 128 + x] != empty[size_t(y) * 128 + x];
+        return result;
+    };
+    const auto counts = regional_coverage(detail);
+    require(counts[0] >= 240 && counts[1] > 0 && counts[0] > counts[1] * 3,
+            "Adaptive detail flattened reliable and tentative regions to the same density");
+    require(renderer.select_scene_view(ceres::SceneView::iso), "Confidence fixture orbit view was unavailable");
+    std::this_thread::sleep_for(std::chrono::milliseconds(55));
+    draw();
+    draw();
+    require(renderer.select_scene_view(ceres::SceneView::hmd), "Confidence fixture could not return to HMD view");
+    std::this_thread::sleep_for(std::chrono::milliseconds(55));
+    draw();
+    require(regional_coverage(draw()) == counts,
+            "Returning to an established region did not restore its confidence detail");
+    require_same_points(*retained, *snapshot(renderer, true),
+                        "Camera-dependent display aggregation changed the retained confidence map");
+    renderer.clear_environment_depth(true);
+    renderer.reset_view();
+    renderer.configure_spatial_map(false, .03f, 262144);
+}
+void check_update_cadence(ceres::Renderer& renderer) {
+    renderer.clear_environment_depth(true);
+    renderer.configure_spatial_map(false, .03f, 4096);
+    require(renderer.map_update_interval(true) == 0, "A cleared map retained an old fade cadence");
+    uint32_t sequence = 0;
+    const auto observe = [&](int64_t time, float expected_interval) {
+        require(renderer.update_environment_depth(depth_event(++sequence, time), .2f, 5.f, .03f, time),
+                "Cadence fixture observation was rejected");
+        cuda_check(cudaDeviceSynchronize());
+        require(std::abs(renderer.map_update_interval(true) - expected_interval) < .00001f,
+                "New-data fade cadence did not follow independent source observations");
+    };
+    observe(1000000, .1f);
+    observe(1100000, .1f);
+    observe(1350000, .25f);
+    observe(3350000, .25f); // One pause keeps the preceding cadence.
+    observe(3600000, .25f);
+    observe(5100000, .25f);
+    observe(6600000, 1.5f); // Repeated slow observations establish a new rate.
+    const auto duplicate = depth_event(sequence, 6600000);
+    require(!renderer.update_environment_depth(duplicate, .2f, 5.f, .03f, 6600000) &&
+                std::abs(renderer.map_update_interval(true) - 1.5f) < .00001f,
+            "A repeated observation changed the fade cadence");
+    renderer.clear_environment_depth(true);
+    renderer.configure_spatial_map(false, .03f, 262144);
+}
+void check_saved_map_layers(ceres::Renderer& renderer) {
+    renderer.clear_saved_map();
+    renderer.clear_environment_depth(true);
+    renderer.clear_stereo(true);
+    renderer.configure_spatial_map(false, .03f, 262144);
+    auto recorded = fixture(ceres::SpatialMapSource::environment_depth);
+    recorded.points.resize(2);
+    require(renderer.import_spatial_map(recorded), "Recording layer fixture import failed");
+    auto saved = recorded;
+    saved.world_id = "independent-saved-world";
+    for (auto& point : saved.points)
+        point.x += 10;
+    require(renderer.load_saved_map(saved) && renderer.saved_map_state().loaded &&
+                !renderer.saved_map_state().placed && !renderer.saved_map_state().fusing,
+            "Saved map did not enter independent preview mode");
+    require(snapshot(renderer, true)->points.size() == recorded.points.size() &&
+                !renderer.request_saved_map_snapshot() && !renderer.set_saved_map_fusion(true),
+            "Loading a map replaced recorded geometry or allowed unplaced fusion");
+    const auto transform = glm::translate(glm::mat4(1.f), glm::vec3(4, 0, 0));
+    bool oversized_rejected = false;
+    try {
+        renderer.place_saved_map(glm::translate(glm::mat4(1.f), glm::vec3(1000000, 0, 0)),
+                                  7, 2, 4000000);
+    } catch (const std::invalid_argument&) {
+        oversized_rejected = true;
+    }
+    require(oversized_rejected && !renderer.saved_map_state().placed,
+            "Out-of-grid placement could discard retained saved geometry");
+    renderer.set_saved_map_transform(transform);
+    require(renderer.place_saved_map(transform, 7, 2, 4000000), "Saved map placement failed");
+    auto placed = saved_snapshot(renderer);
+    require(placed->points.size() == saved.points.size() && placed->world_id == saved.world_id &&
+                placed->epoch == 7 && placed->space_epoch == 2 &&
+                placed->time_origin_us == saved.time_origin_us &&
+                std::all_of(placed->points.begin(), placed->points.end(), [](const auto& point) {
+                    return point.x > 12 && point.observed_us == 2000000 && point.weight == 8;
+                }),
+            "Placement changed saved evidence or did not bake the transform");
+    renderer.set_saved_map_transform(glm::mat4(1.f));
+    require(renderer.saved_map_state().world_from_map[3].x == 4 &&
+                !renderer.place_saved_map(transform, 7, 2, 4000000),
+            "Locked placement moved or applied its transform twice");
+    const auto unfused_generation = renderer.saved_map_state().generation;
+    require(renderer.set_saved_map_fusion(true) &&
+                renderer.update_environment_depth(depth_event(99, 3900000), .2f, 5, .03f, 3900000) &&
+                renderer.saved_map_state().fusing &&
+                renderer.saved_map_state().generation == unfused_generation,
+            "A queued observation from before placement disabled fusion or changed the saved map");
+    renderer.stop_saved_map_fusion();
+    require(renderer.update_environment_depth(depth_event(100, 4100000), .2f, 5, .03f, 4100000),
+            "Recording layer rejected depth beside a saved map");
+    require(renderer.saved_map_state().generation == unfused_generation &&
+                snapshot(renderer, true)->points.size() > recorded.points.size(),
+            "Independent recording acquisition changed the saved map");
+    require(renderer.set_saved_map_fusion(true) &&
+                renderer.update_environment_depth(depth_event(101, 4200000), .2f, 5, .03f, 4200000),
+            "Placed saved map did not accept depth fusion");
+    auto fused = saved_snapshot(renderer);
+    require(fused->points.size() > placed->points.size() &&
+                std::any_of(fused->points.begin(), fused->points.end(), [](const auto& point) {
+                    return std::abs(point.x) < 1 && point.z < -1;
+                }) &&
+                std::count_if(fused->points.begin(), fused->points.end(), [](const auto& point) {
+                    return point.x > 12 && point.observed_us == 2000000 && point.weight == 8;
+                }) == static_cast<std::ptrdiff_t>(saved.points.size()),
+            "Depth fusion replaced seeded evidence or failed to add observed geometry");
+    const auto fused_generation = renderer.saved_map_state().generation;
+    renderer.stop_saved_map_fusion();
+    require(renderer.update_environment_depth(depth_event(102, 4300000), .2f, 5, .03f, 4300000) &&
+                renderer.saved_map_state().generation == fused_generation,
+            "Stopping saved fusion also stopped recording or continued changing saved geometry");
+    require(renderer.set_saved_map_fusion(true), "Saved fusion could not resume");
+    auto left = video_frame(103, 0), right = video_frame(103, 1);
+    require(renderer.update_stereo(left, right, ceres::StereoCalibration::quest(),
+                                    .2f, 5, .03f, 4400000) &&
+                renderer.saved_map_state().generation > fused_generation,
+            "Stereo observations did not reach the separate saved volume");
+    fused = saved_snapshot(renderer);
+    const auto before_reset = renderer.saved_map_state().generation;
+    renderer.clear_environment_depth(true);
+    renderer.clear_stereo(true);
+    require(renderer.saved_map_state().loaded &&
+                renderer.saved_map_state().generation == before_reset &&
+                saved_snapshot(renderer)->points.size() == fused->points.size(),
+            "Resetting recording caches removed the loaded map");
+    renderer.stop_saved_map_fusion();
+    require(renderer.set_saved_map_fusion(true, 1000000),
+            "Fusion could not restart from an earlier replay position");
+    auto replayed_depth = depth_event(104, 1100000);
+    replayed_depth.attributes["replay_generation"] = 17;
+    require(renderer.update_environment_depth(replayed_depth, .2f, 5, .03f, 1100000) &&
+                renderer.saved_map_state().fusing &&
+                renderer.saved_map_state().generation > before_reset,
+            "Explicit fusion restart retained the prior replay clock or generation");
+    const auto replay_fused = saved_snapshot(renderer);
+    const auto latest_time = [](const auto& map) {
+        int64_t latest = 0;
+        for (const auto& point : map.points)
+            latest = std::max(latest, point.observed_us);
+        return latest;
+    };
+    require(latest_time(*replay_fused) > latest_time(*fused),
+            "Restarting fusion after a backward seek decreased map observation time");
+    const auto before_world_change = renderer.saved_map_state().generation;
+    require(renderer.update_environment_depth(depth_event(105, 4500000, 8, 3),
+                                               .2f, 5, .03f, 4500000) &&
+                !renderer.saved_map_state().fusing &&
+                renderer.saved_map_state().generation == before_world_change,
+            "A new tracking world fused into the placed map");
+    require(renderer.begin_saved_map_placement() && !renderer.saved_map_state().placed &&
+                renderer.saved_map_state().loaded,
+            "Adjusting placement discarded the saved layer");
+    const auto adjustment = glm::translate(glm::mat4(1.f), glm::vec3(-1, 2, .5f));
+    require(renderer.place_saved_map(adjustment, 8, 3, 4500000),
+            "A saved map could not be placed in a new tracking world");
+    const auto adjusted = saved_snapshot(renderer);
+    require(adjusted->epoch == 8 && adjusted->space_epoch == 3 &&
+                std::any_of(adjusted->points.begin(), adjusted->points.end(), [](const auto& point) {
+                    return point.x > 11 && point.y > 2 && point.observed_us == 2000000;
+                }),
+            "Repositioning lost prior geometry, timestamps or the new tracking identity");
+    renderer.clear_saved_map();
+    require(!renderer.saved_map_state().loaded && !renderer.request_saved_map_snapshot() &&
+                snapshot(renderer, true)->points.size() > 0,
+            "Unloading the saved map cleared the independent recording layer");
+    renderer.clear_environment_depth(true);
+    renderer.clear_stereo(true);
+}
+void check_saved_map_preview_depth(ceres::Renderer& renderer) {
+    renderer.reset_view();
+    renderer.invalidate_poses();
+    auto map = fixture(ceres::SpatialMapSource::environment_depth);
+    map.points.resize(1);
+    map.points[0].x = .015f;
+    map.points[0].y = 1.515f;
+    map.points[0].z = -.435f;
+    require(renderer.load_saved_map(map), "Preview depth fixture failed to load");
+    ceres::ViewOptions options;
+    options.hands = options.trails = options.grid = options.frusta = options.headset = options.projection = false;
+    options.depth = false;
+    options.depth_lod = false;
+    options.point_size = 8;
+    ceres::ReceiverSnapshot receiver;
+    receiver.epoch = 7;
+    receiver.space_epoch = 2;
+    receiver.now_us = 5000000;
+    const auto render = [&] {
+        renderer.draw(receiver, ceres::Calibration{}, options);
+        renderer.finish_frame();
+        cuda_check(cudaDeviceSynchronize());
+        std::vector<unsigned char> colour(128 * 128 * 4);
+        std::vector<float> depth(128 * 128);
+        glReadPixels(0, 0, 128, 128, GL_RGBA, GL_UNSIGNED_BYTE, colour.data());
+        glReadPixels(0, 0, 128, 128, GL_DEPTH_COMPONENT, GL_FLOAT, depth.data());
+        return std::pair{colour, depth};
+    };
+    render();
+    const auto preview = render();
+    auto current = receiver;
+    ceres::PoseSample head;
+    head.valid = true;
+    head.epoch = current.epoch;
+    head.space_epoch = current.space_epoch;
+    head.values[0] = .015f;
+    head.values[1] = 1.515f;
+    head.values[2] = -.335f;
+    head.values[6] = 1;
+    current.poses[0] = head;
+    options.map_headset_world_matches = false;
+    renderer.update_headset_position(current);
+    const auto near_current_head = render();
+    current.poses[0]->values[1] = 12;
+    renderer.update_headset_position(current);
+    require(render().first != near_current_head.first,
+            "Saved preview distance ignored current HMD pose outside the recording world");
+    options.saved_map_visible = false;
+    const auto hidden = render();
+    require(preview.first != hidden.first && preview.second == hidden.second,
+            "Saved preview was invisible or wrote occluding scene depth");
+    options.saved_map_visible = true;
+    options.saved_map_opacity = 0;
+    require(render() == hidden, "Zero saved map opacity left preview colour or depth behind");
+    options.saved_map_opacity = 1;
+    require(renderer.place_saved_map(glm::mat4(1.f), 7, 2, receiver.now_us),
+            "Preview fixture placement failed");
+    render();
+    const auto placed = render();
+    require(placed.second != hidden.second, "Committed saved map did not acquire scene depth");
+    options.saved_map_opacity = 0;
+    require(render() == hidden, "Zero saved map opacity left colour or depth behind");
+    renderer.clear_saved_map();
+}
+void check_current_headset_transform(ceres::Renderer& renderer) {
+    renderer.invalidate_video();
+    ceres::ReceiverSnapshot current;
+    current.epoch = 7;
+    current.space_epoch = 2;
+    current.now_us = 1000000;
+    current.clock.valid = true;
+    ceres::PoseSample head;
+    head.valid = true;
+    head.epoch = current.epoch;
+    head.space_epoch = current.space_epoch;
+    head.observed_us = head.received_us = current.now_us;
+    head.values[0] = 2;
+    head.values[1] = 3;
+    head.values[2] = 4;
+    head.values[6] = 1;
+    current.poses[0] = head;
+    renderer.update_headset_position(current);
+    const auto accepted = renderer.headset_transform();
+    require(accepted && glm::length(glm::vec3((*accepted)[3]) - glm::vec3(2, 3, 4)) < .0001f,
+            "Current headset transform was unavailable before inspection rendering");
+    auto inspection = current;
+    inspection.poses[0]->values[0] = -2;
+    ceres::ViewOptions options;
+    options.pose_time_offset_ms = 1000;
+    options.hands = options.trails = options.grid = options.frusta = options.projection = false;
+    renderer.draw(inspection, ceres::Calibration{}, options);
+    renderer.finish_frame();
+    require(renderer.headset_transform() &&
+                glm::length(glm::vec3((*renderer.headset_transform())[3]) - glm::vec3(2, 3, 4)) < .0001f &&
+                renderer.select_scene_view(ceres::SceneView::hmd) &&
+                std::abs(renderer.scene_camera().eye.x + 2) < .0001f,
+            "Inspection changed current placement pose or HMD view stopped following inspection");
+    current.poses[0]->valid = false;
+    current.poses[0]->values[0] = 20;
+    renderer.update_headset_position(current);
+    require(renderer.headset_transform() &&
+                std::abs((*renderer.headset_transform())[3].x - 2) < .0001f,
+            "Tracking gap discarded the last accepted current headset transform");
+    ++current.space_epoch;
+    renderer.update_headset_position(current);
+    require(!renderer.headset_transform(), "Current headset transform crossed tracking worlds");
+    renderer.invalidate_video();
 }
 void check_scene_navigation(ceres::Renderer& renderer) {
     using Reference = ceres::SceneReference;
@@ -396,6 +859,10 @@ int main(int argc, char** argv) {
             throw std::invalid_argument("Usage: test_spatial_map_lifecycle [--assets PATH]");
         Context context;
         ceres::Renderer renderer(context.window, assets);
+        check_capacity_growth(renderer);
+        check_compacted_map_restore(renderer);
+        check_confidence_detail(renderer);
+        check_update_cadence(renderer);
         renderer.configure_spatial_map(false, .03f, 262144);
         for (const bool environment : {false, true}) {
             const auto source = environment ? ceres::SpatialMapSource::environment_depth : ceres::SpatialMapSource::stereo;
@@ -599,6 +1066,9 @@ int main(int argc, char** argv) {
         require(snapshot(renderer, true)->points.size() == 1, "Appearance updates changed the frozen geometry");
         check_scene_navigation(renderer);
         check_image_plane_opacity(renderer);
+        check_saved_map_layers(renderer);
+        check_saved_map_preview_depth(renderer);
+        check_current_headset_transform(renderer);
         require(glGetError() == GL_NO_ERROR, "Renderer lifecycle generated an OpenGL error");
         std::cout << "Renderer spatial map lifecycle passed: asynchronous identity, metadata restore, frozen acquisition and retained budget coverage\n";
         return 0;

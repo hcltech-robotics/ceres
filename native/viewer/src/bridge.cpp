@@ -8,10 +8,12 @@
 #include <algorithm>
 #include <atomic>
 #include <condition_variable>
+#include <charconv>
 #include <cerrno>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <deque>
 #include <fstream>
 #include <map>
@@ -38,13 +40,57 @@ namespace ceres {
 namespace {
 struct RelayError : std::runtime_error {
     long status;
-    explicit RelayError(long value)
-        : std::runtime_error("Pairing service returned HTTP " + std::to_string(value)),
-          status(value) {}
+    std::string reason;
+    int64_t retry_after_seconds;
+    explicit RelayError(long value, std::string detail = {}, int64_t retry_after = 60)
+        : std::runtime_error("Pairing service returned HTTP " + std::to_string(value) +
+                             (detail.empty() ? "" : ": " + detail)),
+          status(value), reason(std::move(detail)), retry_after_seconds(retry_after) {}
 };
+std::string relay_error_reason(const Json& response) {
+    if (!response.is_object() || !response.contains("error") || !response["error"].is_string())
+        return {};
+    const auto& reason = response["error"].get_ref<const std::string&>();
+    // Service errors enter the status/event stream. Never copy arbitrary remote
+    // text, which could contain a reflected receiver credential.
+    if (reason.size() > 128)
+        return {};
+    for (const std::string_view known : {
+             "Invalid Bridge invitation", "Invalid Bridge identity", "Invalid Bridge JSON",
+             "Invalid Bridge request", "Origin is not allowed", "Bridge request is too large",
+             "Bridge code is already allocated", "Bridge identity is already registered",
+             "Bridge pairing was not found", "Bridge invitation expired",
+             "Bridge pairing is unavailable or revoked", "Bridge pairing was revoked",
+             "Bridge connection limit reached", "Invalid Bridge session generation"})
+        if (reason == known)
+            return std::string(known);
+    return {};
+}
+int64_t retry_after_seconds(std::string_view header) {
+    while (!header.empty() && (header.front() == ' ' || header.front() == '\t'))
+        header.remove_prefix(1);
+    while (!header.empty() && (header.back() == ' ' || header.back() == '\t' ||
+                               header.back() == '\r' || header.back() == '\n'))
+        header.remove_suffix(1);
+    if (header.empty() || header.size() > 128)
+        return 60;
+    int64_t seconds = 0;
+    const auto parsed = std::from_chars(header.data(), header.data() + header.size(), seconds);
+    if (parsed.ec == std::errc{} && parsed.ptr == header.data() + header.size() && seconds >= 0)
+        return std::clamp<int64_t>(seconds, 1, 2147483647);
+    const auto date = curl_getdate(std::string(header).c_str(), nullptr);
+    if (date < 0)
+        return 60;
+    return std::clamp<int64_t>(int64_t(date) - int64_t(std::time(nullptr)), 1, 2147483647);
+}
 double unix_seconds() {
     return std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch())
         .count();
+}
+std::string rate_limit_message(int64_t seconds) {
+    return "Pairing is temporarily rate limited. Retrying automatically in " +
+           std::to_string(seconds / 60) + ":" + (seconds % 60 < 10 ? "0" : "") +
+           std::to_string(seconds % 60) + ".";
 }
 std::string trusted_certificates() {
 #ifdef _WIN32
@@ -136,20 +182,20 @@ std::string secret() {
     }
     return result;
 }
-std::string pairing_code() {
+std::string pairing_code(size_t length = 9) {
     constexpr std::string_view alphabet = "ABCDEFGHJKMNPQRSTUVWXYZ";
     constexpr auto accepted_bytes = 256 / alphabet.size() * alphabet.size();
     std::array<uint8_t, 9> bytes{};
     std::string result;
-    result.reserve(bytes.size());
-    while (result.size() < bytes.size()) {
+    result.reserve(length);
+    while (result.size() < length) {
         random_bytes(bytes);
         for (auto b : bytes) {
             // Discard the incomplete alphabet block so every letter is equally likely.
             if (b >= accepted_bytes)
                 continue;
             result.push_back(alphabet[b % alphabet.size()]);
-            if (result.size() == bytes.size())
+            if (result.size() == length)
                 break;
         }
     }
@@ -302,6 +348,11 @@ Json read_identity(const std::filesystem::path& file) {
         throw std::runtime_error("Invalid saved receiver identity");
     value["relay"] = origin(value["relay"].get<std::string>());
     value["appOrigin"] = origin(value.value("appOrigin", std::string("https://ceres.cam")));
+    if (value.contains("retry_after") &&
+        (!value["retry_after"].is_number() ||
+         !std::isfinite(value["retry_after"].get<double>()) ||
+         value["retry_after"].get<double>() < 0))
+        throw std::runtime_error("Invalid saved pairing retry deadline");
     return value;
 }
 
@@ -466,13 +517,16 @@ struct BridgeClient::Impl : std::enable_shared_from_this<BridgeClient::Impl> {
     mutable std::mutex state_mutex, sink_mutex, queue_mutex, lifecycle_mutex;
     std::condition_variable wake;
     ReceiverSnapshot current;
+    int64_t rate_limit_deadline_us = 0;
     EventSink sink;
     std::deque<Input> inputs;
     size_t input_bytes = 0;
     std::atomic<bool> running = false, new_pairing = false, overflow = false,
                       external_keyframe = false;
+    std::atomic<bool> depth_enabled = true;
     std::thread thread;
     Json identity;
+    std::string legacy_code_relay;
     uint64_t generation = 0;
     std::shared_ptr<rtc::PeerConnection> peer;
     std::shared_ptr<rtc::WebSocket> socket;
@@ -500,6 +554,8 @@ struct BridgeClient::Impl : std::enable_shared_from_this<BridgeClient::Impl> {
     int64_t last_ping = 0, started = 0, disconnected = 0;
     bool description_received = false, remote_set = false, local_end = false, remote_end = false,
          signal_done = false, signal_open = false;
+    bool depth_control_supported = false;
+    std::optional<bool> sent_depth_enabled;
     std::optional<uint32_t> space_epoch;
 
     explicit Impl(BridgeOptions value) : options(std::move(value)) {
@@ -588,7 +644,7 @@ struct BridgeClient::Impl : std::enable_shared_from_this<BridgeClient::Impl> {
         const std::string url = base + "/api/bridge/v1" + path, payload = body.dump();
         if (payload.size() > 8192)
             throw std::runtime_error("Pairing request exceeds its budget");
-        std::string response;
+        std::string response, retry_after;
         auto* raw_headers = curl_slist_append(nullptr, "Content-Type: application/json");
         std::unique_ptr<curl_slist, decltype(&curl_slist_free_all)> headers(raw_headers,
                                                                             curl_slist_free_all);
@@ -614,6 +670,25 @@ struct BridgeClient::Impl : std::enable_shared_from_this<BridgeClient::Impl> {
                 return bytes;
             });
         curl_easy_setopt(handle.get(), CURLOPT_WRITEDATA, &response);
+        curl_easy_setopt(
+            handle.get(), CURLOPT_HEADERFUNCTION,
+            +[](char* data, size_t size, size_t count, void* destination) -> size_t {
+                const size_t bytes = size * count;
+                const std::string_view line(data, bytes);
+                auto& retry = *static_cast<std::string*>(destination);
+                if (line.starts_with("HTTP/"))
+                    retry.clear();
+                constexpr std::string_view field = "retry-after:";
+                if (line.size() >= field.size() &&
+                    std::equal(field.begin(), field.end(), line.begin(), [](char expected, char actual) {
+                        return expected == (actual >= 'A' && actual <= 'Z' ? actual + ('a' - 'A') : actual);
+                    })) {
+                    const auto value = line.substr(field.size());
+                    retry = value.size() <= 128 ? std::string(value) : std::string();
+                }
+                return bytes;
+            });
+        curl_easy_setopt(handle.get(), CURLOPT_HEADERDATA, &retry_after);
         curl_easy_setopt(handle.get(), CURLOPT_NOPROGRESS, 0L);
         curl_easy_setopt(
             handle.get(), CURLOPT_XFERINFOFUNCTION,
@@ -624,18 +699,21 @@ struct BridgeClient::Impl : std::enable_shared_from_this<BridgeClient::Impl> {
         const auto result = curl_easy_perform(handle.get());
         char* content_type = nullptr;
         curl_easy_getinfo(handle.get(), CURLINFO_CONTENT_TYPE, &content_type);
-        if (content_type &&
-            std::string_view(content_type).find("application/json") == std::string_view::npos)
-            throw std::runtime_error("Pairing service did not return JSON, check the relay origin");
-        if (result != CURLE_OK)
+        long status_code = 0;
+        curl_easy_getinfo(handle.get(), CURLINFO_RESPONSE_CODE, &status_code);
+        // A truncated or oversized error body must not turn a received retry
+        // deadline or terminal rejection into a transient transport retry.
+        if (result != CURLE_OK && !(status_code >= 400 && status_code < 500))
             throw std::runtime_error("Pairing service connection failed (curl " +
                                      std::to_string(int(result)) +
                                      "): " + curl_easy_strerror(result));
-        long status_code = 0;
-        curl_easy_getinfo(handle.get(), CURLINFO_RESPONSE_CODE, &status_code);
+        const bool json_response = !content_type ||
+            std::string_view(content_type).find("application/json") != std::string_view::npos;
+        auto value = result == CURLE_OK && json_response ? Json::parse(response, nullptr, false) : Json();
         if (status_code < 200 || status_code >= 300)
-            throw RelayError(status_code);
-        auto value = Json::parse(response, nullptr, false);
+            throw RelayError(status_code, relay_error_reason(value), retry_after_seconds(retry_after));
+        if (!json_response)
+            throw std::runtime_error("Pairing service did not return JSON, check the relay origin");
         if (!value.is_object())
             throw std::runtime_error("Invalid pairing response");
         return value;
@@ -664,6 +742,64 @@ struct BridgeClient::Impl : std::enable_shared_from_this<BridgeClient::Impl> {
             !session.contains("paired") || !session["paired"].is_boolean())
             throw std::runtime_error("Invalid pairing session");
     }
+    void remember_code_format() {
+        if (identity.value("legacy_code_length", 0) == 8)
+            legacy_code_relay = identity.value("relay", options.relay);
+    }
+    Json register_pending_identity() {
+        try {
+            return request("/bindings", identity);
+        } catch (const RelayError& error) {
+            const auto code = identity.value("code", std::string());
+            if (error.status != 400 || error.reason != "Invalid Bridge invitation" ||
+                !identity.value("pending_creation", false) || identity.value("paired", false) ||
+                code.size() != 9 || code.find_first_not_of("ABCDEFGHJKMNPQRSTUVWXYZ") != std::string::npos)
+                throw;
+            // An explicit rejection proves that the nine-letter invitation was
+            // not created. Keep its exclusive identities for one legacy retry.
+            identity["code"] = pairing_code(8);
+            identity["legacy_code_length"] = 8;
+            write_identity(options.identity_path, identity);
+            // Lost responses and server faults retain the attempted code for recovery.
+            try {
+                return request("/bindings", identity);
+            } catch (const RelayError& retry_error) {
+                if (retry_error.status >= 400 && retry_error.status < 500) {
+                    identity["code"] = code;
+                    identity.erase("legacy_code_length");
+                    write_identity(options.identity_path, identity);
+                }
+                throw;
+            }
+        }
+    }
+    bool wait_for_rate_limit() {
+        if (!identity.is_object() || !identity.contains("retry_after"))
+            return running;
+        const double remaining = identity["retry_after"].get<double>() - unix_seconds();
+        if (remaining > 2147483647.0)
+            throw std::runtime_error("Invalid saved pairing retry deadline");
+        if (remaining > 0) {
+            const auto wait_us = int64_t(std::ceil(remaining * 1000000.0));
+            {
+                std::lock_guard lock(state_mutex);
+                rate_limit_deadline_us = monotonic_us() + wait_us;
+            }
+            status("Rate limited", rate_limit_message(int64_t(std::ceil(remaining))));
+            std::unique_lock queue_lock(queue_mutex);
+            wake.wait_for(queue_lock, std::chrono::microseconds(wait_us),
+                          [this] { return !running; });
+            if (!running)
+                return false;
+        }
+        identity.erase("retry_after");
+        write_identity(options.identity_path, identity);
+        {
+            std::lock_guard lock(state_mutex);
+            rate_limit_deadline_us = 0;
+        }
+        return running;
+    }
     void create_identity() {
         for (int attempt = 0; attempt < 5; ++attempt) {
             identity = {{"version", 1},
@@ -671,17 +807,20 @@ struct BridgeClient::Impl : std::enable_shared_from_this<BridgeClient::Impl> {
                         {"deviceId", secret()},
                         {"secret", secret()},
                         {"invitationSecret", secret()},
-                        {"code", pairing_code()},
+                        {"code", pairing_code(legacy_code_relay == options.relay ? 8 : 9)},
                         {"label", options.name},
                         {"appOrigin", options.app_origin},
                         {"relay", options.relay},
                         {"invitation_expires", unix_seconds() + 300},
                         {"pending_creation", true},
                         {"paired", false}};
+            if (legacy_code_relay == options.relay)
+                identity["legacy_code_length"] = 8;
             write_identity(options.identity_path, identity);
             try {
-                const auto session = request("/bindings", identity);
+                const auto session = register_pending_identity();
                 validate_session(session);
+                remember_code_format();
                 identity["epoch"] = session["epoch"];
                 identity["pending_creation"] = false;
                 write_identity(options.identity_path, identity);
@@ -692,7 +831,7 @@ struct BridgeClient::Impl : std::enable_shared_from_this<BridgeClient::Impl> {
                     throw;
             }
         }
-        throw std::runtime_error("Cannot allocate a receiver code");
+        throw RelayError(409, "Cannot allocate a receiver code");
     }
     void revoke_identity() {
         if (!identity.is_object())
@@ -767,6 +906,8 @@ struct BridgeClient::Impl : std::enable_shared_from_this<BridgeClient::Impl> {
         close_connection();
         description_received = remote_set = local_end = remote_end = signal_done = signal_open =
             false;
+        depth_control_supported = false;
+        sent_depth_enabled.reset();
         pending_candidates.clear();
         mid_indices.clear();
         remote_mids.clear();
@@ -1041,9 +1182,19 @@ struct BridgeClient::Impl : std::enable_shared_from_this<BridgeClient::Impl> {
             event.attributes = value;
             event.payload.assign(message.text.begin(), message.text.end());
             emit(std::move(event));
-            metadata_channel->send(
-                Json{{"type", "ack"}, {"version", 1}, {"epoch", identity["epoch"]},
-                     {"depth_metadata_version", 2}}.dump());
+            depth_control_supported = value.contains("environment_depth") &&
+                value.contains("depth_control_version") &&
+                value["depth_control_version"].is_number_integer() &&
+                value["depth_control_version"] == 1;
+            Json acknowledgement{{"type", "ack"}, {"version", 1}, {"epoch", identity["epoch"]},
+                                 {"depth_metadata_version", 2}};
+            if (depth_control_supported) {
+                const bool enabled = depth_enabled.load();
+                acknowledgement["depth_control_version"] = 1;
+                acknowledgement["depth_enabled"] = enabled;
+                sent_depth_enabled = enabled;
+            }
+            metadata_channel->send(acknowledgement.dump());
         } else if (type == "depth-status") {
             {
                 std::lock_guard lock(state_mutex);
@@ -1410,6 +1561,16 @@ struct BridgeClient::Impl : std::enable_shared_from_this<BridgeClient::Impl> {
                 status("Streaming");
                 socket->close();
             }
+            if (description_received && depth_control_supported && metadata_channel &&
+                metadata_channel->isOpen()) {
+                const bool enabled = depth_enabled.load();
+                if (sent_depth_enabled != enabled) {
+                    metadata_channel->send(Json{{"type", "depth-control"}, {"version", 1},
+                                               {"epoch", identity["epoch"]},
+                                               {"enabled", enabled}}.dump());
+                    sent_depth_enabled = enabled;
+                }
+            }
             if (description_received && metadata_channel && metadata_channel->isOpen() &&
                 now - last_ping >= 250000) {
                 last_ping = now;
@@ -1449,6 +1610,9 @@ struct BridgeClient::Impl : std::enable_shared_from_this<BridgeClient::Impl> {
             prepare_identity_directory(options.identity_path);
             IdentityLock lock(options.identity_path);
             identity = read_identity(options.identity_path);
+            legacy_code_relay.clear();
+            if (identity.is_object() && !identity.value("pending_creation", false))
+                remember_code_format();
             if (identity.is_object() && identity.value("pending_creation", false) &&
                 (identity.value("relay", std::string()) == "https://ceres.cam" ||
                  identity.value("relay", std::string()) == "https://ceres.wtf") &&
@@ -1456,10 +1620,22 @@ struct BridgeClient::Impl : std::enable_shared_from_this<BridgeClient::Impl> {
                 identity["relay"] = options.relay;
                 write_identity(options.identity_path, identity);
             }
+            int64_t retry_delay_seconds = 3;
             while (running) {
+                // The persisted deadline applies before revocation, fresh pairing
+                // and session recovery, including after a process restart.
+                if (!wait_for_rate_limit())
+                    break;
+                int64_t wait_seconds = 0;
+                bool terminal = false;
                 try {
-                    if (new_pairing.exchange(false) ||
-                        (identity.is_object() && identity.value("revoked", false)))
+                    const bool fresh_pairing = new_pairing.exchange(false);
+                    if (fresh_pairing) {
+                        legacy_code_relay.clear();
+                        if (identity.is_object())
+                            identity.erase("legacy_code_length");
+                    }
+                    if (fresh_pairing || (identity.is_object() && identity.value("revoked", false)))
                         revoke_identity();
                     if (!identity.is_object())
                         create_identity();
@@ -1474,7 +1650,11 @@ struct BridgeClient::Impl : std::enable_shared_from_this<BridgeClient::Impl> {
                             // Recover an invitation whose create response was lost, or one that
                             // expired.
                             if (identity.value("pending_creation", false) && error.status == 404) {
-                                session = request("/bindings", identity);
+                                if (identity.value("invitation_expires", 0.0) <= unix_seconds()) {
+                                    identity["invitation_expires"] = unix_seconds() + 300;
+                                    write_identity(options.identity_path, identity);
+                                }
+                                session = register_pending_identity();
                             } else {
                                 identity = Json();
                                 create_identity();
@@ -1484,6 +1664,8 @@ struct BridgeClient::Impl : std::enable_shared_from_this<BridgeClient::Impl> {
                             throw;
                     }
                     validate_session(session);
+                    remember_code_format();
+                    retry_delay_seconds = 3;
                     identity["pending_creation"] = false;
                     identity["epoch"] = session["epoch"];
                     identity["paired"] = session["paired"];
@@ -1504,14 +1686,35 @@ struct BridgeClient::Impl : std::enable_shared_from_this<BridgeClient::Impl> {
                     close_connection();
                     if (new_pairing)
                         continue;
+                } catch (const RelayError& error) {
+                    close_connection();
+                    if (error.status == 429) {
+                        identity["retry_after"] = unix_seconds() + error.retry_after_seconds;
+                        write_identity(options.identity_path, identity);
+                        continue;
+                    } else if (error.status >= 400 && error.status < 500) {
+                        terminal = true;
+                        if (running)
+                            status("Error", error.what());
+                    } else {
+                        wait_seconds = retry_delay_seconds;
+                        retry_delay_seconds = std::min<int64_t>(60, retry_delay_seconds * 2);
+                        if (running)
+                            status("Reconnecting", error.what());
+                    }
                 } catch (const std::exception& error) {
                     close_connection();
+                    wait_seconds = retry_delay_seconds;
+                    retry_delay_seconds = std::min<int64_t>(60, retry_delay_seconds * 2);
                     if (running)
                         status("Reconnecting", error.what());
                 }
                 std::unique_lock queue_lock(queue_mutex);
-                wake.wait_for(queue_lock, std::chrono::seconds(3),
-                              [this] { return !running || new_pairing; });
+                if (terminal)
+                    wake.wait(queue_lock, [this] { return !running || new_pairing; });
+                else
+                    wake.wait_for(queue_lock, std::chrono::seconds(wait_seconds),
+                                  [this] { return !running || new_pairing; });
             }
             close_connection();
             status("Disconnected");
@@ -1551,6 +1754,9 @@ ReceiverSnapshot BridgeClient::snapshot() const {
     std::lock_guard lock(impl_->state_mutex);
     auto result = impl_->current;
     result.now_us = monotonic_us();
+    if (result.connection == "Rate limited")
+        result.error = rate_limit_message(
+            std::max<int64_t>(0, (impl_->rate_limit_deadline_us - result.now_us + 999999) / 1000000));
     result.clock = impl_->clock.mapping(result.now_us);
     return result;
 }
@@ -1565,6 +1771,10 @@ void BridgeClient::fresh_pairing() {
 void BridgeClient::request_keyframe() {
     impl_->external_keyframe = true;
     impl_->wake.notify_all();
+}
+void BridgeClient::set_depth_enabled(bool enabled) {
+    if (impl_->depth_enabled.exchange(enabled) != enabled)
+        impl_->wake.notify_all();
 }
 std::string BridgeClient::state() const {
     return snapshot().connection;

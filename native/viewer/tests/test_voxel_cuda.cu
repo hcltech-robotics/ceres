@@ -25,6 +25,7 @@ void identity(float* matrix) {
     std::fill_n(matrix, 16, 0.f);
     matrix[0] = matrix[5] = matrix[10] = matrix[15] = 1;
 }
+float first_confidence() { return 1.f - std::exp(-.25f); }
 ceres::StereoPoint point(float x, float y, float z, float r = 1, float g = 0, float b = 0) {
     return {x, y, z, 1, r, g, b, 1};
 }
@@ -81,7 +82,7 @@ struct Fixture {
                        sample.g <= 1.0001f && sample.b >= 0 && sample.b <= 1.0001f,
                    "Finite world-space snapshot and fused colours");
             expect(positions.emplace(sample.x, sample.y, sample.z).second,
-                   "No duplicate voxel centres");
+                   "No duplicate retained representatives");
             valid.push_back(sample);
         }
         return valid;
@@ -101,19 +102,22 @@ struct Fixture {
     }
 };
 
+std::vector<ceres::SpatialMapPoint> metadata(Fixture& fixture, int64_t origin,
+                                           const ceres::VoxelLodConfig* lod);
+
 void geometry_and_colours() {
     Fixture f(256);
-    expect(f.volume.capacity() == 256 && f.volume.scratch_bytes() <= 256 * 768 + 4096,
+    expect(f.volume.capacity() == 256 && f.volume.scratch_bytes() <= 256 * 896 + 4096,
            "Surface cache and TSDF working storage have a fixed bounded allocation");
     expect(f.read().empty(), "New volume snapshot is empty");
     auto cloud = f.run({point(0.04f, 0.04f, -0.10f)}, 0);
-    expect(cloud.size() == 1 && near(cloud[0].x, .045f) && near(cloud[0].y, .045f) &&
-               near(cloud[0].z, -.105f) && cloud[0].a == 1,
-           "Voxel centres use floor quantisation in metres, including negative Z");
+    expect(cloud.size() == 1 && near(cloud[0].x, .04f) && near(cloud[0].y, .04f) &&
+               near(cloud[0].z, -.10f) && cloud[0].a > .1f && cloud[0].a < .3f,
+           "Snapshots preserve measured positions inside world-grid cells, including negative Z");
 
     f.config.head_to_world[12] = .30f;
     cloud = f.run({point(-.26f, .04f, -.10f, 0, 0, 1)}, 1);
-    expect(cloud.size() == 1 && near(cloud[0].r, .5f) && near(cloud[0].b, .5f) && cloud[0].a == 1,
+    expect(cloud.size() == 1 && near(cloud[0].r, .5f) && near(cloud[0].b, .5f) && cloud[0].a > .3f,
            "Moving headset observations accumulate in the same world voxel");
     const auto previous = cloud.front();
     cloud = f.run({point(-.26f, .04f, -.10f, 0, 1, 0)}, .5f, 2);
@@ -132,16 +136,16 @@ void geometry_and_colours() {
     f.config.head_to_world[13] = .6f;
     f.config.head_to_world[14] = -.9f;
     cloud = f.run({point(.04f, .04f, -.10f)}, 0);
-    expect(cloud.size() == 1 && near(cloud[0].x, .195f) && near(cloud[0].y, .645f) &&
-               near(cloud[0].z, -.945f),
+    expect(cloud.size() == 1 && near(cloud[0].x, .20f) && near(cloud[0].y, .64f) &&
+               near(cloud[0].z, -.94f),
            "Column-major rotation and translation transform head-local points");
 
     f.reset();
     cloud = f.run({point(-.001f, -.031f, -.061f), point(.001f, .031f, .061f)}, 0);
     expect(cloud.size() == 2 && std::any_of(cloud.begin(), cloud.end(),
                                             [](const auto& p) {
-                                                return near(p.x, -.015f) && near(p.y, -.045f) &&
-                                                       near(p.z, -.075f);
+                                                return near(p.x, -.001f) && near(p.y, -.031f) &&
+                                                       near(p.z, -.061f);
                                             }),
            "Negative coordinates occupy distinct floor-quantised voxels");
 
@@ -175,14 +179,15 @@ void persistence_and_invalid_samples() {
     expect(f.run({first, second}, 0).size() == 2, "Both initial cells are present");
     auto cloud = f.run({second}, 7);
     expect(cloud.size() == 2, "Unobserved geometry persists");
+    const auto before_idle = cloud;
     cloud = f.run({}, 100000);
-    expect(cloud.size() == 2 && cloud[0].a == 1 && cloud[1].a == 1,
+    expect(cloud.size() == 2 && cloud[0].a == before_idle[0].a && cloud[1].a == before_idle[1].a,
            "Idle time cannot fade or remove retained evidence");
     expect(f.run({point(10, 10, -10)}, 0, 100001).size() == 2,
            "An old observation cannot introduce unseen geometry");
 
     f.reset();
-    f.run({first}, 0);
+    const float initial_confidence = f.run({first}, 0).front().a;
     std::vector<ceres::StereoPoint> invalid(8, first);
     invalid[0].valid = 0;
     invalid[1].valid = -1;
@@ -193,7 +198,7 @@ void persistence_and_invalid_samples() {
     invalid[6].b = std::numeric_limits<float>::infinity();
     invalid[7].z = 1e10f;
     cloud = f.run(invalid, 5);
-    expect(cloud.size() == 1 && cloud[0].a == 1, "Invalid samples do not alter existing evidence");
+    expect(cloud.size() == 1 && cloud[0].a == initial_confidence, "Invalid samples do not alter existing evidence");
     expect(f.run({}, 1000).size() == 1, "Invalid samples and idle time preserve retained evidence");
 
     f.reset();
@@ -294,8 +299,14 @@ void collisions_and_reuse() {
     for (int frame = 0; frame < 20; ++frame) {
         const float x = 50.f + frame;
         cloud = f.run({point(x, .4f, -.4f, 0, 1, 0)}, 1101.f + frame);
-        expect(std::any_of(cloud.begin(), cloud.end(), [x](const auto& p) {
-                   return std::abs(p.x - x) < .3f;
+        const auto accepted = metadata(f, 10000000, nullptr);
+        const int64_t observed = 10000000 + int64_t(1101 + frame) * 1000000;
+        expect(std::any_of(accepted.begin(), accepted.end(), [x, observed](const auto& p) {
+                   const float width = p.cell_size;
+                   return std::floor(p.x / width) == std::floor(x / width) &&
+                          std::floor(p.y / width) == std::floor(.4f / width) &&
+                          std::floor(p.z / width) == std::floor(-.4f / width) &&
+                          p.observed_us == observed;
                }), "New regions continue entering a saturated map");
     }
     expect(f.volume.scratch_bytes() == f.allocation_bytes, "Repeated reuse never grows memory");
@@ -304,15 +315,15 @@ void collisions_and_reuse() {
 using LodLocation = std::tuple<int, int, int, unsigned>;
 LodLocation location(const ceres::StereoPoint& p, float voxel_size) {
     const unsigned width = unsigned(p.valid);
-    return {int(std::lround(p.x / voxel_size - width * .5f)),
-            int(std::lround(p.y / voxel_size - width * .5f)),
-            int(std::lround(p.z / voxel_size - width * .5f)), width};
+    return {int(std::floor(p.x / (voxel_size * width)) * width),
+            int(std::floor(p.y / (voxel_size * width)) * width),
+            int(std::floor(p.z / (voxel_size * width)) * width), width};
 }
 LodLocation expected_location(const ceres::StereoPoint& p, float voxel_size,
                               const ceres::VoxelLodConfig& lod) {
-    const int indices[3]{int(std::lround(p.x / voxel_size - .5f)),
-                          int(std::lround(p.y / voxel_size - .5f)),
-                          int(std::lround(p.z / voxel_size - .5f))};
+    const int indices[3]{int(std::floor(p.x / voxel_size)),
+                          int(std::floor(p.y / voxel_size)),
+                          int(std::floor(p.z / voxel_size))};
     for (int level = int(lod.max_level); level >= 0; --level) {
         const unsigned width = 1u << level;
         const int base[3]{int(std::floor(float(indices[0]) / width)) * int(width),
@@ -352,6 +363,7 @@ void lod_density_and_world_grid() {
     const auto fine = f.run(points, 2);
     expect(fine.size() == points.size(), "Every fine voxel is retained before LoD selection");
     ceres::VoxelLodConfig lod;
+    lod.confidence_adaptive = false;
     lod.view_position[0] = lod.view_position[1] = .4f;
     lod.view_position[2] = .6f;
     lod.focal_length_pixels = 600;
@@ -402,6 +414,7 @@ void lod_boundaries_and_validation() {
     const auto fine = f.run(points, 0);
     expect(fine.size() == points.size(), "Boundary fixture retains every input voxel");
     ceres::VoxelLodConfig lod;
+    lod.confidence_adaptive = false;
     lod.view_position[0] = .013f;
     lod.view_position[1] = .07f;
     lod.view_position[2] = 1.21f;
@@ -456,6 +469,7 @@ void lod_colours_and_persistence() {
     Fixture f(128);
     f.config.voxel_size = 1;
     ceres::VoxelLodConfig lod;
+    lod.confidence_adaptive = false;
     lod.view_position[2] = 20;
     lod.focal_length_pixels = 100;
     lod.target_pixels = 20;
@@ -464,17 +478,17 @@ void lod_colours_and_persistence() {
     f.run({point(1.25f, .25f, -.25f, 0, 0, 1)}, 5);
     auto cloud = f.read(&lod);
     expect(cloud.size() == 1 && cloud[0].valid == 2 && near(cloud[0].r, .5f) &&
-               near(cloud[0].b, .5f) && cloud[0].a == 1,
+               near(cloud[0].b, .5f) && near(cloud[0].a, first_confidence()),
            "Coarse colour averages fine cells and retains supported confidence");
     f.run({point(8.25f, .25f, -.25f, 0, 1, 0)}, 9);
     cloud = f.read(&lod);
     auto older = std::find_if(cloud.begin(), cloud.end(), [](const auto& p) { return p.x < 2; });
-    expect(cloud.size() == 2 && older != cloud.end() && older->a == 1,
+    expect(cloud.size() == 2 && older != cloud.end() && near(older->a, first_confidence()),
            "Unrelated fresh geometry leaves existing confidence unchanged");
     f.run({}, 100000);
     cloud = f.read(&lod);
     older = std::find_if(cloud.begin(), cloud.end(), [](const auto& p) { return p.x < 2; });
-    expect(cloud.size() == 2 && older != cloud.end() && older->a == 1 && near(older->r, .5f) &&
+    expect(cloud.size() == 2 && older != cloud.end() && near(older->a, first_confidence()) && near(older->r, .5f) &&
                near(older->b, .5f), "Idle time preserves coarse colour and confidence");
 }
 
@@ -520,10 +534,10 @@ float confidence_at(const std::vector<ceres::StereoPoint>& points, float x, floa
 float confidence_covering(const std::vector<ceres::StereoPoint>& points,
                           const ceres::StereoPoint& location, float voxel_size) {
     for (const auto& p : points) {
-        const float half = p.valid * voxel_size * .5f;
-        if (location.x >= p.x - half && location.x < p.x + half &&
-            location.y >= p.y - half && location.y < p.y + half &&
-            location.z >= p.z - half && location.z < p.z + half)
+        const float width = p.valid * voxel_size;
+        if (std::floor(location.x / width) == std::floor(p.x / width) &&
+            std::floor(location.y / width) == std::floor(p.y / width) &&
+            std::floor(location.z / width) == std::floor(p.z / width))
             return p.a;
     }
     return 0;
@@ -535,25 +549,25 @@ void projective_evidence() {
     auto view = observation(f);
     auto far = depth_plane(4);
     auto cloud = observe(f, far, 1, view);
-    expect(near(confidence_at(cloud, .015f, .015f, -2.025f), .8f),
+    expect(near(confidence_at(cloud, .015f, .015f, -2.025f), first_confidence() - .2f),
            "A newer depth image fades evidence strictly inside measured free space");
     cloud = observe(f, far, 1, view, 2);
-    expect(near(confidence_at(cloud, .015f, .015f, -2.025f), .8f),
+    expect(near(confidence_at(cloud, .015f, .015f, -2.025f), first_confidence() - .2f),
            "Repeated observations cannot subtract confidence twice");
     cloud = observe(f, far, .5f, view, 2);
-    expect(near(confidence_at(cloud, .015f, .015f, -2.025f), .8f),
+    expect(near(confidence_at(cloud, .015f, .015f, -2.025f), first_confidence() - .2f),
            "Older observations cannot contradict newer evidence");
     cloud = observe(f, depth_plane(1), 3, view);
-    expect(near(confidence_at(cloud, .015f, .015f, -2.025f), .8f),
+    expect(near(confidence_at(cloud, .015f, .015f, -2.025f), first_confidence() - .2f),
            "A foreground surface preserves occluded background evidence");
     cloud = observe(f, depth_plane(4, false), 4, view);
-    expect(near(confidence_at(cloud, .015f, .015f, -2.025f), .8f),
+    expect(near(confidence_at(cloud, .015f, .015f, -2.025f), first_confidence() - .2f),
            "Invalid depth cannot erase retained geometry");
     cloud = f.run({}, 100000);
-    expect(near(confidence_at(cloud, .015f, .015f, -2.025f), .8f),
+    expect(near(confidence_at(cloud, .015f, .015f, -2.025f), first_confidence() - .2f),
            "Partially contradicted evidence does not continue fading with age");
     cloud = f.run({source}, 100001);
-    expect(near(confidence_at(cloud, .015f, .015f, -2.025f), 1),
+    expect(confidence_at(cloud, .015f, .015f, -2.025f) > first_confidence(),
            "Fresh agreeing geometry restores confidence");
     for (int i = 0; i < 5; ++i)
         cloud = observe(f, far, 100002.f + i, view);
@@ -565,7 +579,7 @@ void projective_evidence() {
     view = observation(f);
     for (int i = 0; i < 6; ++i)
         cloud = observe(f, far, float(i + 1), view);
-    expect(confidence_at(cloud, 10.005f, .015f, -2.025f) == 1,
+    expect(near(confidence_at(cloud, 10.005f, .015f, -2.025f), first_confidence()),
            "Off-screen geometry persists through unrelated observations");
 
     f.reset();
@@ -576,7 +590,7 @@ void projective_evidence() {
     view.view_from_world[12] = -3;
     view.view_from_world[13] = -.6f;
     cloud = observe(f, far, 1, view);
-    expect(near(confidence_at(cloud, 3.015f, .615f, -2.025f), .8f),
+    expect(near(confidence_at(cloud, 3.015f, .615f, -2.025f), first_confidence() - .2f),
            "Evidence uses the depth capture world pose, not a moving presentation camera");
 
     f.reset();
@@ -592,7 +606,7 @@ void projective_evidence() {
         p.z = x;
     }
     cloud = observe(f, far, 1, view);
-    expect(near(confidence_at(cloud, 2.025f, .015f, .015f), .8f),
+    expect(near(confidence_at(cloud, 2.025f, .015f, .015f), first_confidence() - .2f),
            "Stereo organised samples are transformed from head space to the rectified view");
 }
 void hand_exclusion_and_occlusion() {
@@ -606,7 +620,7 @@ void hand_exclusion_and_occlusion() {
     capsule.to[2] = -1.1f;
     capsule.radius = .15f;
     auto cloud = observe(f, depth_plane(4), 1, view);
-    expect(confidence_at(cloud, .015f, .015f, -2.025f) == 1,
+    expect(near(confidence_at(cloud, .015f, .015f, -2.025f), first_confidence()),
            "A tracked hand shields background from contradictory depth");
     view.hands = {};
     view.hands.palm_count = 1;
@@ -616,7 +630,7 @@ void hand_exclusion_and_occlusion() {
     palm.half_extent[0] = palm.half_extent[1] = .15f;
     palm.half_extent[2] = .05f;
     cloud = observe(f, depth_plane(4), 2, view);
-    expect(confidence_at(cloud, .015f, .015f, -2.025f) == 1,
+    expect(near(confidence_at(cloud, .015f, .015f, -2.025f), first_confidence()),
            "Palm volume alone shields static background from contradictory depth");
     view.hands = {};
     view.hands.capsule_count = 1;
@@ -640,7 +654,7 @@ void coarse_evidence_and_priority() {
     expect(f.run(block, 0).size() == 32, "Pressure fixture begins with a full detailed block");
     auto cloud = f.run({point(.01f, .01f, -.3f)}, 1);
     expect(std::any_of(cloud.begin(), cloud.end(), [](const auto& p) {
-        return p.valid == 8 && p.z < -7.9f;
+        return p.valid > 1 && p.z < -7.9f;
     }), "Pressure retains distant geometry as a world-aligned coarse cell");
     auto view = observation(f);
     auto far = depth_plane(10);
@@ -655,11 +669,11 @@ void coarse_evidence_and_priority() {
     };
     cloud = evidence(2);
     auto coarse = std::find_if(cloud.begin(), cloud.end(), [](const auto& p) { return p.z < -7.9f; });
-    expect(coarse != cloud.end() && near(coarse->a, .8f),
+    expect(coarse != cloud.end() && near(coarse->a, first_confidence() - .2f),
            "Coarsened retained cells lose confidence under projective contradiction");
     cloud = f.run({block.front()}, 3);
     coarse = std::find_if(cloud.begin(), cloud.end(), [](const auto& p) { return p.z < -7.9f; });
-    expect(coarse != cloud.end() && near(coarse->a, 1),
+    expect(coarse != cloud.end() && confidence_covering(cloud, block.front(), .03f) > first_confidence() - .2f,
            "An agreeing fine observation restores a retained coarse cell");
     for (int i = 0; i < 5; ++i)
         cloud = evidence(4.f + i);
@@ -675,8 +689,8 @@ void coarse_evidence_and_priority() {
         block.push_back(point(20.f + i, 1, -20));
     expect(f.run(block, 16).size() == 32, "Priority fixture fills every map slot");
     cloud = f.run({point(100, 0, -1)}, 17);
-    expect(confidence_covering(cloud, supported, .03f) > .99f &&
-               confidence_covering(cloud, point(100, 0, -1), .03f) > .99f,
+    expect(confidence_covering(cloud, supported, .03f) > .98f &&
+               confidence_covering(cloud, point(100, 0, -1), .03f) > .1f,
            "Pressure preserves nearby repeatedly supported evidence while admitting a new region");
 }
 
@@ -731,18 +745,29 @@ void near_revisit_refinement() {
     cloud = f.read();
     expect(coarse_count(cloud) > 0,
            "Foreground occlusion cannot erase coarse background during refinement");
-    cloud = observe(f, near_points, 5, view);
+    for (int capture = 5; capture < 17; ++capture)
+        cloud = observe(f, near_points, float(capture), view);
     const auto fine = std::count_if(cloud.begin(), cloud.end(), [](const auto& p) {
         return p.z < -7.9f && p.valid == 1;
     });
-    expect(coarse_count(cloud) == 0 && fine >= 36,
-           "A near revisit restores fine detail from broad fresh surface coverage");
+    const auto restored = metadata(f, 10000000, nullptr);
+    expect(fine >= 36 && std::none_of(restored.begin(), restored.end(), [](const auto& p) {
+        return p.z > -8.025f && p.z < -7.9f && p.cell_size > .031f;
+    }),
+           "Consistent near revisits restore fine detail from broad fresh surface coverage");
+    unsigned rear = 0;
+    for (const auto& p : restored) if (p.z < -8.025f) {
+        ++rear;
+        expect(p.weight == 1 && p.observed_us == 10000000 && near(p.confidence, first_confidence()),
+               "Refining the visible plane preserves the separately occluded rear layer and its original evidence");
+    }
+    expect(rear > 0, "Fine front-surface restoration does not erase the previously observed rear surface");
     expect(f.volume.scratch_bytes() == f.allocation_bytes,
            "Refinement reuses fixed allocated scratch storage");
 }
 
 void bounded_accumulation_and_timing() {
-    Fixture f(ceres::stereo_voxel_capacity);
+    Fixture f(ceres::stereo_voxel_initial_capacity);
     std::vector<ceres::StereoPoint> dense(ceres::stereo_voxel_max_samples,
                                           point(.04f, .04f, -.1f, 1, 1, 1));
     auto cloud = f.run(dense, 0);
@@ -779,6 +804,7 @@ void bounded_accumulation_and_timing() {
               << timings[18] << " ms, scratch " << f.volume.scratch_bytes() << " bytes\n";
     const size_t fine_count = cloud.size();
     ceres::VoxelLodConfig lod;
+    lod.confidence_adaptive = false;
     lod.view_position[2] = 8;
     lod.focal_length_pixels = 600;
     lod.target_pixels = 12;
@@ -820,7 +846,7 @@ float retained_coverage(const std::vector<ceres::StereoPoint>& cloud,
     return float(present) / float(sources.size());
 }
 void sweep_reliability() {
-    Fixture f(ceres::stereo_voxel_capacity);
+    Fixture f(ceres::stereo_voxel_initial_capacity);
     f.config.voxel_size = .01f;
     std::vector<ceres::StereoPoint> wall;
     for (int y = 0; y < 32; ++y)
@@ -936,8 +962,8 @@ void tsdf_metric_fusion_and_zero_crossings() {
     const std::vector<ceres::StereoPoint> positions{
         point(.025f, .025f, -1.925f), point(.025f, .025f, -2.075f), point(10, 10, 10)};
     auto values = tsdf(f, positions);
-    expect(values[0].weight == 1 && near(values[0].distance_metres, .075f, .001f) &&
-               values[1].weight == 1 && near(values[1].distance_metres, -.075f, .001f) &&
+    expect(near(values[0].weight, 1, .001f) && near(values[0].distance_metres, .075f, .001f) &&
+               near(values[1].weight, 1, .001f) && near(values[1].distance_metres, -.075f, .001f) &&
                values[2].weight == 0,
            "TSDF stores signed metric samples around the surface and leaves unknown space unobserved");
     const auto first = metadata(f);
@@ -948,9 +974,9 @@ void tsdf_metric_fusion_and_zero_crossings() {
                "Depth metadata preserves the mathematical zero crossing without a display palette");
     observe(f, dense_plane(2.04f), 1, view);
     values = tsdf(f, positions);
-    expect(values[0].weight == 2 && near(values[0].distance_metres, .095f, .001f) &&
-               values[1].weight == 2 && near(values[1].distance_metres, -.055f, .001f),
-           "Independent depth captures fuse weighted signed metric distance");
+    expect(values[0].weight > 1 && values[0].weight < 2 && near(values[0].distance_metres, .0898f, .001f) &&
+               values[1].weight > 1 && values[1].weight < 2 && near(values[1].distance_metres, -.0602f, .001f),
+           "Independent depth captures fuse signed distance with range and residual weighting");
     observe(f, dense_plane(2.04f), 1, view, 2);
     const auto repeated = tsdf(f, positions);
     expect(repeated[0].weight == values[0].weight && repeated[0].distance_metres == values[0].distance_metres,
@@ -965,7 +991,7 @@ void tsdf_metric_fusion_and_zero_crossings() {
            "Invalid range samples do not change a retained TSDF");
     for (int frame = 5; frame < 25; ++frame) observe(f, dense_plane(2.04f), float(frame), view);
     values = tsdf(f, positions);
-    expect(values[0].weight == 16 && near(values[0].distance_metres, .115f, .004f),
+    expect(near(values[0].weight, 16, .001f) && near(values[0].distance_metres, .115f, .005f),
            "Bounded TSDF weight converges under repeated independent measurements");
     const auto stats = statistics(f);
     expect(stats.tsdf_voxels > stats.occupied_points && stats.occupied_points <= f.volume.max_points(),
@@ -1005,6 +1031,7 @@ void metadata_regrid_restore_and_budget() {
                initial.front().flags == ceres::spatial_map_intrinsic_rgb,
            "Authoritative metadata retains acquired coordinates, source colour and observation time");
     ceres::VoxelLodConfig lod;
+    lod.confidence_adaptive = false;
     lod.view_position[2] = 20;
     (void)metadata(f, 10000000, &lod);
     const auto unchanged = metadata(f);
@@ -1046,6 +1073,148 @@ void metadata_regrid_restore_and_budget() {
                f.volume.set_max_points(f.volume.capacity() + 1, f.stream) == cudaErrorInvalidValue,
            "Logical budgets cannot bypass the hard GPU allocation bound");
 }
+void saved_map_transform_geometry_and_metadata() {
+    Fixture f(4096);
+    constexpr int64_t origin = 10000000;
+    std::vector<ceres::SpatialMapPoint> source(3);
+    const float positions[3][3]{{-.237f, .417f, -1.531f},
+                               {1.713f, -2.127f, .673f},
+                               {4.971f, 3.139f, -4.217f}};
+    const unsigned weights[3]{3, 17, 900};
+    for (unsigned index = 0; index < source.size(); ++index) {
+        auto& p = source[index];
+        p.x = positions[index][0]; p.y = positions[index][1]; p.z = positions[index][2];
+        p.cell_size = .02f * (1u << index);
+        p.confidence = .25f * (index + 1);
+        p.weight = weights[index];
+        p.observed_us = origin + (index + 1) * 1250000;
+        if (index < 2) {
+            p.r = .2f; p.g = .4f; p.b = .8f;
+            p.flags = ceres::spatial_map_intrinsic_rgb;
+        }
+    }
+    ceres::SpatialMapPoint* device = nullptr;
+    check(cudaMalloc(&device, source.size() * sizeof(*device)));
+    check(cudaMemcpyAsync(device, source.data(), source.size() * sizeof(*device),
+                          cudaMemcpyHostToDevice, f.stream));
+    check(f.volume.restore(device, source.size(), .01f, origin, f.stream));
+    const auto before = metadata(f, origin);
+    check(cudaFree(device));
+    expect(before.size() == source.size(), "Saved transform fixture retains each distinct source cell");
+
+    float matrix[16];
+    identity(matrix);
+    matrix[0] = matrix[5] = 0;
+    matrix[1] = 2; matrix[4] = -3; matrix[10] = .5f;
+    matrix[12] = 20; matrix[13] = -5; matrix[14] = 2;
+    check(f.volume.transform(matrix, .02f, origin, f.stream));
+    identity(matrix);
+    matrix[12] = .25f; matrix[13] = -.5f; matrix[14] = 1;
+    check(f.volume.transform(matrix, .02f, origin, f.stream));
+    std::fill_n(matrix, 16, std::numeric_limits<float>::quiet_NaN());
+    const auto transformed = metadata(f, origin);
+    expect(transformed.size() == before.size(),
+           "Queued transforms reuse scratch storage without importing empty capacity slots");
+    for (const auto& p : before) {
+        const auto found = std::find_if(transformed.begin(), transformed.end(), [&](const auto& q) {
+            return q.weight == p.weight;
+        });
+        expect(found != transformed.end(), "Transforms preserve complete evidence support");
+        expect(near(found->x, -3 * p.y + 20.25f) && near(found->y, 2 * p.x - 5.5f) &&
+                   near(found->z, .5f * p.z + 3),
+               "Host matrix values are copied for queued translation, rotation and nonuniform scale");
+        float expected_width = .02f;
+        while (expected_width < p.cell_size * 3 * .99999f) expected_width *= 2;
+        expect(near(found->cell_size, expected_width) &&
+                   near(found->confidence, p.confidence) && found->observed_us == p.observed_us &&
+                   found->flags == p.flags && near(found->r, p.r) && near(found->g, p.g) && near(found->b, p.b),
+               "Transform regridding retains colour, confidence and timestamps with conservative cell widths");
+    }
+    expect(statistics(f).tsdf_voxels == 0 && f.volume.scratch_bytes() == f.allocation_bytes,
+           "Saved transforms retain a fixed allocation and leave the TSDF working layer empty");
+
+    f.config.voxel_size = .02f;
+    auto view = observation(f);
+    view.width = view.height = 16;
+    observe(f, dense_plane(2, 16), 5, view);
+    const auto acquired = metadata(f, origin);
+    expect(statistics(f).tsdf_voxels > 0 && acquired.size() > transformed.size(),
+           "Independent fresh depth builds a new TSDF and extends the transformed map");
+    for (const auto& p : transformed)
+        expect(std::any_of(acquired.begin(), acquired.end(), [&](const auto& q) {
+            return near(q.x, p.x) && near(q.y, p.y) && near(q.z, p.z) &&
+                   q.weight == p.weight && q.observed_us == p.observed_us &&
+                   near(q.confidence, p.confidence) && q.flags == p.flags &&
+                   near(q.r, p.r) && near(q.g, p.g) && near(q.b, p.b);
+        }), "Fresh acquisition preserves far transformed samples and their evidence");
+}
+void saved_map_transform_validation_and_tsdf() {
+    Fixture f(8192);
+    f.config.voxel_size = .05f;
+    auto view = observation(f);
+    view.width = view.height = 16;
+    observe(f, dense_plane(2, 16), 1, view);
+    const auto before = metadata(f);
+    const auto working = statistics(f);
+    expect(!before.empty() && working.tsdf_voxels > 0, "Transform validation fixture contains both map layers");
+    float matrix[16];
+    identity(matrix);
+    auto reject = [&] {
+        expect(f.volume.transform(matrix, .05f, 10000000, f.stream) == cudaErrorInvalidValue,
+               "Invalid saved-map matrices are rejected before queuing any mutation");
+        identity(matrix);
+    };
+    matrix[0] = std::numeric_limits<float>::quiet_NaN(); reject();
+    matrix[12] = std::numeric_limits<float>::infinity(); reject();
+    matrix[3] = .01f; reject();
+    matrix[7] = .01f; reject();
+    matrix[11] = .01f; reject();
+    matrix[15] = .5f; reject();
+    matrix[0] = 0; reject();
+    matrix[5] = 1e-7f; reject();
+    matrix[4] = .2f; reject();
+    matrix[0] = -1; reject();
+    expect(f.volume.transform(nullptr, .05f, 10000000, f.stream) == cudaErrorInvalidValue &&
+               f.volume.transform(matrix, .05f, 10000000, nullptr) == cudaErrorInvalidValue &&
+               f.volume.transform(matrix, .05f, -1, f.stream) == cudaErrorInvalidValue &&
+               f.volume.transform(matrix, 0, 10000000, f.stream) == cudaErrorInvalidValue &&
+               f.volume.transform(matrix, std::numeric_limits<float>::infinity(), 10000000, f.stream) ==
+                   cudaErrorInvalidValue &&
+               f.volume.transform(matrix, std::numeric_limits<float>::quiet_NaN(), 10000000, f.stream) ==
+                   cudaErrorInvalidValue,
+           "Invalid transform arguments are rejected before changing the map");
+    const auto unchanged = metadata(f);
+    expect(unchanged.size() == before.size() &&
+               std::equal(before.begin(), before.end(), unchanged.begin(), [](const auto& a, const auto& b) {
+                   return a.x == b.x && a.y == b.y && a.z == b.z && a.cell_size == b.cell_size &&
+                          a.r == b.r && a.g == b.g && a.b == b.b && a.confidence == b.confidence &&
+                          a.observed_us == b.observed_us && a.weight == b.weight && a.flags == b.flags;
+               }) && statistics(f).tsdf_voxels == working.tsdf_voxels,
+           "Rejected transforms leave retained metadata and the TSDF working layer intact");
+    matrix[12] = 30;
+    check(f.volume.transform(matrix, .05f, 10000000, f.stream));
+    const auto transformed = metadata(f);
+    expect(transformed.size() == before.size() && statistics(f).tsdf_voxels == 0,
+           "Transforming an acquired map clears its old TSDF while retaining extracted surfaces");
+    std::vector<bool> matched(transformed.size());
+    for (const auto& source : before) {
+        bool found = false;
+        for (size_t index = 0; index < transformed.size(); ++index) {
+            const auto& target = transformed[index];
+            if (matched[index] || !near(target.x, source.x + 30) ||
+                !near(target.y, source.y) || !near(target.z, source.z) ||
+                target.weight != source.weight || target.observed_us != source.observed_us) continue;
+            matched[index] = found = true;
+            break;
+        }
+        if (!found)
+            std::cerr << "Unmatched translated sample " << source.x << ' ' << source.y << ' ' << source.z
+                      << ", support " << source.weight << ", observed " << source.observed_us << '\n';
+        // Translation can round almost-equal X values into one floating-point
+        // value, changing their Y/Z sort order without changing the surfaces.
+        expect(found, "Translation moves every retained surface without changing its support or observation time");
+    }
+}
 void observation_time_and_invalid_pressure() {
     Fixture evidence(8192);
     evidence.run({point(.01f, .01f, -2.01f)}, 0);
@@ -1070,9 +1239,9 @@ void observation_time_and_invalid_pressure() {
 }
 void pressure_preserves_all_regions() {
     auto support = [](const auto& points) {
-        unsigned long long total = 0;
-        for (const auto& p : points) total += p.weight;
-        return total;
+        unsigned maximum = 0;
+        for (const auto& p : points) maximum = std::max(maximum, p.weight);
+        return maximum;
     };
     auto covered = [](const auto& retained, const auto& input) {
         for (const auto& source : input) {
@@ -1096,7 +1265,7 @@ void pressure_preserves_all_regions() {
     f.run(separated, 0);
     check(f.volume.set_max_points(32, f.stream));
     auto result = metadata(f);
-    expect(!result.empty() && result.size() <= 32 && support(result) == 33 && covered(result, separated),
+    expect(!result.empty() && result.size() <= 32 && support(result) == 1 && covered(result, separated),
            "More than 32 distant regions merge beyond six levels without losing coverage or support");
     expect(std::any_of(result.begin(), result.end(), [](const auto& p) { return p.cell_size > .64f; }),
            "Retained coarsening extends past the former six-level ceiling");
@@ -1106,21 +1275,21 @@ void pressure_preserves_all_regions() {
         incoming.push_back(point(100 + i * 1.28f + .003f, .007f, -2.003f));
     f.run(incoming, 1);
     result = metadata(f);
-    expect(result.size() <= 32 && support(result) == 633 && covered(result, separated) && covered(result, incoming),
+    expect(result.size() <= 32 && support(result) <= 2 && covered(result, separated) && covered(result, incoming),
            "An oversized observation preserves every old and new region within the logical budget");
     f.reset();
     check(f.volume.set_max_points(256, f.stream));
     f.config.voxel_size = .01f;
     f.run(incoming, 0);
     result = metadata(f);
-    expect(result.size() <= 256 && support(result) == 600 && covered(result, incoming),
+    expect(result.size() <= 256 && support(result) == 1 && covered(result, incoming),
            "The first oversized observation retries all samples instead of retaining an arbitrary prefix");
     f.reset();
     check(f.volume.set_max_points(1, f.stream));
     f.config.voxel_size = .01f;
     f.run({point(-100, -100, -100), point(100, 100, 100)}, 0);
     result = metadata(f);
-    expect(result.size() == 1 && result[0].weight == 2 && near(result[0].cell_size, .01f * (1u << 21), .01f) &&
+    expect(result.size() == 1 && result[0].weight == 1 && near(result[0].cell_size, .01f * (1u << 21), .01f) &&
                near(result[0].x, 0) && near(result[0].y, 0) && near(result[0].z, 0),
            "The universal parent preserves both sides of every axis under a one-point budget");
     check(f.volume.set_max_points(256, f.stream));
@@ -1186,6 +1355,167 @@ void adversarial_retained_hash_collisions() {
     }), "Lookup and insertion agree for retained cells beyond the old probe window");
     check(cudaFree(device));
 }
+void confidence_and_independent_observations() {
+    Fixture stable(256), discordant(256);
+    stable.config.voxel_size = discordant.config.voxel_size = .1f;
+    const auto sample = point(.01f, .01f, -1.01f);
+    stable.run(std::vector<ceres::StereoPoint>(32768, sample), 0);
+    auto first = metadata(stable);
+    expect(first.size() == 1 && first[0].weight == 1 && first[0].confidence > .1f && first[0].confidence < .3f,
+           "Thousands of pixels in one capture contribute one tentative evidence vote");
+    stable.run({sample}, 0);
+    auto duplicate = metadata(stable);
+    expect(duplicate[0].weight == first[0].weight && duplicate[0].confidence == first[0].confidence,
+           "Replaying the same capture timestamp cannot manufacture certainty");
+    for (int capture = 0; capture < 24; ++capture) {
+        if (capture) stable.run({point(.011f, .01f, -1.01f)}, float(capture));
+        discordant.run({point(capture & 1 ? .095f : .005f, .01f, -1.01f)}, float(capture));
+    }
+    const auto reliable = metadata(stable), uncertain = metadata(discordant);
+    expect(reliable[0].weight == 24 && uncertain[0].weight == 24 && reliable[0].confidence > .98f &&
+               uncertain[0].confidence < .85f && reliable[0].confidence > uncertain[0].confidence + .15f,
+           "Repeated positional agreement raises confidence while discordant positions remain uncertain");
+    expect(reliable[0].x > sample.x && reliable[0].x < .0111f && near(stable.read()[0].x, reliable[0].x),
+           "Every sweep refines the measured position and both snapshot APIs expose the same centroid");
+}
+
+void confidence_density_and_real_budget() {
+    Fixture f(1024);
+    f.config.voxel_size = .02f;
+    std::vector<ceres::StereoPoint> strong, weak;
+    for (int y = 0; y < 8; ++y)
+        for (int x = 0; x < 8; ++x) {
+            strong.push_back(point(.003f + x * .02f, .007f + y * .02f, -1.003f));
+            weak.push_back(point(2.003f + x * .02f, .007f + y * .02f, -1.003f));
+        }
+    for (int capture = 0; capture < 16; ++capture) f.run(strong, float(capture));
+    f.run(weak, 16);
+    ceres::VoxelLodConfig lod;
+    lod.minimum_distance = 100000;
+    auto displayed = metadata(f, 10000000, &lod);
+    const auto detailed = std::count_if(displayed.begin(), displayed.end(), [](const auto& p) {
+        return p.x < 1 && p.cell_size < .021f;
+    });
+    const auto tentative = std::count_if(displayed.begin(), displayed.end(), [](const auto& p) { return p.x > 1; });
+    expect(detailed == 64 && tentative > 0 && tentative < 16 && metadata(f).size() == 128,
+           "Reliable sweeps retain dense detail while tentative regions remain visible and acquisition stays intact");
+    check(f.volume.set_max_points(140, f.stream));
+    f.run({point(4.003f, .007f, -1.003f)}, 17);
+    auto retained = metadata(f);
+    expect(retained.size() == 129 && std::all_of(retained.begin(), retained.end(), [](const auto& p) {
+        return p.cell_size < .021f;
+    }), "A map above75percent occupancy retains every fine cell while it remains inside the selected budget");
+    check(f.volume.set_max_points(96, f.stream));
+    retained = metadata(f);
+    expect(retained.size() <= 96 && std::count_if(retained.begin(), retained.end(), [](const auto& p) {
+        return p.x < 1 && p.cell_size < .021f && p.weight == 16;
+    }) == 64, "Actual budget pressure reduces weak regions before repeatedly confirmed detail");
+    expect(retained_coverage(f.read(), strong, .02f) == 1 && retained_coverage(f.read(), weak, .02f) == 1,
+           "Confidence-priority pressure keeps every observed region represented");
+    for (const auto& point : retained) if (point.x > 1)
+        expect(point.weight == 1, "Spatial aggregation does not turn one capture into multiple evidence votes");
+}
+
+void projective_measurement_quality_and_growth() {
+    Fixture f(32768);
+    f.config.voxel_size = .1f;
+    auto view = observation(f);
+    view.width = view.height = 32;
+    for (int capture = 0; capture < 14; ++capture)
+        observe(f, dense_plane(2, 32), float(capture), view);
+    const auto before = metadata(f);
+    double centre = 0, edge = 0;
+    unsigned centres = 0, edges = 0;
+    for (const auto& p : before) {
+        if (std::abs(p.x) < .3f && std::abs(p.y) < .3f) { centre += p.confidence; ++centres; }
+        if (std::abs(p.x) > 1.5f && std::abs(p.y) > 1.5f) { edge += p.confidence; ++edges; }
+    }
+    const double first_edge_confidence = edges ? edge / edges : 0;
+    expect(centres && edges && centre / centres > .85 && edge / edges < centre / centres - .1 && edge / edges > .05,
+           "Peripheral depth contributes less certainty while retaining visible surface coverage");
+    for (int capture = 14; capture < 54; ++capture)
+        observe(f, dense_plane(2, 32), float(capture), view);
+    const auto sustained = metadata(f);
+    edge = 0; edges = 0;
+    for (const auto& p : sustained)
+        if (std::abs(p.x) > 1.5f && std::abs(p.y) > 1.5f) { edge += p.confidence; ++edges; }
+    expect(edges && edge / edges > .88 && edge / edges > first_edge_confidence + .12,
+           "Sustained agreeing peripheral captures eventually earn high confidence and finer detail");
+    const auto queried = tsdf(f, {point(.05f, .05f, -1.95f)});
+    const auto previous_bytes = f.volume.scratch_bytes();
+    check(f.volume.reserve(65536, f.stream));
+    check(f.volume.set_max_points(50000, f.stream));
+    const auto after = metadata(f);
+    const auto grown_tsdf = tsdf(f, {point(.05f, .05f, -1.95f)});
+    expect(f.volume.capacity() == 65536 && f.volume.max_points() == 50000 &&
+               f.volume.scratch_bytes() > previous_bytes && sustained.size() == after.size(),
+           "A larger selected budget grows GPU storage without discarding the acquired map");
+    for (size_t i = 0; i < sustained.size(); ++i)
+        expect(sustained[i].x == after[i].x && sustained[i].y == after[i].y && sustained[i].z == after[i].z &&
+                   sustained[i].confidence == after[i].confidence && sustained[i].weight == after[i].weight,
+               "Capacity growth preserves each fused position and its accumulated independent evidence");
+    expect(queried[0].weight == grown_tsdf[0].weight && queried[0].distance_metres == grown_tsdf[0].distance_metres,
+           "Capacity growth also preserves the working TSDF instead of resetting positional refinement");
+    expect(f.volume.reserve(3, f.stream) == cudaErrorInvalidValue && metadata(f).size() == sustained.size(),
+           "Rejected growth leaves the existing map intact");
+}
+void full_selected_point_budget() {
+    Fixture f(524288);
+    f.config.voxel_size = .01f;
+    check(f.volume.set_max_points(350000, f.stream));
+    std::vector<ceres::StereoPoint> measured;
+    measured.reserve(300000);
+    for (int y = 0; y < 300; ++y)
+        for (int x = 0; x < 1000; ++x)
+            measured.push_back(point((x + .25f) * .01f, (y + .25f) * .01f, -1.005f));
+    auto retained = f.run(measured, 0);
+    expect(retained.size() == 300000 && std::all_of(retained.begin(), retained.end(), [](const auto& p) {
+        return p.valid == 1;
+    }), "A300000point map keeps every measured fine point above the former fixed ceiling");
+    retained = f.run({point(20.005f, .005f, -1.005f)}, 1);
+    expect(retained.size() == 300001 && std::all_of(retained.begin(), retained.end(), [](const auto& p) {
+        return p.valid == 1;
+    }), "Subsequent sweeps do not flatten acquired geometry below the selected350000point budget");
+}
+void observation_births_do_not_restart() {
+    Fixture f(256);
+    f.config.voxel_size = .1f;
+    f.run({point(.025f, .025f, -.025f)}, 2);
+    f.run({point(.027f, .025f, -.025f), point(.125f, .025f, -.025f)}, 3);
+    ceres::SpatialMapPoint* device = nullptr;
+    float* device_births = nullptr;
+    check(cudaMalloc(&device, f.volume.capacity() * sizeof(ceres::SpatialMapPoint)));
+    check(cudaMalloc(&device_births, f.volume.capacity() * sizeof(float)));
+    auto read = [&](bool grouped) {
+        ceres::VoxelLodConfig lod;
+        lod.max_level = 1;
+        if (grouped) check(f.volume.snapshot_metadata_lod(device, lod, 0, f.stream, device_births));
+        else check(f.volume.snapshot_metadata(device, 0, f.stream, device_births));
+        std::vector<ceres::SpatialMapPoint> points(f.volume.capacity());
+        std::vector<float> births(f.volume.capacity());
+        check(cudaMemcpyAsync(points.data(), device, points.size() * sizeof(points[0]), cudaMemcpyDeviceToHost, f.stream));
+        check(cudaMemcpyAsync(births.data(), device_births, births.size() * sizeof(float), cudaMemcpyDeviceToHost, f.stream));
+        check(cudaStreamSynchronize(f.stream));
+        std::vector<std::pair<ceres::SpatialMapPoint, float>> result;
+        for (size_t i = 0; i < points.size(); ++i) if (points[i].weight) result.emplace_back(points[i], births[i]);
+        return result;
+    };
+    auto points = read(false);
+    expect(points.size() == 2 && std::any_of(points.begin(), points.end(), [](const auto& p) {
+        return p.first.x < .1f && p.second == 2;
+    }) && std::any_of(points.begin(), points.end(), [](const auto& p) {
+        return p.first.x > .1f && p.second == 3;
+    }), "New points retain their first observation time while subsequent sweeps do not restart appearance");
+    points = read(true);
+    expect(points.size() == 1 && points[0].second == 2,
+           "A shared display representative inherits the earliest contributing birth time");
+    check(f.volume.restore(device, f.volume.capacity(), .1f, 0, f.stream));
+    points = read(false);
+    expect(points.size() == 1 && points[0].second < 0,
+           "Deliberately imported maps appear immediately without a new-acquisition fade");
+    check(cudaFree(device));
+    check(cudaFree(device_births));
+}
 } // namespace
 
 int main(int argc, char**) {
@@ -1194,8 +1524,15 @@ int main(int argc, char**) {
             sweep_reliability();
             return 0;
         }
+        confidence_and_independent_observations();
+        confidence_density_and_real_budget();
+        projective_measurement_quality_and_growth();
+        full_selected_point_budget();
+        observation_births_do_not_restart();
         tsdf_metric_fusion_and_zero_crossings();
         metadata_regrid_restore_and_budget();
+        saved_map_transform_geometry_and_metadata();
+        saved_map_transform_validation_and_tsdf();
         observation_time_and_invalid_pressure();
         pressure_preserves_all_regions();
         adversarial_retained_hash_collisions();

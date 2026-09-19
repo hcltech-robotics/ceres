@@ -10,6 +10,7 @@
 #include <cctype>
 #include <cmath>
 #include <cstring>
+#include <ctime>
 #include <fstream>
 #include <iostream>
 #include <mutex>
@@ -165,6 +166,11 @@ struct Sender {
     std::atomic<bool> request_secondary_intra = false;
     std::mutex mutex;
     std::vector<Json> pending;
+    std::vector<Json> received_metadata;
+    std::vector<Json> metadata_messages() {
+        std::lock_guard lock(mutex);
+        return received_metadata;
+    }
     void close() {
         if (pose) {
             pose->resetCallbacks();
@@ -206,8 +212,9 @@ struct Sender {
 class Relay {
   public:
     explicit Relay(uint16_t requested_port = 0, int stream_fps = 0, bool dual_camera = false,
-                   bool native_depth = false)
-        : port(requested_port), fps(stream_fps), dual(dual_camera), depth_only(native_depth) {
+                   bool native_depth = false, bool depth_demand = false)
+        : port(requested_port), fps(stream_fps), dual(dual_camera), depth_only(native_depth),
+          depth_control(depth_demand) {
 #ifdef _WIN32
         WSADATA data{};
         check(WSAStartup(MAKEWORD(2, 2), &data) == 0, "Cannot initialise fixture sockets");
@@ -309,6 +316,30 @@ class Relay {
         std::lock_guard lock(mutex);
         return creation_attempts;
     }
+    std::vector<Json> attempted_identities() {
+        std::lock_guard lock(mutex);
+        return creation_requests;
+    }
+    int http_request_count() {
+        std::lock_guard lock(mutex);
+        return http_requests;
+    }
+    void legacy_codes_only(bool enabled = true) {
+        std::lock_guard lock(mutex);
+        legacy_codes = enabled;
+    }
+    void unpair() {
+        std::lock_guard lock(mutex);
+        paired = false;
+    }
+    void creation_failure(int status, std::string reason = {}, std::string retry = {},
+                          bool malformed = false) {
+        std::lock_guard lock(mutex);
+        failure_status = status;
+        failure_reason = std::move(reason);
+        retry_after = std::move(retry);
+        malformed_response = malformed;
+    }
     int revoked_count() {
         std::lock_guard lock(mutex);
         return revokes;
@@ -328,6 +359,7 @@ class Relay {
     int fps = 0;
     bool dual = false;
     bool depth_only = false;
+    bool depth_control = false;
     std::atomic<bool> running = true;
     std::unique_ptr<rtc::WebSocketServer> websockets;
     std::thread accepting;
@@ -339,22 +371,40 @@ class Relay {
     uint32_t epoch = 1;
     bool paired = false;
     bool reject_creation = false;
+    bool legacy_codes = false, malformed_response = false;
+    int failure_status = 0, http_requests = 0;
+    std::string failure_reason, retry_after;
+    std::vector<Json> creation_requests;
     int creation_attempts = 0;
     int creates = 0, revokes = 0, registrations = 0;
     std::string failure;
     Json request(const std::string& path, const Json& body) {
         std::lock_guard lock(mutex);
+        ++http_requests;
         if (path == "/api/bridge/v1/bindings") {
             const auto code = body.at("code").get<std::string>();
-            check(code.size() == 9 &&
+            check((code.size() == 9 || code.size() == 8) &&
                       code.find_first_not_of("ABCDEFGHJKMNPQRSTUVWXYZ") == std::string::npos,
-                  "Invitation code must contain nine unambiguous letters");
+                  "Invitation code must contain unambiguous letters");
             const auto now = std::chrono::duration<double>(
                                  std::chrono::system_clock::now().time_since_epoch())
                                  .count();
             const auto lifetime = body.at("invitation_expires").get<double>() - now;
             check(lifetime > 290 && lifetime <= 300, "Invitation expiry differs");
             ++creation_attempts;
+            creation_requests.push_back(body);
+            if (failure_status) {
+                Json response{{"status", failure_status},
+                              {"error", failure_reason == "reflect-secret" ? body.at("secret") :
+                                            failure_reason == "oversized" ? Json(std::string(9000, 'x')) :
+                                            Json(failure_reason)},
+                              {"_retry_after", retry_after}};
+                if (malformed_response)
+                    response["_raw"] = "{invalid-json";
+                return response;
+            }
+            if (code.size() != (legacy_codes ? 8u : 9u))
+                return {{"error", "Invalid Bridge invitation"}, {"status", 400}};
             if (reject_creation) {
                 reject_creation = false;
                 return {{"error", "Code already allocated"}, {"status", 409}};
@@ -454,12 +504,16 @@ class Relay {
             const auto path = incoming.substr(first + 1, last - first - 1);
             auto response_json = request(path, Json::parse(incoming.substr(end + 4, size)));
             const auto status = response_json.value("status", 200);
+            const auto retry = response_json.value("_retry_after", std::string());
+            const auto raw = response_json.value("_raw", std::string());
             response_json.erase("status");
-            const auto response = response_json.dump();
+            response_json.erase("_retry_after");
+            response_json.erase("_raw");
+            const auto response = raw.empty() ? response_json.dump() : raw;
             const auto reply =
-                std::string("HTTP/1.1 ") +
-                (status == 404 ? "404 Not Found" : status == 409 ? "409 Conflict" : "200 OK") +
-                "\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: " +
+                std::string("HTTP/1.1 ") + std::to_string(status) + " Fixture response\r\n" +
+                (retry.empty() ? std::string() : "Retry-After: " + retry + "\r\n") +
+                "Content-Type: application/json\r\nConnection: close\r\nContent-Length: " +
                 std::to_string(response.size()) + "\r\n\r\n" + response;
             send_all(socket, reply.data(), reply.size());
         } catch (const std::exception& e) {
@@ -557,7 +611,8 @@ class Relay {
             if (depth_only)
                 sender->depth = sender->peer->createDataChannel("ceres-depth-v1", unreliable);
             sender->meta->onOpen(
-                [weak, rate = fps ? fps : 30, dual = dual, depth_only = depth_only] {
+                [weak, rate = fps ? fps : 30, dual = dual, depth_only = depth_only,
+                 depth_control = depth_control] {
                     if (auto self = weak.lock()) {
                         auto metadata = description(self->epoch, rate, dual);
                         if (depth_only) {
@@ -567,6 +622,8 @@ class Relay {
                                                              {"format", "uint16-mm"},
                                                              {"max_width", 256},
                                                              {"max_height", 256}};
+                            if (depth_control)
+                                metadata["depth_control_version"] = 1;
                         }
                         self->meta->send(metadata.dump());
                     }
@@ -575,6 +632,10 @@ class Relay {
                 if (auto self = weak.lock())
                     if (auto* text = std::get_if<std::string>(&data)) {
                         const auto message = Json::parse(*text);
+                        {
+                            std::lock_guard lock(self->mutex);
+                            self->received_metadata.push_back(message);
+                        }
                         if (message.at("type") == "ping") {
                             const auto now = ceres::monotonic_us() + 4000000;
                             self->meta->send(Json{
@@ -623,7 +684,7 @@ class Relay {
         }
     }
 };
-void identity_protected(const std::filesystem::path& path, const Json& expected) {
+Json identity_protected(const std::filesystem::path& path, const Json& expected) {
     std::ifstream input(path, std::ios::binary);
     check(bool(input), "Receiver identity was not persisted");
     const std::string bytes(std::istreambuf_iterator<char>(input), {});
@@ -657,9 +718,30 @@ void identity_protected(const std::filesystem::path& path, const Json& expected)
     check(stat(path.c_str(), &status) == 0 && (status.st_mode & 0777) == 0600 &&
               status.st_uid == getuid(),
           "Receiver identity mode is not private");
-    check(Json::parse(bytes).at("secret") == expected.at("secret"),
+    const auto decoded = Json::parse(bytes);
+    check(decoded.at("secret") == expected.at("secret"),
           "Private receiver secret differs");
 #endif
+    return decoded;
+}
+
+void write_test_identity(const std::filesystem::path& path, const Json& identity) {
+    auto clear = identity.dump();
+    std::ofstream output(path, std::ios::binary | std::ios::trunc);
+    check(bool(output), "Cannot update fixture identity");
+#ifdef _WIN32
+    DATA_BLOB input{DWORD(clear.size()), reinterpret_cast<BYTE*>(clear.data())}, encrypted{};
+    check(CryptProtectData(&input, L"Ceres viewer receiver fixture", nullptr, nullptr, nullptr,
+                          CRYPTPROTECT_UI_FORBIDDEN, &encrypted) != 0,
+          "Cannot protect fixture identity");
+    output.write(reinterpret_cast<const char*>(encrypted.pbData), encrypted.cbData);
+    LocalFree(encrypted.pbData);
+#else
+    output << clear;
+#endif
+    std::fill(clear.begin(), clear.end(), '\0');
+    output.close();
+    check(bool(output), "Cannot save fixture identity");
 }
 
 struct ReceiverStop {
@@ -668,6 +750,300 @@ struct ReceiverStop {
         receiver.stop();
     }
 };
+
+void remove_test_identity(const std::filesystem::path& path) {
+    std::filesystem::remove(path);
+    std::filesystem::remove(std::filesystem::path(path.string() + ".lock"));
+}
+
+void pairing_compatibility_tests(const std::filesystem::path& directory) {
+    for (const bool pending : {false, true}) {
+        Relay relay;
+        relay.legacy_codes_only();
+        ceres::BridgeOptions options;
+        options.app_origin = options.relay = relay.origin();
+        options.identity_path = directory / (pending ? "legacy-pending.identity" : "legacy.identity");
+        relay.start();
+        if (pending) {
+            relay.creation_failure(400, "Invalid Bridge JSON");
+            ceres::BridgeClient interrupted(options);
+            ReceiverStop stopped{interrupted};
+            interrupted.start();
+            until([&] { return interrupted.snapshot().connection == "Error"; },
+                  "Pending invitation did not stop after a terminal rejection");
+            interrupted.stop();
+            check(relay.creation_attempt_count() == 1,
+                  "Unrelated rejection attempted legacy registration");
+            identity_protected(options.identity_path, relay.attempted_identities().front());
+            relay.creation_failure(0);
+        }
+        ceres::BridgeClient receiver(options);
+        ReceiverStop stopped{receiver};
+        receiver.start();
+        until([&] { return receiver.snapshot().connected; },
+              "Legacy service did not accept the compatible invitation");
+        const auto attempts = relay.attempted_identities();
+        const size_t first = pending ? 1 : 0;
+        check(attempts.size() == first + 2 && attempts[first].at("code").get<std::string>().size() == 9 &&
+                  attempts[first + 1].at("code").get<std::string>().size() == 8,
+              "Legacy negotiation did not make exactly one eight-letter retry");
+        for (const char* field : {"bindingId", "deviceId", "secret", "invitationSecret", "invitation_expires"}) {
+            check(attempts[first].at(field) == attempts[first + 1].at(field),
+                  "Legacy negotiation replaced an exclusive identity or its expiry");
+            if (pending)
+                check(attempts.front().at(field) == attempts[first].at(field),
+                      "Pending recovery discarded its saved identity");
+        }
+        identity_protected(options.identity_path, relay.current_identity());
+        if (!pending) {
+            relay.legacy_codes_only(false);
+            receiver.fresh_pairing();
+            until([&] { return relay.created_count() == 2 && receiver.snapshot().connected; },
+                  "Fresh pairing did not retry the current service format");
+            const auto refreshed = relay.attempted_identities();
+            check(refreshed.size() == 3 && refreshed.back().at("code").get<std::string>().size() == 9,
+                  "Legacy negotiation permanently downgraded new invitations");
+        }
+        check(relay.error().empty(), "Legacy service fixture rejected receiver behaviour");
+        receiver.stop();
+        relay.stop();
+        remove_test_identity(options.identity_path);
+    }
+}
+
+void pairing_rotation_tests(const std::filesystem::path& directory) {
+    for (const bool negotiated : {true, false}) {
+        Relay relay;
+        relay.legacy_codes_only();
+        ceres::BridgeOptions options;
+        options.app_origin = options.relay = relay.origin();
+        options.identity_path = directory / (negotiated ? "legacy-rotation.identity" : "old-legacy.identity");
+        relay.start();
+        ceres::BridgeClient receiver(options);
+        ReceiverStop stopped{receiver};
+        receiver.start();
+        until([&] { return receiver.snapshot().connected; }, "Rotation fixture did not pair");
+        receiver.stop();
+        const auto invitation = relay.current_identity();
+        auto saved = identity_protected(options.identity_path, invitation);
+        check(saved.value("legacy_code_length", 0) == 8,
+              "Successful legacy negotiation was not persisted");
+        saved["paired"] = false;
+        saved["code"] = invitation.at("code");
+        saved["invitationSecret"] = invitation.at("invitationSecret");
+        saved["invitation_expires"] = 1;
+        if (!negotiated) {
+            saved.erase("legacy_code_length");
+            relay.legacy_codes_only(false);
+        }
+        write_test_identity(options.identity_path, saved);
+        relay.unpair();
+        receiver.start();
+        until([&] { return relay.created_count() == 2 && receiver.snapshot().connected; },
+              "Expired invitation did not rotate");
+        const auto attempts = relay.attempted_identities();
+        check(attempts.size() == 3 &&
+                  attempts.back().at("code").get<std::string>().size() == (negotiated ? 8u : 9u),
+              "Automatic rotation ignored negotiated format or inferred it from an old code");
+        check(relay.revoked_count() == 1 && relay.error().empty(),
+              "Automatic rotation made unnecessary registrations");
+        receiver.stop();
+        relay.stop();
+        remove_test_identity(options.identity_path);
+    }
+
+    Relay relay;
+    relay.creation_failure(400, "Invalid Bridge JSON");
+    ceres::BridgeOptions options;
+    options.app_origin = options.relay = relay.origin();
+    options.identity_path = directory / "expired-pending.identity";
+    relay.start();
+    ceres::BridgeClient receiver(options);
+    ReceiverStop stopped{receiver};
+    receiver.start();
+    until([&] { return receiver.snapshot().connection == "Error"; },
+          "Pending expiry fixture did not save an identity");
+    receiver.stop();
+    const auto attempted = relay.attempted_identities().front();
+    auto saved = identity_protected(options.identity_path, attempted);
+    saved["invitation_expires"] = 1;
+    write_test_identity(options.identity_path, saved);
+    relay.creation_failure(0);
+    receiver.start();
+    until([&] { return receiver.snapshot().connected; }, "Expired pending identity did not recover");
+    const auto attempts = relay.attempted_identities();
+    check(attempts.size() == 2 && relay.created_count() == 1 && relay.revoked_count() == 0,
+          "Expired pending identity consumed additional registrations");
+    for (const char* field : {"bindingId", "deviceId", "secret", "invitationSecret", "code"})
+        check(attempts[0].at(field) == attempts[1].at(field),
+              "Pending expiry recovery discarded a saved identity");
+    check(relay.error().empty(), "Pending expiry recovery did not renew the invitation lifetime");
+    receiver.stop();
+    relay.stop();
+    remove_test_identity(options.identity_path);
+}
+
+void pairing_error_tests(const std::filesystem::path& directory) {
+    struct Rejection { int status; const char* reason; bool malformed; int attempts; };
+    const Rejection cases[] = {{400, "Invalid Bridge JSON", false, 1},
+                               {400, "Invalid Bridge invitation", true, 1},
+                               {401, "Invalid Bridge invitation", false, 1},
+                               {403, "Invalid Bridge invitation", false, 1},
+                               {400, "reflect-secret", false, 1},
+                               {400, "Invalid Bridge invitation", false, 2},
+                               {409, "Bridge code is already allocated", false, 5},
+                               {400, "oversized", false, 1}};
+    for (size_t index = 0; index < std::size(cases); ++index) {
+        const auto rejection = cases[index];
+        Relay relay;
+        relay.creation_failure(rejection.status, rejection.reason, {}, rejection.malformed);
+        ceres::BridgeOptions options;
+        options.app_origin = options.relay = relay.origin();
+        options.identity_path = directory / ("rejected-" + std::to_string(index) + ".identity");
+        relay.start();
+        ceres::BridgeClient receiver(options);
+        ReceiverStop stopped{receiver};
+        receiver.start();
+        until([&] { return receiver.snapshot().connection == "Error"; },
+              "Terminal pairing rejection did not stop automatic retries");
+        check(relay.creation_attempt_count() == rejection.attempts && relay.created_count() == 0,
+              "A terminal rejection exceeded its bounded registration attempts");
+        const auto error = receiver.snapshot().error;
+        for (const auto& attempted : relay.attempted_identities()) {
+            check(error.find(attempted.at("secret").get<std::string>()) == std::string::npos,
+                  "A reflected service credential entered receiver status");
+            if (index != 5)
+                check(attempted.at("code").get<std::string>().size() == 9,
+                      "An unrelated service rejection downgraded the code");
+        }
+        if (index == 0) {
+            std::this_thread::sleep_for(3200ms);
+            check(relay.http_request_count() == 1, "Terminal HTTP 400 retried after three seconds");
+            check(error.find("Invalid Bridge JSON") != std::string::npos,
+                  "Known service error reason was omitted");
+        }
+        receiver.stop();
+        relay.stop();
+        remove_test_identity(options.identity_path);
+    }
+
+    Relay relay;
+    relay.creation_failure(500, "Invalid Bridge invitation");
+    ceres::BridgeOptions options;
+    options.app_origin = options.relay = relay.origin();
+    options.identity_path = directory / "backoff.identity";
+    relay.start();
+    ceres::BridgeClient receiver(options);
+    ReceiverStop stopped{receiver};
+    receiver.start();
+    until([&] { return relay.creation_attempt_count() >= 2; },
+          "Transient service failure did not retry");
+    std::this_thread::sleep_for(3200ms);
+    check(relay.creation_attempt_count() == 2,
+          "Repeated server failures did not increase the retry delay");
+    for (const auto& attempted : relay.attempted_identities())
+        check(attempted.at("code").get<std::string>().size() == 9,
+              "Server failure selected the legacy format");
+    receiver.stop();
+    relay.stop();
+    remove_test_identity(options.identity_path);
+}
+
+void pairing_rate_limit_tests(const std::filesystem::path& directory) {
+    const auto countdown_seconds = [](const std::string& error) {
+        const std::string prefix = "Retrying automatically in ";
+        const auto at = error.find(prefix);
+        check(at != std::string::npos, "Rate-limit status omitted its automatic retry countdown");
+        const auto start = at + prefix.size(), colon = error.find(':', start);
+        check(colon != std::string::npos, "Rate-limit countdown omitted minutes and seconds");
+        return std::stoll(error.substr(start, colon - start)) * 60 +
+               std::stoll(error.substr(colon + 1));
+    };
+    const auto deadline = std::time(nullptr) + 30;
+    const auto utc = *std::gmtime(&deadline);
+    char date[64]{};
+    check(std::strftime(date, sizeof(date), "%a, %d %b %Y %H:%M:%S GMT", &utc) != 0,
+          "Cannot format retry date fixture");
+    const std::array<std::string, 5> retry_headers{"30", date, "not-a-delay", "", "60"};
+    std::vector<std::unique_ptr<Relay>> relays;
+    std::vector<std::unique_ptr<ceres::BridgeClient>> receivers;
+    std::vector<std::filesystem::path> paths;
+    std::vector<int64_t> initial_seconds;
+    for (size_t index = 0; index < retry_headers.size(); ++index) {
+        auto relay = std::make_unique<Relay>();
+        relay->creation_failure(429, index == 4 ? "oversized" : "Too many requests", retry_headers[index]);
+        ceres::BridgeOptions options;
+        options.app_origin = options.relay = relay->origin();
+        options.identity_path = directory / ("rate-" + std::to_string(index) + ".identity");
+        paths.push_back(options.identity_path);
+        relay->start();
+        auto receiver = std::make_unique<ceres::BridgeClient>(options);
+        receiver->start();
+        until([&] { return receiver->snapshot().connection == "Rate limited"; },
+              "HTTP 429 did not enter the rate-limit cooldown");
+        const auto error = receiver->snapshot().error;
+        const auto seconds = countdown_seconds(error);
+        initial_seconds.push_back(seconds);
+        check(index == 0 ? seconds == 30 : index == 1 ? seconds >= 20 && seconds <= 30 : seconds == 60,
+              "Retry-After seconds, HTTP date or fallback delay differs");
+        receiver->fresh_pairing();
+        relays.push_back(std::move(relay));
+        receivers.push_back(std::move(receiver));
+    }
+    for (size_t index = 0; index < 2; ++index) {
+        const auto saved = identity_protected(paths[index], relays[index]->attempted_identities().front());
+        check(saved.contains("retry_after") && saved.at("retry_after").get<double>() > std::time(nullptr),
+              "Rate-limit deadline was not saved in the protected identity");
+        receivers[index]->stop();
+        if (index == 1) {
+            ceres::BridgeOptions options;
+            options.app_origin = options.relay = relays[index]->origin();
+            options.identity_path = paths[index];
+            receivers[index] = std::make_unique<ceres::BridgeClient>(options);
+        }
+        receivers[index]->start();
+        until([&] { return receivers[index]->snapshot().connection == "Rate limited"; },
+              "Reconnect or restart did not restore the saved cooldown");
+        receivers[index]->fresh_pairing();
+    }
+    std::this_thread::sleep_for(3200ms);
+    for (size_t index = 0; index < relays.size(); ++index) {
+        check(relays[index]->http_request_count() == 1,
+              "Cooldown allowed a new-pairing, reconnect or restart bypass");
+        const auto error = receivers[index]->snapshot().error;
+        check(countdown_seconds(error) < initial_seconds[index],
+              "Rate-limit countdown did not advance");
+        const auto before = std::chrono::steady_clock::now();
+        receivers[index]->stop();
+        check(std::chrono::steady_clock::now() - before < 500ms,
+              "Stopping the receiver did not interrupt its cooldown");
+        relays[index]->stop();
+        remove_test_identity(paths[index]);
+    }
+
+    Relay relay;
+    relay.creation_failure(429, "Too many requests", "2");
+    ceres::BridgeOptions options;
+    options.app_origin = options.relay = relay.origin();
+    options.identity_path = directory / "rate-recover.identity";
+    relay.start();
+    ceres::BridgeClient receiver(options);
+    ReceiverStop stopped{receiver};
+    const auto started = std::chrono::steady_clock::now();
+    receiver.start();
+    until([&] { return receiver.snapshot().connection == "Rate limited"; },
+          "Short cooldown did not begin");
+    std::this_thread::sleep_for(300ms);
+    check(relay.http_request_count() == 1, "Request preceded Retry-After deadline");
+    relay.creation_failure(0);
+    until([&] { return receiver.snapshot().connected; }, "Receiver did not recover after Retry-After");
+    check(std::chrono::steady_clock::now() - started >= 1900ms,
+          "Receiver resumed before Retry-After elapsed");
+    check(relay.created_count() == 1 && relay.error().empty(), "Cooldown recovery changed pairing");
+    receiver.stop();
+    relay.stop();
+    remove_test_identity(options.identity_path);
+}
 
 struct AccessUnit {
     std::vector<uint8_t> bytes;
@@ -1050,6 +1426,96 @@ void depth_channel_test(const std::filesystem::path& directory) {
     std::filesystem::remove(std::filesystem::path(options.identity_path.string() + ".lock"));
 }
 
+void depth_control_test(const std::filesystem::path& directory) {
+    for (const bool supported : {false, true}) {
+        Relay relay(0, 0, false, true, supported);
+        ceres::BridgeOptions options;
+        options.app_origin = options.relay = relay.origin();
+        options.identity_path = directory / (supported ? "depth-control.identity" : "depth-legacy.identity");
+        ceres::BridgeClient receiver(options);
+        const auto acknowledgement = [](const std::shared_ptr<Sender>& sender) {
+            if (sender)
+                for (const auto& message : sender->metadata_messages())
+                    if (message.at("type") == "ack")
+                        return message;
+            return Json();
+        };
+        const auto controls = [](const std::shared_ptr<Sender>& sender) {
+            std::vector<Json> result;
+            if (sender)
+                for (const auto& message : sender->metadata_messages())
+                    if (message.at("type") == "depth-control")
+                        result.push_back(message);
+            return result;
+        };
+        relay.start();
+        receiver.start();
+        until([&] { return receiver.snapshot().connection == "Streaming" &&
+                           !acknowledgement(relay.current_sender()).is_null(); },
+              "Depth demand negotiation failed");
+        auto sender = relay.current_sender();
+        const auto ack = acknowledgement(sender);
+        if (supported)
+            check(ack.at("depth_control_version") == 1 && ack.at("depth_enabled") == true,
+                  "Depth acquisition did not default to enabled");
+        else
+            check(!ack.contains("depth_control_version") && !ack.contains("depth_enabled"),
+                  "Legacy sender received unnegotiated depth acknowledgement");
+        receiver.set_depth_enabled(false);
+        if (supported) {
+            until([&] { return controls(sender).size() == 1; }, "Depth disable demand was not sent");
+            check(controls(sender)[0] == Json{{"type", "depth-control"}, {"version", 1},
+                                             {"epoch", sender->epoch}, {"enabled", false}},
+                  "Depth demand did not retain its epoch and boolean state");
+            receiver.set_depth_enabled(false);
+            std::this_thread::sleep_for(30ms);
+            check(controls(sender).size() == 1, "Unchanged depth demand was retransmitted");
+            receiver.set_depth_enabled(true);
+            until([&] { return controls(sender).size() == 2; }, "Depth enable demand was not sent");
+            check(controls(sender)[1].at("enabled") == true, "Depth enable state changed");
+            receiver.set_depth_enabled(false);
+            until([&] { return controls(sender).size() == 3; }, "Second depth disable demand was not sent");
+        } else {
+            std::this_thread::sleep_for(30ms);
+            receiver.set_depth_enabled(true);
+            std::this_thread::sleep_for(30ms);
+            check(controls(sender).empty() && receiver.snapshot().connected,
+                  "Legacy sender received an unknown depth control");
+            receiver.set_depth_enabled(false);
+        }
+        const auto previous_epoch = sender->epoch;
+        sender->meta->close();
+        until([&] { return receiver.snapshot().connection == "Streaming" &&
+                           receiver.snapshot().epoch > previous_epoch &&
+                           !acknowledgement(relay.current_sender()).is_null(); },
+              "Depth demand did not reconnect");
+        sender = relay.current_sender();
+        const auto resumed = acknowledgement(sender);
+        if (supported)
+            check(resumed.at("depth_enabled") == false && resumed.at("epoch") == sender->epoch,
+                  "Reconnection lost disabled depth demand");
+        else
+            check(!resumed.contains("depth_enabled") && controls(sender).empty(),
+                  "Legacy reconnect received depth control metadata");
+        check(controls(sender).empty(), "Reconnect sent a transient depth demand after acknowledgement");
+        receiver.stop();
+        receiver.set_depth_enabled(false);
+        receiver.start();
+        until([&] { return receiver.snapshot().connection == "Streaming" &&
+                           receiver.snapshot().epoch > sender->epoch &&
+                           !acknowledgement(relay.current_sender()).is_null(); },
+              "Depth demand did not survive stop/start");
+        if (supported)
+            check(acknowledgement(relay.current_sender()).at("depth_enabled") == false,
+                  "Demand set before start was lost");
+        receiver.stop();
+        relay.stop();
+        check(relay.error().empty(), "Depth demand fixture rejected the contract");
+        std::filesystem::remove(options.identity_path);
+        std::filesystem::remove(std::filesystem::path(options.identity_path.string() + ".lock"));
+    }
+}
+
 int stream_fixture(int argc, char** argv) {
     std::filesystem::path input, secondary_input, capture;
     int seconds = 60, fps = 30;
@@ -1296,6 +1762,10 @@ int main(int argc, char** argv) {
     const auto identity_file = directory / "receiver.identity";
     try {
         rtcp_clock_tests();
+        pairing_compatibility_tests(directory);
+        pairing_rotation_tests(directory);
+        pairing_error_tests(directory);
+        pairing_rate_limit_tests(directory);
         Relay relay;
         relay.reject_next_creation();
         ceres::BridgeOptions options;
@@ -1323,6 +1793,9 @@ int main(int argc, char** argv) {
         check(relay.error().empty(), "Local relay rejected the receiver contract");
         check(relay.creation_attempt_count() == 2 && relay.created_count() == 1,
               "Invitation did not retry the code collision");
+        for (const auto& attempted : relay.attempted_identities())
+            check(attempted.at("code").get<std::string>().size() == 9,
+                  "A current service did not receive the canonical nine-letter code");
         const auto saved = relay.current_identity();
         identity_protected(identity_file, saved);
         std::ifstream fixture_file(std::filesystem::path(__FILE__).parent_path() / "fixtures" /
@@ -1478,6 +1951,7 @@ int main(int argc, char** argv) {
         }
         dual_camera_test(directory);
         depth_channel_test(directory);
+        depth_control_test(directory);
         std::filesystem::remove(identity_file);
         std::filesystem::remove(std::filesystem::path(identity_file.string() + ".lock"));
         std::filesystem::remove(directory);

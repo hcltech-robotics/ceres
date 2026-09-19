@@ -11,9 +11,9 @@ namespace ceres {
 // Signed metric distances and weights are fused on the fine world grid, then
 // zero crossings feed the cache. Working SDF samples may be reclaimed once their
 // extracted surfaces are retained. No display palette is stored in either layer.
-// Capacity pressure merges neighbouring regions through the full 21-level
-// hierarchy. Weighted representatives preserve their combined support, including
-// observations larger than the cache. Geometry is never discarded to meet a budget.
+// The selected point budget is spent before neighbouring regions are merged.
+// Confidence-priority hierarchy cuts retain fine detail in reliable regions and
+// preserve coverage in weak regions, including captures larger than the cache.
 // Capacity is a power of two from 1 to stereo_voxel_capacity. Coordinates span
 // +/- 1048576 fine voxels. Idle time never removes or fades geometry.
 // Fresh nearby depth covering a retained coarse cell can restore fine detail.
@@ -24,7 +24,7 @@ namespace ceres {
 // owned until that stream completes. No operation copies points to the CPU.
 class StereoVoxelVolume {
   public:
-    explicit StereoVoxelVolume(size_t capacity = stereo_voxel_capacity);
+    explicit StereoVoxelVolume(size_t capacity = stereo_voxel_initial_capacity);
     ~StereoVoxelVolume();
     StereoVoxelVolume(const StereoVoxelVolume&) = delete;
     StereoVoxelVolume& operator=(const StereoVoxelVolume&) = delete;
@@ -50,30 +50,43 @@ class StereoVoxelVolume {
                                      const ProjectiveDepthObservation& observation,
                                      cudaStream_t stream);
     // Writes capacity() points. Empty cells have valid=0. Occupied points contain
-    // world-space voxel centres, fused intrinsic RGB and evidence confidence in a (0..1).
+    // fused world-space positions, intrinsic RGB and evidence confidence in a (0..1).
     // valid is the retained power-of-two cell width relative to the fine grid.
     cudaError_t snapshot(StereoPoint* output, cudaStream_t stream);
-    // Writes capacity() points, coalescing distant cells in a fixed GPU table.
+    // Writes capacity() points, coalescing uncertain or subpixel cells in a GPU table.
     // valid is the power-of-two cell width relative to the fine voxel size, or 0.
-    // RGB and confidence average contributing retained support. Persistent
-    // cells are never changed. A coarse ancestor is eligible only if its entire
-    // box satisfies the distance/projected-size limits, keeping tier boundaries
-    // complete and non-overlapping. Output order is unspecified.
+    // A shared ancestor is eligible only when every contributing cell permits
+    // that level. Reliable fine neighbours remain protected and the resulting
+    // hierarchy is non-overlapping. Persistent evidence is never changed.
     cudaError_t snapshot_lod(StereoPoint* output, const VoxelLodConfig& config,
                              cudaStream_t stream);
     // Geometry snapshots contain extracted world positions, measured colour when
     // available and acquisition metadata. observed_us is the last supporting
-    // observation, not a subsequent contradiction. Weight counts supporting samples
-    // and saturates at UINT32_MAX. Every unused slot has weight=0.
+    // observation, not a subsequent contradiction. Weight counts independent
+    // supporting timestamps and saturates at UINT32_MAX. Spatial grouping takes
+    // the greatest contributing weight rather than manufacturing more captures.
+    // Every unused slot has weight=0.
     cudaError_t snapshot_metadata(SpatialMapPoint* output, int64_t time_origin_us,
-                                  cudaStream_t stream);
+                                  cudaStream_t stream, float* births = nullptr);
     cudaError_t snapshot_metadata_lod(SpatialMapPoint* output, const VoxelLodConfig& config,
-                                      int64_t time_origin_us, cudaStream_t stream);
+                                      int64_t time_origin_us, cudaStream_t stream, float* births = nullptr);
     // Restore the authoritative surface cache. The TSDF working layer starts
     // empty and is rebuilt by subsequent independent depth observations.
     cudaError_t restore(const SpatialMapPoint* input, size_t count, float voxel_size,
                          int64_t time_origin_us, cudaStream_t stream);
+    // Bake a column-major affine TRS into the retained surface cache on the GPU.
+    // The host-readable matrix must have orthogonal columns with positive scale
+    // and a positive determinant. It is copied before this call returns.
+    // Positions and cell widths change, while evidence and observation times
+    // persist. Widths use the largest axis scale and round up to the new grid.
+    // The TSDF working layer is cleared. Invalid arguments leave both layers intact.
+    cudaError_t transform(const float world_from_map[16], float voxel_size,
+                           int64_t time_origin_us, cudaStream_t stream);
     cudaError_t reconfigure(float voxel_size, cudaStream_t stream);
+    // Grow the allocation without losing surface evidence or working TSDF data.
+    // Allocation failure leaves this volume intact. A successful growth waits for
+    // the owning stream before releasing the previous allocation.
+    cudaError_t reserve(size_t capacity, cudaStream_t stream);
     cudaError_t set_max_points(size_t maximum_points, cudaStream_t stream);
     size_t max_points() const;
     cudaError_t statistics(VoxelStatistics* output, cudaStream_t stream);

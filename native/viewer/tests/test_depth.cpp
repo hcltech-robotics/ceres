@@ -1,7 +1,9 @@
 #include "ceres/depth.hpp"
+#include "ceres/depth_display.hpp"
 #include "ceres/protocol.hpp"
 #include "ceres/session.hpp"
 #include "depth_fixture.hpp"
+#include <cmath>
 #include <condition_variable>
 #include <filesystem>
 #include <fstream>
@@ -23,6 +25,51 @@ template <class F> void rejects(F function, const char* message) {
         return;
     }
     throw std::runtime_error(message);
+}
+void gradient_tests() {
+    const auto same = [](DepthColour left, DepthColour right) {
+        return std::abs(left.r - right.r) < .000001f &&
+               std::abs(left.g - right.g) < .000001f &&
+               std::abs(left.b - right.b) < .000001f;
+    };
+    const DepthColour starts[] = {{.835f, .243f, .310f}, {.267004f, .004874f, .329415f},
+                                  {.050383f, .029803f, .527975f}, {.001462f, .000466f, .013866f},
+                                  {1.f, 1.f, 1.f}};
+    const DepthColour ends[] = {{.369f, .310f, .635f}, {.993248f, .906157f, .143936f},
+                                {.940015f, .975158f, .131326f}, {.988362f, .998364f, .644924f},
+                                {0.f, 0.f, 0.f}};
+    for (int palette = 0; palette < 5; ++palette) {
+        const auto gradient = static_cast<DepthGradient>(palette);
+        check(same(depth_gradient_colour(gradient, 0), starts[palette]) &&
+                  same(depth_gradient_colour(gradient, 1), ends[palette]),
+              "Depth gradient canonical endpoints changed");
+        for (const float value : {-1.f, -std::numeric_limits<float>::infinity(),
+                                   std::numeric_limits<float>::quiet_NaN()})
+            check(same(depth_gradient_colour(gradient, value), starts[palette]),
+                  "Depth gradient did not clamp its lower bound");
+        for (const float value : {2.f, std::numeric_limits<float>::infinity()})
+            check(same(depth_gradient_colour(gradient, value), ends[palette]),
+                  "Depth gradient did not clamp its upper bound");
+        for (int sample = 0; sample <= 128; ++sample) {
+            const float fraction = float(sample) / 128.f;
+            const auto colour = depth_gradient_colour(gradient, fraction);
+            for (const float channel : {colour.r, colour.g, colour.b})
+                check(std::isfinite(channel) && channel >= 0 && channel <= 1,
+                      "Depth gradient produced an invalid channel");
+            if (gradient == DepthGradient::spectral)
+                check(same(colour, spectral_depth_colour(fraction)),
+                      "Default depth gradient changed the existing spectrum");
+            if (gradient == DepthGradient::greys)
+                check(colour.r == colour.g && colour.g == colour.b,
+                      "Greys gradient introduced a colour tint");
+        }
+        if (palette)
+            check(!same(depth_gradient_colour(gradient, .5f), spectral_depth_colour(.5f)),
+                  "Non-default depth gradient still uses the spectrum");
+    }
+    check(same(depth_gradient_colour(static_cast<DepthGradient>(99), .5f),
+               spectral_depth_colour(.5f)),
+          "Invalid depth gradient did not retain the default");
 }
 void codec_tests() {
     const auto header = depth_fixture::header();
@@ -373,13 +420,14 @@ void session_tests() {
 } // namespace
 int main() {
     try {
+        gradient_tests();
         codec_tests();
         typescript_fixture_tests();
         reassembly_tests();
         description_tests();
         session_tests();
         std::cout
-            << "Depth parsing, bounded fragments, clock mapping and recording/replay passed\n";
+            << "Depth gradients, parsing, bounded fragments, clock mapping and recording/replay passed\n";
         return 0;
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';

@@ -1,6 +1,7 @@
 #include "ceres/ui.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cfloat>
 
@@ -9,6 +10,7 @@ namespace {
 Metrics dimensions;
 ImFont* body_font = nullptr;
 ImFont* mono_font = nullptr;
+ImFont* label_font = nullptr;
 
 const ImVec4 amber_surface{.290f, .251f, .165f, 1.f};
 const ImVec4 amber_hover{.345f, .294f, .184f, 1.f};
@@ -22,17 +24,55 @@ const char* safe(const char* text) {
     return text ? text : "";
 }
 
+const char* visible_end(const char* text) {
+    while (*text && !(text[0] == '#' && text[1] == '#'))
+        ++text;
+    return text;
+}
+
 void right_aligned_text(const char* text) {
     const float width = ImGui::CalcTextSize(text).x;
     ImGui::SetCursorPosX(ImGui::GetCursorPosX() +
                          std::max(0.f, ImGui::GetContentRegionAvail().x - width));
     ImGui::TextUnformatted(text);
 }
+
+struct GradientChoice {
+    DepthGradient gradient;
+    const char* label;
+};
+
+constexpr std::array gradient_choices{
+    GradientChoice{DepthGradient::spectral, "Spectral"},
+    GradientChoice{DepthGradient::viridis, "Viridis"},
+    GradientChoice{DepthGradient::plasma, "Plasma"},
+    GradientChoice{DepthGradient::inferno, "Inferno"},
+    GradientChoice{DepthGradient::greys, "Greys"},
+};
+
+void gradient_swatch(ImDrawList* draw, ImVec2 first, ImVec2 last, DepthGradient gradient) {
+    if (last.x <= first.x || last.y <= first.y)
+        return;
+    constexpr int segments = 32;
+    const auto tone = [gradient](float fraction) {
+        const auto value = depth_gradient_colour(gradient, fraction);
+        return ImGui::GetColorU32({value.r, value.g, value.b, 1.f});
+    };
+    for (int index = 0; index < segments; ++index) {
+        const float start = float(index) / segments;
+        const float end = float(index + 1) / segments;
+        draw->AddRectFilledMultiColor(
+            {first.x + (last.x - first.x) * start, first.y},
+            {first.x + (last.x - first.x) * end, last.y},
+            tone(start), tone(end), tone(end), tone(start));
+    }
+}
 } // namespace
 
 void apply_style(float dpi) {
     dpi = std::isfinite(dpi) ? std::clamp(dpi, .75f, 4.f) : 1.f;
-    dimensions = {dpi, 4.f * dpi, 12.f * dpi, 12.f * dpi, 28.f * dpi, 6.f * dpi};
+    dimensions = {dpi, 4.f * dpi, 12.f * dpi, 12.f * dpi, 28.f * dpi, 6.f * dpi,
+                  96.f * dpi, 152.f * dpi};
     auto& style = ImGui::GetStyle();
     style = ImGuiStyle{};
     style.WindowPadding = {12.f, 12.f};
@@ -128,9 +168,10 @@ void apply_style(float dpi) {
     style.ScaleAllSizes(dpi);
 }
 
-void set_fonts(ImFont* body, ImFont* mono) {
+void set_fonts(ImFont* body, ImFont* mono, ImFont* instrument_label) {
     body_font = body;
     mono_font = mono ? mono : body;
+    label_font = instrument_label ? instrument_label : body;
 }
 
 const Metrics& metrics() {
@@ -149,15 +190,15 @@ bool section(const char* label, const char* index, bool& open) {
     ImGui::PopStyleVar();
     const auto first = ImGui::GetItemRectMin();
     const auto last = ImGui::GetItemRectMax();
-    const float font_size = ImGui::GetFontSize();
+    const float label_end =
+        first.x + ImGui::CalcTextSize(label, visible_end(label)).x + 36.f * dimensions.dpi;
     ImGui::PushFont(mono_font);
     const auto number_size = ImGui::CalcTextSize(index);
     const float number_x = last.x - number_size.x - 10.f * dimensions.dpi;
-    const float label_end = first.x + ImGui::CalcTextSize(label).x + 36.f * dimensions.dpi;
     if (*index && number_x > label_end && ImGui::IsItemVisible()) {
         auto* draw = ImGui::GetWindowDrawList();
         draw->PushClipRect(first, last, true);
-        draw->AddText(ImGui::GetFont(), font_size,
+        draw->AddText(ImGui::GetFont(), ImGui::GetFontSize(),
                       {number_x, first.y + (last.y - first.y - number_size.y) * .5f},
                       ImGui::GetColorU32(colour::muted), index);
         draw->PopClipRect();
@@ -258,16 +299,182 @@ void help(const char* text) {
     }
 }
 
-void small_label(const char* label) {
+void field_label(const char* label) {
     label = safe(label);
-    ImGui::PushFont(mono_font);
+    ImGui::PushFont(body_font);
     ImGui::PushStyleColor(ImGuiCol_Text, colour::muted);
-    const char* end = label;
-    while (*end && !(end[0] == '#' && end[1] == '#'))
-        ++end;
-    ImGui::TextUnformatted(label, end);
+    ImGui::PushTextWrapPos(0.f);
+    ImGui::TextUnformatted(label, visible_end(label));
+    ImGui::PopTextWrapPos();
     ImGui::PopStyleColor();
     ImGui::PopFont();
+}
+
+void subsection(const char* label, bool first) {
+    if (!first) {
+        const float spacing = ImGui::GetStyle().ItemSpacing.y;
+        ImGui::Dummy({0.f, std::max(0.f, dimensions.section_gap - spacing * 2.f)});
+    }
+    ImGui::PushFont(body_font);
+    ImGui::PushStyleColor(ImGuiCol_Text, colour::text);
+    ImGui::PushStyleVar(ImGuiStyleVar_SeparatorTextPadding, ImVec2(0.f, dimensions.unit));
+    ImGui::SeparatorText(safe(label));
+    ImGui::PopStyleVar();
+    ImGui::PopStyleColor();
+    ImGui::PopFont();
+}
+
+bool begin_field(const char* label) {
+    label = safe(label);
+    ImGui::PushID(label);
+    ImGui::PushFont(body_font);
+    const float label_width = ImGui::CalcTextSize(label, visible_end(label)).x;
+    const bool stacked =
+        ImGui::GetContentRegionAvail().x < dimensions.field_label_width + dimensions.field_min_width ||
+        label_width + dimensions.unit * 2.f > dimensions.field_label_width;
+    if (!ImGui::BeginTable("##field", stacked ? 1 : 2,
+                           ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_NoSavedSettings)) {
+        ImGui::PopFont();
+        ImGui::PopID();
+        return false;
+    }
+    if (!stacked) {
+        ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthFixed,
+                                dimensions.field_label_width);
+        ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
+    }
+    ImGui::TableNextColumn();
+    if (!stacked)
+        ImGui::AlignTextToFramePadding();
+    field_label(label);
+    ImGui::TableNextColumn();
+    ImGui::SetNextItemWidth(-1.f);
+    return true;
+}
+
+void end_field() {
+    ImGui::EndTable();
+    ImGui::PopFont();
+    ImGui::PopID();
+}
+
+bool gradient_picker(const char* label, DepthGradient& gradient) {
+    label = safe(label);
+    ImGui::PushID(label);
+    ImGui::PushFont(body_font);
+    const auto& style = ImGui::GetStyle();
+    const float row_height = ImGui::GetFrameHeight();
+    const bool pressed = ImGui::Button("##gradient", {-1.f, row_height});
+    const auto first = ImGui::GetItemRectMin();
+    const auto last = ImGui::GetItemRectMax();
+    const bool hovered = ImGui::IsItemHovered();
+    const bool focused = ImGui::IsItemFocused();
+    if (ImGui::IsItemVisible()) {
+        auto* draw = ImGui::GetWindowDrawList();
+        draw->PushClipRect(first, last, true);
+        const float inset = dimensions.dpi * 2.f;
+        const char* name = gradient_choices.front().label;
+        for (const auto& choice : gradient_choices)
+            if (choice.gradient == gradient)
+                name = choice.label;
+        const auto name_size = ImGui::CalcTextSize(name);
+        const float padding = dimensions.unit * 2.f;
+        const float arrow_width = row_height;
+        const float name_right = std::min(first.x + name_size.x + padding * 2.f,
+                                          last.x - arrow_width);
+        gradient_swatch(draw, {name_right, first.y + inset},
+                         {last.x - arrow_width, last.y - inset}, gradient);
+        const ImU32 backing = ImGui::GetColorU32(
+            {colour::surface.x, colour::surface.y, colour::surface.z, .92f});
+        draw->AddRectFilled({first.x + inset, first.y + inset},
+                             {name_right, last.y - inset}, backing);
+        draw->AddRectFilled({last.x - arrow_width, first.y + inset},
+                             {last.x - inset, last.y - inset}, backing);
+        draw->PushClipRect({first.x + inset, first.y}, {name_right, last.y}, true);
+        draw->AddText({first.x + padding, first.y + (row_height - name_size.y) * .5f},
+                       ImGui::GetColorU32(colour::text), name);
+        draw->PopClipRect();
+        const float arrow = dimensions.unit;
+        const ImVec2 centre{last.x - arrow_width * .5f, first.y + row_height * .5f};
+        draw->AddTriangleFilled({centre.x - arrow, centre.y},
+                                 {centre.x + arrow * .5f, centre.y - arrow},
+                                 {centre.x + arrow * .5f, centre.y + arrow},
+                                 ImGui::GetColorU32(colour::text));
+        draw->AddRect(first, last,
+                       ImGui::GetColorU32(focused ? colour::amber
+                                          : hovered ? colour::muted : colour::border),
+                       style.FrameRounding, 0, dimensions.dpi);
+        draw->PopClipRect();
+    }
+    help("Choose the map colour gradient");
+    if (pressed)
+        ImGui::OpenPopup("##gradient_choices");
+
+    bool changed = false;
+    if (ImGui::IsPopupOpen("##gradient_choices")) {
+        const auto* viewport = ImGui::GetWindowViewport();
+        const float margin_x = std::min(dimensions.unit * 2.f, viewport->WorkSize.x * .05f);
+        const float margin_y = std::min(dimensions.unit * 2.f, viewport->WorkSize.y * .05f);
+        const float popup_width = std::min(220.f * dimensions.dpi,
+                                           std::max(1.f, viewport->WorkSize.x - margin_x * 2.f));
+        const float content_height = float(gradient_choices.size()) *
+                                         (row_height + style.ItemSpacing.y) - style.ItemSpacing.y;
+        const float popup_height = std::min(content_height + style.WindowPadding.y * 2.f,
+                                            std::max(1.f, viewport->WorkSize.y - margin_y * 2.f));
+        const ImVec2 minimum{viewport->WorkPos.x + margin_x, viewport->WorkPos.y + margin_y};
+        const ImVec2 maximum{viewport->WorkPos.x + viewport->WorkSize.x - margin_x - popup_width,
+                              viewport->WorkPos.y + viewport->WorkSize.y - margin_y - popup_height};
+        const float anchor_left = std::min(first.x, ImGui::GetWindowPos().x);
+        ImGui::SetNextWindowPos(
+            {std::clamp(anchor_left - dimensions.unit - popup_width, minimum.x, maximum.x),
+             std::clamp(first.y, minimum.y, maximum.y)});
+        ImGui::SetNextWindowSize({popup_width, popup_height});
+    }
+    if (ImGui::BeginPopup("##gradient_choices", ImGuiWindowFlags_NoMove |
+                                                  ImGuiWindowFlags_NoResize |
+                                                  ImGuiWindowFlags_NoSavedSettings)) {
+        const float name_width = ImGui::CalcTextSize("Spectral").x;
+        for (const auto& choice : gradient_choices) {
+            ImGui::PushID(static_cast<int>(choice.gradient));
+            const bool selected = gradient == choice.gradient;
+            if (ImGui::Selectable("##choice", selected, 0, {0.f, row_height})) {
+                changed = gradient != choice.gradient;
+                gradient = choice.gradient;
+                ImGui::CloseCurrentPopup();
+            }
+            if (selected && ImGui::IsWindowAppearing())
+                ImGui::SetItemDefaultFocus();
+            const auto row_first = ImGui::GetItemRectMin();
+            const auto row_last = ImGui::GetItemRectMax();
+            if (ImGui::IsItemVisible()) {
+                auto* draw = ImGui::GetWindowDrawList();
+                draw->PushClipRect(row_first, row_last, true);
+                const float marker = dimensions.unit;
+                const float centre_y = (row_first.y + row_last.y) * .5f;
+                if (selected)
+                    draw->AddRectFilled({row_first.x + marker, centre_y - marker * .5f},
+                                         {row_first.x + marker * 2.f, centre_y + marker * .5f},
+                                         ImGui::GetColorU32(colour::green));
+                const float text_x = row_first.x + marker * 4.f;
+                draw->AddText({text_x, centre_y - ImGui::GetTextLineHeight() * .5f},
+                               ImGui::GetColorU32(colour::text), choice.label);
+                const ImVec2 swatch_first{text_x + name_width + marker * 2.f,
+                                           row_first.y + dimensions.unit};
+                const ImVec2 swatch_last{row_last.x - dimensions.unit,
+                                          row_last.y - dimensions.unit};
+                gradient_swatch(draw, swatch_first, swatch_last, choice.gradient);
+                if (swatch_last.x > swatch_first.x && swatch_last.y > swatch_first.y)
+                    draw->AddRect(swatch_first, swatch_last, ImGui::GetColorU32(colour::border),
+                                   0.f, 0, dimensions.dpi);
+                draw->PopClipRect();
+            }
+            ImGui::PopID();
+        }
+        ImGui::EndPopup();
+    }
+    ImGui::PopFont();
+    ImGui::PopID();
+    return changed;
 }
 
 InstrumentCell instrument_cell(const char* id, ImVec2 size, bool interactive, bool recording) {
@@ -318,11 +525,9 @@ InstrumentCell visibility_toggle(const char* label, bool& visible, ImVec2 size) 
                   {cell.last.x - dimensions.dpi, cell.last.y},
                   ImGui::GetColorU32(colour::border), dimensions.dpi);
 
-    auto* font = mono_font ? mono_font : ImGui::GetFont();
-    const char* label_end = label;
-    while (*label_end && !(label_end[0] == '#' && label_end[1] == '#'))
-        ++label_end;
-    float text_size = std::min(font->FontSize, 13.f * dimensions.dpi);
+    auto* font = label_font ? label_font : ImGui::GetFont();
+    const char* label_end = visible_end(label);
+    float text_size = font->FontSize;
     auto extent = font->CalcTextSizeA(text_size, FLT_MAX, 0.f, label, label_end);
     const float padding = std::min(dimensions.unit, width * .1f);
     const float available = std::max(1.f, width - padding * 2.f);

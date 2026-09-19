@@ -135,11 +135,13 @@ export interface BridgeDescription {
   camera?: BridgeCameraDescription;
   cameras?: (BridgeCameraDescription & { mid: string })[];
   environment_depth?: DepthFeature;
+  depth_control_version?: 1;
 }
 
 export type BridgeMetadata = BridgeDescription
   | DepthStatus
-  | { type: "ack"; version: 1; epoch: number }
+  | { type: "ack"; version: 1; epoch: number; depth_control_version?: 1; depth_enabled?: boolean }
+  | { type: "depth-control"; version: 1; epoch: number; enabled: boolean }
   | { type: "ping"; version: 1; epoch: number; id: number; t0: number }
   | { type: "pong"; version: 1; epoch: number; id: number; t0: number; t1: number; t2: number };
 
@@ -156,7 +158,16 @@ export function parseMetadata(text: string): BridgeMetadata {
   if (text.length > 8192) throw new Error("Bridge metadata exceeds its budget");
   const value = JSON.parse(text);
   if (!value || value.version !== 1 || !uint32(value.epoch)) throw new Error("Incompatible Bridge metadata");
-  if (value.type === "ack") return value;
+  if (value.type === "ack") {
+    if (value.depth_control_version === 1 && typeof value.depth_enabled !== "boolean") {
+      throw new Error("Invalid Bridge depth acknowledgement");
+    }
+    return value;
+  }
+  if (value.type === "depth-control") {
+    if (typeof value.enabled !== "boolean") throw new Error("Invalid Bridge depth control");
+    return value;
+  }
   if (value.type === "depth-status") {
     if (!validDepthStatus(value)) throw new Error("Invalid Bridge depth status");
     return value;
@@ -176,6 +187,7 @@ export function parseMetadata(text: string): BridgeMetadata {
     || !Array.isArray(value.joints) || value.joints.length !== 25
     || !XR_HAND_JOINTS.every((name, index) => value.joints[index] === name)
     || (value.environment_depth !== undefined && !validDepthFeature(value.environment_depth))
+    || (value.depth_control_version !== undefined && (value.depth_control_version !== 1 || !value.environment_depth))
     || (value.camera === undefined ? !validDepthFeature(value.environment_depth) : !validCamera(value.camera))) {
     throw new Error("Invalid Bridge stream description");
   }

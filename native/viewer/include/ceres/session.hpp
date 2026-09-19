@@ -75,6 +75,9 @@ class ReplaySource final : public SessionSource {
     bool playing() const;
     int64_t duration_us() const;
     int64_t position_us() const;
+    // Indexed depth messages, independent of playback position. Channel declarations
+    // and metadata do not count. Payload validation still occurs during replay.
+    bool has_depth_frames() const;
     const std::filesystem::path& path() const;
     std::vector<SessionEvent> episodes() const;
     // Read recorded task setup on the inspection worker, not the render loop.

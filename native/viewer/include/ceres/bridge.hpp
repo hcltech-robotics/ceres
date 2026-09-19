@@ -24,6 +24,8 @@ class BridgeClient final : public SessionSource {
     // Revokes the current binding before publishing a new invitation.
     void fresh_pairing();
     void request_keyframe();
+    // Applies to supporting senders and persists across connection epochs.
+    void set_depth_enabled(bool enabled);
     std::string state() const;
 
   private:

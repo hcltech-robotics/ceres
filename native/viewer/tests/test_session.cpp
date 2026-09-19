@@ -1,6 +1,8 @@
 #include "ceres/session.hpp"
 #include "ceres/task_specification.hpp"
 #include "depth_fixture.hpp"
+#define MCAP_PUBLIC
+#include <mcap/writer.hpp>
 #include <algorithm>
 #include <atomic>
 #include <condition_variable>
@@ -75,6 +77,91 @@ uint64_t read64(std::istream& input) {
     for (int i = 0; i < 8; ++i)
         n |= uint64_t(b[i]) << (8 * i);
     return n;
+}
+void replay_depth_presence_tests(const std::filesystem::path& directory) {
+    const auto declared_path = directory / "declared-depth-only.mcap";
+    {
+        std::ofstream file(declared_path, std::ios::binary);
+        mcap::McapWriter writer;
+        mcap::McapWriterOptions options("ceres-session-v1");
+        options.compression = mcap::Compression::None;
+        writer.open(file, options);
+        mcap::Channel channel("/ceres/depth/environment", "ceres-session-v1", 0);
+        writer.addChannel(channel);
+        writer.close();
+    }
+    require(!ReplaySource(declared_path).has_depth_frames(),
+            "A declared depth channel without messages offered a recorded spatial layer");
+
+    Recorder recorder;
+    const auto check_absent = [&](const char* name, const std::vector<SessionEvent>& events) {
+        const auto path = directory / name;
+        recorder.start(path, events);
+        recorder.stop();
+        ReplaySource replay(path);
+        require(!replay.has_depth_frames(),
+                "A recording without depth messages offered a recorded spatial layer");
+        replay.seek(replay.duration_us());
+        require(!replay.has_depth_frames(), "Seeking invented recorded depth frames");
+    };
+    check_absent("video-only.mcap", {video(0, 1000)});
+    check_absent("pose-only.mcap", {head(1000)});
+    SessionEvent status;
+    status.kind = EventKind::Metadata;
+    status.stream = "depth";
+    status.time_us = status.receive_us = 1000;
+    status.attributes = {{"type", "depth-status"}, {"status", "streaming"},
+                         {"usage", "cpu-optimized"}};
+    check_absent("depth-status-only.mcap", {status});
+
+    auto header = depth_fixture::header(1, 7, 0);
+    header["observed_us"] = 2000;
+    header["target_us"] = 2000;
+    const auto depth = make_depth_event(depth_fixture::encode(header), 2000, {});
+    const auto depth_path = directory / "later-depth.mcap";
+    recorder.start(depth_path, {video(0, 1000), depth});
+    recorder.stop();
+    ReplaySource replay(depth_path);
+    require(replay.has_depth_frames() && replay.snapshot().depth_frames == 0,
+            "Recorded depth presence depended on reaching the first depth frame");
+    replay.set_playing(false);
+    replay.start();
+    replay.seek(replay.duration_us());
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+    while (replay.snapshot().depth_frames == 0 && replay.snapshot().error.empty() &&
+           std::chrono::steady_clock::now() < deadline)
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    replay.stop();
+    require(replay.has_depth_frames() && replay.snapshot().depth_frames == 1 &&
+                replay.snapshot().error.empty(),
+            "The indexed depth frame did not retain normal replay behaviour");
+    replay.seek(0);
+    require(replay.has_depth_frames(), "Seeking before depth removed recorded spatial data");
+
+    const auto check_invalid = [&](const char* name, SessionEvent invalid,
+                                   const std::string& expected_error) {
+        const auto path = directory / name;
+        recorder.start(path, {invalid});
+        recorder.stop();
+        ReplaySource malformed(path);
+        require(malformed.has_depth_frames(), "A malformed depth message was silently discarded");
+        malformed.set_playing(false);
+        malformed.start();
+        const auto until = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+        while (malformed.snapshot().error.empty() && std::chrono::steady_clock::now() < until)
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        malformed.stop();
+        require(malformed.snapshot().error == expected_error &&
+                    malformed.snapshot().depth_frames == 0,
+                "Depth presence detection changed malformed-depth replay validation");
+    };
+    auto invalid = depth;
+    invalid.payload = {1, 2, 3};
+    check_invalid("invalid-depth-payload.mcap", invalid, "Invalid depth frame envelope");
+    invalid = depth;
+    ++invalid.sequence;
+    check_invalid("invalid-depth-identity.mcap", invalid,
+                  "Recorded depth identity differs from its envelope");
 }
 void replay_task_specification_tests(const std::filesystem::path& directory) {
     const auto path = directory / "task-setup.mcap";
@@ -1353,6 +1440,7 @@ int main(int argc, char** argv) {
         process_failure_tests(directory);
 #endif
         replay_asset_tests(directory);
+        replay_depth_presence_tests(directory);
         replay_task_specification_tests(directory);
         replay_space_tests(directory);
         replay_camera_tests(directory);

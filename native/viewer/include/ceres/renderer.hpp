@@ -1,5 +1,6 @@
 #pragma once
 #include "calibration.hpp"
+#include "depth_display.hpp"
 #include "hand_display.hpp"
 #include "spatial_observation.hpp"
 #include "spatial_map_display.hpp"
@@ -7,6 +8,7 @@
 #include "stereo.hpp"
 #include "video.hpp"
 #include <filesystem>
+#include <glm/mat4x4.hpp>
 #include <glm/vec3.hpp>
 #include <memory>
 struct GLFWwindow;
@@ -17,6 +19,14 @@ struct SceneCameraState {
     SceneReference reference = SceneReference::world;
     SceneView view = SceneView::orbit;
     glm::vec3 eye{}, target{}, up{0, 1, 0};
+};
+struct SavedMapState {
+    bool loaded = false, placed = false, fusing = false;
+    size_t points = 0;
+    size_t capacity = 0, point_budget = 0;
+    float update_interval_seconds = 0;
+    uint64_t generation = 0;
+    glm::mat4 world_from_map{1.f};
 };
 struct ViewOptions {
     HandLevel hand_level = HandLevel::mesh;
@@ -31,12 +41,15 @@ struct ViewOptions {
     bool depth_lod = true, mask_hands = true;
     float depth_opacity = .85f;
     SpatialMapShader map_shader = SpatialMapShader::distance;
+    DepthGradient map_gradient = DepthGradient::spectral;
     SpatialMapStyle map_style = SpatialMapStyle::shape;
     float map_relief_strength = 1.f;
     float map_density = 1.f;
     float map_recency_seconds = 30.f;
     bool map_frozen = false;
     bool map_headset_world_matches = true;
+    bool recorded_map_visible = true, saved_map_visible = true;
+    float recorded_map_opacity = 1.f, saved_map_opacity = 1.f;
     int depth_source = 0;           // Automatic, Quest depth or stereo.
     bool environment_depth = false; // Selected presentation source, not a preference.
 };
@@ -65,6 +78,7 @@ class Renderer {
     bool scene_view_available(SceneView view) const;
     bool select_scene_view(SceneView view);
     SceneCameraState scene_camera() const;
+    std::optional<glm::mat4> headset_transform() const;
     void update_headset_position(const ReceiverSnapshot& snapshot, double time_scale = 1);
     void update_video(VideoFrameLease lease, const Calibration& calibration, bool undistort,
                       size_t camera = 0);
@@ -88,8 +102,23 @@ class Renderer {
     void finish_map_snapshot(bool environment);
     static void validate_spatial_map_import(const SpatialMapSnapshot& map);
     bool import_spatial_map(const SpatialMapSnapshot& map);
+    bool load_saved_map(const SpatialMapSnapshot& map);
+    void clear_saved_map();
+    bool begin_saved_map_placement();
+    void set_saved_map_transform(const glm::mat4& world_from_map);
+    bool place_saved_map(const glm::mat4& world_from_map, uint32_t epoch,
+                         uint32_t space_epoch, int64_t observation_time_us);
+    bool set_saved_map_fusion(bool enabled, std::optional<int64_t> observation_time_us = std::nullopt);
+    void stop_saved_map_fusion();
+    SavedMapState saved_map_state() const;
+    bool request_saved_map_snapshot();
+    std::shared_ptr<SpatialMapSnapshot> take_saved_map_snapshot();
+    void finish_saved_map_snapshot();
     uint64_t map_generation(bool environment) const;
     size_t map_point_count(bool environment) const;
+    size_t map_point_capacity(bool environment) const;
+    size_t map_point_budget(bool environment) const;
+    float map_update_interval(bool environment) const;
     void invalidate_video();
     void invalidate_poses();
     SessionEvent hand_asset_event() const;
