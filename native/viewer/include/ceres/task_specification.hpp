@@ -41,6 +41,7 @@ TaskSpecification load_task_specification_source(const std::string& source,
 void to_json(Json& value, const TaskSpecification& specification);
 
 enum class TaskRunPhase { stopped, active_task, post_task_pause, task_pause, cycle_pause, complete };
+enum class TaskTransitionReason { progression, restart_repetition, restart_task };
 
 struct TaskRunProgress {
     TaskRunPhase phase = TaskRunPhase::stopped;
@@ -54,6 +55,7 @@ struct TaskRunProgress {
 struct TaskTransition {
     int64_t time_us = 0;
     TaskRunProgress before, after;
+    TaskTransitionReason reason = TaskTransitionReason::progression;
 };
 
 class TaskRun {
@@ -64,6 +66,9 @@ class TaskRun {
     std::vector<TaskTransition> pause(int64_t now_us);
     std::vector<TaskTransition> resume(int64_t now_us);
     std::vector<TaskTransition> stop(int64_t now_us);
+    std::vector<TaskTransition> restart_repetition(int64_t now_us);
+    std::vector<TaskTransition> restart_task(int64_t now_us);
+    bool can_restart() const;
     TaskRunProgress progress(int64_t now_us) const;
     const TaskDefinition* current_task() const;
 
@@ -75,7 +80,13 @@ class TaskRun {
     uint64_t repetition_ = 1, cycle_ = 1;
     int64_t elapsed_us_ = 0, phase_started_us_ = 0, last_time_us_ = 0;
 
+    struct RestartPoint {
+        size_t task_index;
+        uint64_t repetition;
+    };
     bool running() const;
+    std::optional<RestartPoint> restart_point() const;
+    std::vector<TaskTransition> restart(int64_t now_us, TaskTransitionReason reason);
     std::optional<int64_t> phase_duration() const;
     TaskRunProgress snapshot(int64_t elapsed_us) const;
     void next_phase();

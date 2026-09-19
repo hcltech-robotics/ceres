@@ -30,6 +30,7 @@ class Renderer {
     int cuda_device() const;
     void set_scene_width_fraction(float fraction);
     void set_scene_top_fraction(float fraction);
+    void set_scene_bottom_fraction(float fraction);
     void process_input(double dt, bool capture_mouse, bool capture_keyboard);
     void zoom(float delta);
     void reset_view();

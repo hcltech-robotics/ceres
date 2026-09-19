@@ -2,13 +2,15 @@
 
 Ceres viewer receives Ceres Bridge camera video and tracking in a native 3D scene. Articulated hands, a textured Quest 3 model, calibrated camera planes and optional stereo depth fill the left 80% of the window. A fixed Dear ImGui control pane occupies the right 20%. Reception, hardware decoding, recording and rendering run independently.
 
-The application targets Windows 11 and Ubuntu 24.04 on x86-64 NVIDIA systems. CUDA and OpenGL must use the same GPU. The renderer uses OpenGL 4.5, CUDA image conversion and NVDEC H.264 decoding.
+Separate release packages support Windows 11 x64, Ubuntu 22.04 or newer on x64 NVIDIA systems and Ubuntu 24.04 or newer on NVIDIA GB10 ARM64 systems. Each includes the native exporter, FFmpeg and runtime libraries. Install the NVIDIA display driver, then extract the archive and launch the viewer. CUDA and OpenGL must use the same GPU. The renderer uses OpenGL 4.5, CUDA image conversion and NVDEC H.264 decoding.
 
 ## Run
 
 Launch `ceres-viewer` from its distribution directory. **Connection** shows a QR code and access code. Open Ceres Bridge on the headset and enter that code. The receiver identity is retained between launches. **Disconnect** closes the active connection and **Pair again** creates a new pairing identity.
 
-**Connection**, **Hands**, **Depth**, **Task**, **Recording**, **Telemetry** and **Calibration** organise the control pane. The sidebar reaches the top edge, and the recording strip ends at its left edge. Five buttons in the fixed sidebar footer control visibility: **HAND**, **HMD**, **TRL**, **RGB** and **DEPTH**. Hiding a layer preserves its appearance settings, tracking and spatial map. The selected section, display settings, task specification, calibration and recording destination persist between launches. Hiding the control pane lets the scene fill the window while the recording toolbar remains accessible. Text and controls follow the display scale.
+**Connection**, **Hands**, **Depth**, **Task**, **Recording**, **Replay**, **Publish**, **Telemetry** and **Calibration** organise the control pane. **Recording** contains saving, episode selection and export. **Replay** opens local or Hugging Face recordings, with playback controls along the bottom of the scene. The **Publish** section is empty.
+
+The sidebar reaches the top edge, and the recording strip ends at its left edge. Five buttons in the fixed sidebar footer control visibility: **HAND**, **HMD**, **TRL**, **RGB** and **DEPTH**. Hiding a layer preserves its appearance settings, tracking and spatial map. The selected section, display settings, task specification, calibration and recording destination persist between launches. Hiding the control pane lets the scene fill the window while the recording toolbar and replay timeline remain accessible. Text and controls follow the display scale.
 
 | Control | Behaviour |
 | --- | --- |
@@ -45,27 +47,50 @@ Recordings containing both cameras retain independently decoded left/right image
 
 **Depth** contains the camera preview. **Telemetry** separates rendering, camera cadence and tracking packet rate, alongside decode time, GPU scene/UI time, depth updates, pose age, clock uncertainty and recorder queue use. The [instrument design system](docs/design-system.md) defines the shared controls, typography and signal colours.
 
-The bundled anatomical SOMA-X hands follow the 25 WebXR joints and retain their original mesh topology and skinning weights. The Quest rig uses the supplied USDZ mesh, base colour, normal and material maps. Its visual placement is independent of camera calibration. Optional authorised MANO assets retain all 16 skinning influences. Asset preparation is described in [the asset guide](assets/README.md).
+The bundled anatomical SOMA-X hands follow the 25 WebXR joints and retain their original mesh topology and skinning weights. Each hand has 2,859 vertices and 5,692 triangles, with a continuous palm, thumb webbing and articulated fingers. The Apache 2.0 licence, NVIDIA attribution and source provenance accompany the meshes. Users with authorised MANO assets can place their converted files under `assets/local/mano` to use that geometry instead. The MANO loader retains all 16 skinning influences.
+
+The Quest rig uses the supplied USDZ mesh, base colour, normal and material maps. Its visual placement is independent of camera calibration. Asset preparation is described in [the asset guide](assets/README.md).
 
 **Delay** selects earlier tracking from the live history. Replay also accepts negative values to inspect later tracking. The adjustment changes the displayed hands and headset, while recordings, exported observations and camera frame associations retain their source timestamps.
 
-## Record and replay
+## Recording
 
 Choose a folder in **Recording > Destination**. Windows defaults to `D:\data\ceres-viewer\sessions`. Linux uses the `sessions` folder beneath the local data directory.
 
 Set the description in **Task**, or paste a JSON file path or HTTP/HTTPS URL into **Specification** and select **Load**. The viewer reads `ceres-task-specification` version 1 and CERES run exports, including timed tasks, open tasks, repetitions, reset intervals and cycles. Loading runs in the background and can be cancelled. The task list shows the imported instructions and repetition counts. `--task-spec FILE.json-or-URL` loads the same format from the command line. The source and the loaded specification persist between launches.
 
-The instrument strip spans the top edge of the scene, ending at the sidebar. Its full-height sections show **LOCT** and **UTC**, an icon-only recording control, recorded time, cycle/task/repetition counters, repetition time and pose/image/render rate traces. The circle starts recording, pause bars pause it and the play triangle resumes it. Hold for 0.8 seconds to stop, shown by a square during the hold. The control is red while capturing. The hold indicator shows progress towards stopping. **F7** focuses the recording control for Space or Enter. A three-second count-in precedes recording, including when using `--record`. Press Escape or the cross to cancel the count-in. The recording file and elapsed clock begin after the count-in. The task and destination remain locked during the count-in and recording.
+The instrument strip spans the top edge of the scene, ending at the sidebar. It shows **LOCT** and **UTC**, the recording control, recorded time, task controls, cycle/task/repetition counters, repetition time and pose/image/render rate traces. The circle starts recording, pause bars pause it and the play triangle resumes it. Hold for 0.8 seconds to stop, shown by a square during the hold. The control is red while capturing. The hold indicator shows progress towards stopping. **F7** focuses the recording control for Space or Enter. A three-second count-in precedes recording, including when using `--record`. Press Escape or the cross to cancel the count-in. The recording file and elapsed clock begin after the count-in. The task and destination remain locked during the count-in and recording.
 
-Timed tasks advance automatically. Click the **OPEN** field to complete an open task repetition. Task repetitions create episode boundaries, and the strip labels reset and cycle pauses separately from repetition time. Counters show `--` when no task specification is loaded. The three traces retain up to 60 readings at one-second intervals, with pose cadence measured from head observations. A completed task run stops recording. Pausing freezes task progress and the elapsed recording clock, then the play control continues them. The recorder omits observations during a manual pause and resumes each video stream at a keyframe while preserving source timestamps.
+Timed tasks advance automatically. The toolbar also provides these controls for the active task run:
+
+| Control | Behaviour |
+| --- | --- |
+| **Replay**, short press | Restart the current repetition. During a prescribed pause, return to the preceding repetition. |
+| **Replay**, hold for 0.8 seconds | Restart the task from its first repetition. During a prescribed pause, return to the preceding task. |
+| **Done** | Complete the current repetition and advance. |
+| **Next** | Finish the current prescribed pause and advance. |
+| **Pass** | Mark the current repetition as passed and advance. |
+| **Fail** | Mark the current repetition as failed and advance. |
+
+Restarts retain the captured attempts in the recording and create a new episode boundary. **Done** changes to **Next** during prescribed pauses. Pass/fail outcomes appear beside the episodes in **Recording > Episodes**.
+
+Task repetitions create episode boundaries, and the strip labels reset and cycle pauses separately from repetition time. Counters show `--` when no task specification is loaded. The three traces retain up to 60 readings at one-second intervals, with pose cadence measured from head observations. A completed task run stops recording. Pausing freezes task progress and the elapsed recording clock, then the play control continues them. The recorder omits observations during a manual pause and resumes each video stream at a keyframe while preserving source timestamps.
 
 A recording contains compressed video, original pose packets, stream descriptions, clock mappings, calibration, the task specification, episode markers and replay assets. The recorder writes a `.mcap.partial` file and finalises it to `.mcap` on completion. Storage failure or an exhausted recording queue stops recording and displays the error.
 
-Open an MCAP recording to use the replay timeline, frame stepping and speed control. Seeking starts at the preceding video keyframe and cancels earlier outstanding scrubs. **Recover** writes complete recovered data into a new indexed recording while retaining the original file.
+**Recording > Recovery > Recover** writes complete recovered data into a new indexed recording while retaining the original file.
 
 Recorded episode markers populate **Recording > Episodes** when a session opens. Edits to task text and ranges persist beside the recording in `<recording>.mcap.episodes.json`. The sidecar contains episode selection data and identifies its source recording. The recording toolbar remains visible when the control pane is hidden.
 
 The binary envelope, timeline and recovery rules are documented in [the session format](docs/session-format.md).
+
+## Replay
+
+In **Replay > File**, enter an MCAP path and choose **Open recording**. In **Replay > Hugging Face**, enter the organisation or username and repository name, then choose **Browse recordings**. The list includes the repository's MCAP recordings across folders and pages. Use **Filter** to find a recording, select it and choose **Load into player**. Private repositories use the same browser sign-in as uploads.
+
+Hugging Face downloads use the selected repository commit and verify each file's size and content hash before opening it. An accompanying `.episodes.json` sidecar is downloaded from that same revision, preserving saved episode selections.
+
+The bottom playback strip provides play/pause, previous/next frame, the timeline, elapsed and total time and speeds from 0.25x to 4x. It remains visible when the control pane is hidden. Seeking starts at the preceding video keyframe and cancels earlier outstanding scrubs.
 
 Dual-camera recordings retain both complete H.264 streams with independent keyframe indexes,
 camera identities and timing. Replay restores both images and their stereo calibration.
@@ -93,11 +118,15 @@ The 410 state values retain Ceres ordering: head tracking flag, head position an
 
 The action values are measured pinch distances. Missing distances are zero with false validity. `ceres.source_timestamp` is the receiver-session sampling time in seconds and `ceres.source_frame_index` identifies its sampling slot. Original sender timestamps, sequences, epochs and frame associations remain separate provenance. The exporter stages its output and publishes the dataset directory after validation.
 
-Upload the complete export directory as a Hugging Face dataset. Its root is a standard LeRobot v3 dataset, with per-episode views under `shards/` for the CERES dataset viewer. The included dataset card selects the observation Parquet files for Hugging Face. The native export job also accepts `ceres-bridge-observation-v1` when an observation-only dataset is explicitly required.
+The complete export directory is a standard LeRobot v3 dataset, with per-episode views under `shards/` for the CERES dataset viewer. The included dataset card selects the observation Parquet files for Hugging Face. The native export job also accepts `ceres-bridge-observation-v1` when an observation-only dataset is explicitly required.
+
+To upload, open **Recording > Hugging Face export** and choose **Sign in to Hugging Face**. The viewer opens the browser and shows the code to enter on Hugging Face. Complete the authorisation there, then return to the viewer. The sign-in dialog can reopen the browser, request a new code or cancel sign-in.
+
+Enter the organisation or username, repository and optional folder. **Create a private repository if missing** creates a private dataset repository when needed. **Include LeRobot export** adds the completed export from the selected export destination. Choose **Upload recording** to send the MCAP, its episode sidecar and the selected export, then use **View uploaded recording** to open the completed commit. Existing files with identical content are reused. Choose a different repository or folder when a destination already contains different content.
 
 The reusable Rust exporter lives in the sibling `native/lerobot-exporter` directory and is built from the same repository revision as the viewer. The distribution includes the exporter and FFmpeg. The exporter job protocol is documented in `native/lerobot-exporter/README.md`.
 
-The desktop viewer replays local MCAP recordings. [Export compatibility](docs/export-compatibility.md) describes the dataset contract shared by the official LeRobot reader and the CERES Hugging Face dataset viewer.
+[Export compatibility](docs/export-compatibility.md) describes the dataset contract shared by the official LeRobot reader and the CERES Hugging Face dataset viewer.
 
 ## Build
 

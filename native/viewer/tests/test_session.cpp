@@ -1,4 +1,5 @@
 #include "ceres/session.hpp"
+#include "ceres/task_specification.hpp"
 #include "depth_fixture.hpp"
 #include <algorithm>
 #include <atomic>
@@ -194,6 +195,153 @@ void recorder_capture_window_tests(const std::filesystem::path& directory) {
     recorder.start(directory / "capture-window-reset.mcap", {epoch});
     require(recorder.push(head(1500)), "Starting a new recording retained the previous window");
     recorder.stop();
+}
+void recorder_task_restart_tests(const std::filesystem::path& directory) {
+    for (const std::string pause : {"manual", "reset", "task", "cycle"}) {
+        for (const bool whole_task : {false, true}) {
+            TaskSpecification specification;
+            specification.run_title = "Restart recording";
+            TaskDefinition task;
+            task.id = "pick";
+            task.label = task.instructions = "Pick up the object";
+            task.repeat_count = 2;
+            specification.tasks.push_back(task);
+            if (pause == "task") {
+                TaskDefinition rest;
+                rest.id = "rest";
+                rest.label = rest.instructions = "Rest";
+                rest.type = TaskType::pause;
+                rest.duration_s = 30;
+                specification.tasks.push_back(rest);
+            }
+            const auto path = directory / ("restart-" + pause + (whole_task ? "-task.mcap" : "-rep.mcap"));
+            const auto origin = monotonic_us();
+            TaskRun run;
+            run.start(specification, origin);
+            run.advance(origin);
+            run.advance(origin);
+            require(run.progress(origin).repetition == 2, "Restart fixture did not reach repetition two");
+            SessionEvent epoch;
+            epoch.kind = EventKind::Epoch;
+            epoch.receive_us = epoch.time_us = origin;
+            epoch.epoch = 7;
+            epoch.attributes = {{"reason", "record-start"}};
+            Recorder recorder;
+            recorder.start(path, {epoch});
+            recorder.set_capture_window(origin);
+            require(recorder.add_episode(task.instructions, {{"action", "start"}, {"start_us", 0},
+                        {"task_index", 0}, {"repetition", 2}, {"cycle", 1}}),
+                    "The original attempt start was not recorded");
+            const auto first_observation = monotonic_us();
+            require(recorder.push(head(first_observation)), "The original attempt lost its observation");
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            const auto paused_at = monotonic_us();
+            if (pause == "manual")
+                run.pause(paused_at);
+            else {
+                run.advance(paused_at);
+                if (pause == "task" || pause == "cycle")
+                    run.advance(paused_at);
+            }
+            require(recorder.add_episode(task.instructions, {{"action", "stop"}, {"start_us", 0},
+                        {"end_us", paused_at - origin}, {"repetition", 2}, {"cycle", 1}}),
+                    "The original attempt end was not recorded");
+            recorder.set_capture_window(paused_at, paused_at);
+            recorder.set_paused(true);
+            const auto paused_status = recorder.status();
+            require(paused_status.paused && !recorder.push(head(monotonic_us())),
+                    "The pause admitted a task observation");
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            require(recorder.status().active_duration_us == paused_status.active_duration_us,
+                    "The recorded clock advanced during the task pause");
+            const auto restart_at = monotonic_us();
+            const auto transitions = whole_task ? run.restart_task(restart_at)
+                                                : run.restart_repetition(restart_at);
+            const auto expected_pause = pause == "manual" ? TaskRunPhase::active_task
+                                        : pause == "reset" ? TaskRunPhase::post_task_pause
+                                        : pause == "task" ? TaskRunPhase::task_pause
+                                                          : TaskRunPhase::cycle_pause;
+            require(transitions.size() == 1 && transitions.front().time_us == restart_at &&
+                        transitions.front().before.phase == expected_pause &&
+                        transitions.front().before.paused == (pause == "manual") &&
+                        transitions.front().after.phase == TaskRunPhase::active_task &&
+                        !transitions.front().after.paused,
+                    "Restart did not resume a task at the current capture time");
+            const auto& restarted = transitions.front();
+            require(restarted.after.repetition == (whole_task ? 1 : 2) &&
+                        restarted.after.cycle == 1 && restarted.after.task_index == 0 &&
+                        restarted.after.elapsed_us >= restarted.before.elapsed_us,
+                    "Restart changed the wrong repetition, cycle or elapsed run time");
+            const char* action = whole_task ? "restart-task" : "restart-repetition";
+            const auto reason = whole_task ? TaskTransitionReason::restart_task
+                                           : TaskTransitionReason::restart_repetition;
+            require(restarted.reason == reason, "Restart lost the user action reason");
+
+            // Exercise the recorder contract directly. The UI owns transition ordering.
+            recorder.set_capture_window(restart_at);
+            recorder.set_paused(false);
+            require(recorder.status().active_duration_us >= paused_status.active_duration_us &&
+                        !recorder.push(head(restart_at - 1)),
+                    "Restart rewound the recording clock or accepted a pre-restart observation");
+            require(recorder.add_episode("Task control", {{"action", action},
+                        {"at_us", restart_at - origin}, {"task_index", 0},
+                        {"repetition", restarted.after.repetition}, {"cycle", 1}}),
+                    "Restart control was lost while resuming capture");
+            require(recorder.add_episode(task.instructions, {{"action", "start"},
+                        {"start_us", restart_at - origin}, {"task_index", 0},
+                        {"repetition", restarted.after.repetition}, {"cycle", 1}}),
+                    "The restarted attempt start was not recorded");
+            const auto second_observation = monotonic_us();
+            require(recorder.push(head(second_observation)), "The restarted attempt lost its observation");
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            const auto finished_at = monotonic_us();
+            const bool success = !whole_task;
+            require(recorder.add_episode(task.instructions, {{"action", "stop"},
+                        {"start_us", restart_at - origin}, {"end_us", finished_at - origin},
+                        {"task_index", 0}, {"repetition", restarted.after.repetition}, {"cycle", 1},
+                        {"completion", "done"}, {"outcome", success ? "pass" : "fail"},
+                        {"success", success}}),
+                    "The attempt outcome was not recorded");
+            const auto completed = run.advance(finished_at);
+            require(completed.size() == 1 && completed.front().after.phase == TaskRunPhase::post_task_pause,
+                    "Completing the judged attempt did not advance to its reset");
+            recorder.set_capture_window(finished_at, finished_at);
+            recorder.set_paused(true);
+            recorder.stop();
+            require(!recorder.status().failed &&
+                        recorder.status().active_duration_us > paused_status.active_duration_us,
+                    "Restart failed the recording or reduced recorded time");
+
+            ReplaySource replay(path);
+            const auto events = replay.episodes();
+            require(events.size() == 5 && events[0].attributes.at("action") == "start" &&
+                        events[1].attributes.at("action") == "stop" &&
+                        events[2].attributes.at("action") == action &&
+                        events[3].attributes.at("action") == "start" &&
+                        events[4].attributes.at("action") == "stop",
+                    "Saved restart controls or attempt boundaries were lost or reordered");
+            for (size_t index = 1; index < events.size(); ++index)
+                require(events[index].receive_us >= events[index - 1].receive_us,
+                        "Saved attempt control timestamps moved backwards");
+            require(events[1].attributes.at("end_us") == paused_at - origin &&
+                        events[2].attributes.at("at_us") == restart_at - origin &&
+                        events[3].attributes.at("start_us") == restart_at - origin &&
+                        events[4].attributes.at("start_us") == restart_at - origin &&
+                        events[4].attributes.at("end_us") == finished_at - origin &&
+                        paused_at <= restart_at && restart_at < finished_at,
+                    "Saved attempt boundaries rewound or overlapped the recording");
+            require(events[4].attributes.at("completion") == "done" &&
+                        events[4].attributes.at("outcome") == (success ? "pass" : "fail") &&
+                        events[4].attributes.at("success") == success &&
+                        events[4].attributes.at("repetition") == restarted.after.repetition &&
+                        events[4].attributes.at("cycle") == 1,
+                    "Saved pass/fail attributes were lost or attached to the wrong attempt");
+            const auto observations = replay.pose_history(0, replay.duration_us());
+            require(observations.size() == 2 && observations[0].time_us == first_observation &&
+                        observations[1].time_us == second_observation,
+                    "Restart discarded prior recording or admitted observations from its pause");
+        }
+    }
 }
 void recorder_active_clock_tests(const std::filesystem::path& directory) {
     SessionEvent epoch;
@@ -1181,6 +1329,7 @@ int main(int argc, char** argv) {
         replay_space_tests(directory);
         replay_camera_tests(directory);
         recorder_capture_window_tests(directory);
+        recorder_task_restart_tests(directory);
         recorder_active_clock_tests(directory);
         recorder_pause_tests(directory);
         const auto input = video(2, 12000);

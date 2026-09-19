@@ -2,7 +2,7 @@
   "version": 2,
   "packageVersion": "1.1.1",
   "generator": "ceres-public-core/2",
-  "treeDigest": "b69a0df3cdebec44e101fd67cde14500aa6ab082574092f622b1af952648e95b",
+  "treeDigest": "07742ae90353eeb7d8da776e6f6734bfb29f206c5e860a3576ff1426ae646bb6",
   "files": {
     ".dockerignore": {
       "sha256": "f4f0799e0c8f318b0d36a430909ba9dcb3eeca1d1b0ae8b3b7907b44cc2bedca",
@@ -75,13 +75,13 @@
       "mode": "100644"
     },
     "README.md": {
-      "sha256": "61bae52da548ec461ff96f33c7c49aa3ffdc422dec5c3ee60889e01d4ad04edb",
-      "bytes": 13832,
+      "sha256": "7dd06740c1d8837d96ceb6f4e4e277e1396f4d69144e6ce06fab16906b25f447",
+      "bytes": 14885,
       "mode": "100644"
     },
     "RELEASE.md": {
-      "sha256": "d6fedb2cb0b467b23935db73c8c55b72f3dc587df30663bc18c0ba59772f045e",
-      "bytes": 1891,
+      "sha256": "c9a3fd80868c7e193aee59049163ca85d791c66238889240bbf319ebc5739b73",
+      "bytes": 3042,
       "mode": "100644"
     },
     "bridge/index.html": {
@@ -230,8 +230,8 @@
       "mode": "100644"
     },
     "native/viewer/CMakeLists.txt": {
-      "sha256": "c9357d72c35d0b1c78210bf9ad8ae522813da70b53fc2fce1d12c997bc0e9488",
-      "bytes": 9990,
+      "sha256": "3c9b820f62698e4e3c9c98012b8eadb66ed432077e4b9809d4c597b2dce25cf1",
+      "bytes": 10721,
       "mode": "100644"
     },
     "native/viewer/LICENCE.md": {
@@ -240,8 +240,8 @@
       "mode": "100644"
     },
     "native/viewer/README.md": {
-      "sha256": "0a337da59f10820bec5e5915939b723803ea56aa7bcdf3d7a6408067addffe4b",
-      "bytes": 15869,
+      "sha256": "537635e07a2bb852ae6146245d8ca548738a9bf0801f0cb5f709bbfe0df7bf90",
+      "bytes": 18965,
       "mode": "100644"
     },
     "native/viewer/assets/README.md": {
@@ -430,8 +430,8 @@
       "mode": "100644"
     },
     "native/viewer/include/ceres/detail/recording_bar.hpp": {
-      "sha256": "e30b1450eafe2cb3a62b8a6c918602465a5277ad3add6200bc0956af168d9d4f",
-      "bytes": 6149,
+      "sha256": "a02bf743496d50ab7f30363099906eed9f634fca1d585eba20f3021d372beb72",
+      "bytes": 6426,
       "mode": "100644"
     },
     "native/viewer/include/ceres/detail/stereo_cadence.hpp": {
@@ -474,6 +474,11 @@
       "bytes": 1890,
       "mode": "100644"
     },
+    "native/viewer/include/ceres/hugging_face.hpp": {
+      "sha256": "2e0d5abee9cd8bea37bc557e219d068062377e9121c16dacc44e4694118bd089",
+      "bytes": 2938,
+      "mode": "100644"
+    },
     "native/viewer/include/ceres/image_kernel.hpp": {
       "sha256": "5474501018e4b97d81f96c3d4d5b2250115c550296cb6433beda13232f350d10",
       "bytes": 360,
@@ -490,8 +495,8 @@
       "mode": "100644"
     },
     "native/viewer/include/ceres/renderer.hpp": {
-      "sha256": "4f0b7d93dd0d49f0d18d71b4595475fc0bb982da24f0e75cd8517e0fba4b62d4",
-      "bytes": 3483,
+      "sha256": "a433bba9ec58494456db7c573149ef2d2981eefee2166e51ca78fc53530a9601",
+      "bytes": 3535,
       "mode": "100644"
     },
     "native/viewer/include/ceres/rtcp_clock.hpp": {
@@ -530,8 +535,8 @@
       "mode": "100644"
     },
     "native/viewer/include/ceres/task_specification.hpp": {
-      "sha256": "f3b8dd09ebaaebb0b5a60796cee082504652bc04daf155bbbbe2c80222b2e3fe",
-      "bytes": 2873,
+      "sha256": "eb1e2349c655fef2bb904d452c24121f9ab80684a4c52c1b398840ea579372c1",
+      "bytes": 3415,
       "mode": "100644"
     },
     "native/viewer/include/ceres/types.hpp": {
@@ -590,8 +595,8 @@
       "mode": "100644"
     },
     "native/viewer/scripts/package-common.py": {
-      "sha256": "0a93057875989abde6943cff90e66fb52850800fde5d5b8cf6f325b0eb4df0d0",
-      "bytes": 10424,
+      "sha256": "03d91992bb80ce7feed28797c73d84adcd5ac78e24651285db66f7375460b199",
+      "bytes": 11389,
       "mode": "100644"
     },
     "native/viewer/scripts/package-linux.sh": {
@@ -620,8 +625,8 @@
       "mode": "100644"
     },
     "native/viewer/scripts/qualify_hardware.py": {
-      "sha256": "0051e4adeb7f71fc64622ca76b48354e34df7c60876b9f8b8fcaec29d95ffc23",
-      "bytes": 14062,
+      "sha256": "d9ead19bcc07a6c066db9c7a1e032d08e2b25202011d4dfe83300eea61d2203b",
+      "bytes": 14101,
       "mode": "100644"
     },
     "native/viewer/scripts/verify-dataset.py": {
@@ -640,8 +645,8 @@
       "mode": "100644"
     },
     "native/viewer/src/app.cpp": {
-      "sha256": "87bccb6f2907e3ae6db25de4a5c89cfab10d9373ec7e87b6df4d88ed151143fa",
-      "bytes": 162403,
+      "sha256": "864593ddc8406ab40ca2385c63c7f2087c80d5dec8bb27ffe5e0f2bfd6b77cca",
+      "bytes": 185192,
       "mode": "100644"
     },
     "native/viewer/src/bridge.cpp": {
@@ -679,6 +684,11 @@
       "bytes": 11588,
       "mode": "100644"
     },
+    "native/viewer/src/hugging_face.cpp": {
+      "sha256": "518112559bc972db9b4ec39f4ee792a8e547f28c220500d3c8e612cf9e830eba",
+      "bytes": 54422,
+      "mode": "100644"
+    },
     "native/viewer/src/image.cu": {
       "sha256": "6bedec4f0505a6496106288be243dba9c4890212cd8ed152acc0594b3a1247cb",
       "bytes": 3159,
@@ -710,8 +720,8 @@
       "mode": "100644"
     },
     "native/viewer/src/renderer.cpp": {
-      "sha256": "408506c94d0384a2aa61d5dbcba5baa0bf8c9ca00b69ea461440ba1107e14b8a",
-      "bytes": 85675,
+      "sha256": "a8007ca2aa92700415b85e117656d2730d9121d37bff1118f32b69c1ed54e72d",
+      "bytes": 86227,
       "mode": "100644"
     },
     "native/viewer/src/session.cpp": {
@@ -740,8 +750,8 @@
       "mode": "100644"
     },
     "native/viewer/src/task_specification.cpp": {
-      "sha256": "06b3389e68fd3e674fd443ea77da9092cd11a9c99723b4ec53da71a74d6b584a",
-      "bytes": 19468,
+      "sha256": "622c83f3027a4b70632bf1283e75717dc358258ad4655f8b9f33f6628f61cb3e",
+      "bytes": 21266,
       "mode": "100644"
     },
     "native/viewer/src/ui.cpp": {
@@ -814,6 +824,11 @@
       "bytes": 2175,
       "mode": "100644"
     },
+    "native/viewer/tests/hugging_face_cli.cpp": {
+      "sha256": "e63e970bcdba3940feb93f013bbb4b37dacf6cbd46c21ac6bb4ea26022947010",
+      "bytes": 3261,
+      "mode": "100644"
+    },
     "native/viewer/tests/test_accordion_motion.cpp": {
       "sha256": "ac0a1e15dfa8247d302dc3f4288a4d7cf1c69cb1ae8d72a77266adb9f0e92844",
       "bytes": 8298,
@@ -854,6 +869,11 @@
       "bytes": 29406,
       "mode": "100644"
     },
+    "native/viewer/tests/test_hugging_face.cpp": {
+      "sha256": "4ae744f0d59f6d2536d972e32cf529b8eca90353babbc1cedd8c57ab78a4dbd3",
+      "bytes": 20233,
+      "mode": "100644"
+    },
     "native/viewer/tests/test_image.cu": {
       "sha256": "a3024920cb2d19040b5def1e0a9775e1b0ab7c22ed40d28cec887dd6220e9c7d",
       "bytes": 4385,
@@ -870,8 +890,8 @@
       "mode": "100644"
     },
     "native/viewer/tests/test_package.py": {
-      "sha256": "7868fac039189a4a05ea8d47911be9b5758c34f1057792182d248fb8fb3f7332",
-      "bytes": 9699,
+      "sha256": "dc03db8251175c2c35f3cc567cd47fcbddfe261e33db259b0053e0ea1d07138a",
+      "bytes": 10359,
       "mode": "100644"
     },
     "native/viewer/tests/test_protocol.cpp": {
@@ -880,8 +900,8 @@
       "mode": "100644"
     },
     "native/viewer/tests/test_qualification.py": {
-      "sha256": "9c757f4603239f87c1509ac647cd8eec7ab72eed639b58b79d30c57500aec530",
-      "bytes": 16345,
+      "sha256": "5d8252c460265be84e01cb9a44453ad8effecfcc4ee3eb2a89d136bba1df6a73",
+      "bytes": 16924,
       "mode": "100644"
     },
     "native/viewer/tests/test_recording_bar.cpp": {
@@ -890,8 +910,8 @@
       "mode": "100644"
     },
     "native/viewer/tests/test_session.cpp": {
-      "sha256": "94cc5772d07e5ed28a128f0fb6f68a43547506940238ff7719c97fb7fd900a0a",
-      "bytes": 68513,
+      "sha256": "5bb310b640828b54b1c13ffdde65ab5d0580bc5f151aafed55bb52b3f434c1c2",
+      "bytes": 78238,
       "mode": "100644"
     },
     "native/viewer/tests/test_static_model.cpp": {
@@ -925,8 +945,8 @@
       "mode": "100644"
     },
     "native/viewer/tests/test_task_specification.cpp": {
-      "sha256": "54b479ae74c0b299bedabdbb5e07da4c2a5b2218613ff87b6ccd9b2d512d4c50",
-      "bytes": 14291,
+      "sha256": "a399f90ad4d11cb6aff04c2df0d7729d2162979204a42631dba0df2aaabab70f",
+      "bytes": 24797,
       "mode": "100644"
     },
     "native/viewer/tests/test_tracking_visibility.cpp": {

@@ -4,6 +4,7 @@
 #include <cassert>
 #include <cmath>
 #include <cstddef>
+#include <numeric>
 
 namespace ceres::detail {
 // Feed a button's result and its current item state. Keyboard activation may be
@@ -149,17 +150,18 @@ template <std::size_t Capacity = 60> class RateHistory {
     bool has_time_ = false;
 };
 
-// Clock, record, elapsed, cycle/task/rep, remaining, pose, image and render cells.
-inline std::array<float, 8> recording_bar_widths(float width, float scale = 1.f) {
-    std::array<float, 8> result{};
+// Clock, record, elapsed, replay, cycle/task/rep, next, pass, fail, remaining and three rates.
+inline std::array<float, 12> recording_bar_widths(float width, float scale = 1.f) {
+    std::array<float, 12> result{};
     if (!std::isfinite(width) || width <= 0.f)
         return result;
     scale = std::isfinite(scale) && scale > 0.f ? std::clamp(scale, .25f, 8.f) : 1.f;
-    constexpr std::array<float, 8> minimum{88.f, 60.f, 116.f, 104.f, 76.f, 64.f, 64.f, 64.f};
-    constexpr std::array<float, 8> desired{128.f, 88.f, 176.f, 144.f, 108.f, 104.f, 104.f, 104.f};
-    constexpr std::array<float, 8> extra{1.f, .5f, 1.5f, 1.5f, .5f, 1.f, 1.f, 1.f};
-    const double minimum_sum = 636. * scale;
-    const double desired_sum = 956. * scale;
+    constexpr std::array<float, 12> minimum{80.f, 40.f, 96.f, 40.f, 98.f, 40.f, 36.f, 36.f, 60.f, 48.f, 48.f, 48.f};
+    constexpr std::array<float, 12> desired{112.f, 48.f, 152.f, 56.f, 148.f, 56.f, 48.f, 48.f, 96.f, 92.f, 92.f, 92.f};
+    constexpr std::array<float, 12> extra{1.f, 0.f, 1.5f, 0.f, 1.5f, 0.f, 0.f, 0.f, .5f, 1.f, 1.f, 1.f};
+    const double minimum_sum = std::accumulate(minimum.begin(), minimum.end(), 0.) * scale;
+    const double desired_sum = std::accumulate(desired.begin(), desired.end(), 0.) * scale;
+    const double extra_sum = std::accumulate(extra.begin(), extra.end(), 0.);
     float assigned = 0.f;
     for (std::size_t index = 0; index + 1 < result.size(); ++index) {
         double cell = 0.;
@@ -169,7 +171,7 @@ inline std::array<float, 8> recording_bar_widths(float width, float scale = 1.f)
             const double blend = (width - minimum_sum) / (desired_sum - minimum_sum);
             cell = scale * (minimum[index] + blend * (desired[index] - minimum[index]));
         } else {
-            cell = desired[index] * scale + (width - desired_sum) * extra[index] / 8.;
+            cell = desired[index] * scale + (width - desired_sum) * extra[index] / extra_sum;
         }
         result[index] = std::clamp(static_cast<float>(cell), 0.f, width - assigned);
         assigned += result[index];

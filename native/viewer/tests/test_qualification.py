@@ -216,6 +216,17 @@ class SceneAssetTests(unittest.TestCase):
                 hardware.check_scene_assets(candidate)
 
 
+class GpuBinaryTests(unittest.TestCase):
+    def test_executable_from_another_owner_needs_no_permission_change(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            binary = root / "test_image"
+            binary.write_bytes(b"executable fixture")
+            with patch.object(hardware.os, "access", return_value=True), \
+                    patch.object(Path, "chmod", side_effect=PermissionError("Different owner")):
+                self.assertEqual(hardware.find_binary(root, "test_image", False), binary.resolve())
+
+
 class RenderedFixtureTests(unittest.TestCase):
     colours = ((225, 20, 15), (18, 220, 30), (220, 230, 25),
                (25, 20, 235), (230, 30, 220), (25, 225, 230))

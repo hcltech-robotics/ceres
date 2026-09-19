@@ -81,7 +81,7 @@ def find_binary(directory: Path, name: str, windows: bool) -> Path:
     matches = [p for p in directory.rglob(name) if p.is_file()]
     if len(matches) != 1:
         raise ValueError(f"Expected one {name} in the GPU test bundle")
-    if not windows:
+    if not windows and not os.access(matches[0], os.X_OK):
         matches[0].chmod(matches[0].stat().st_mode | 0o111)
     return matches[0].resolve()
 

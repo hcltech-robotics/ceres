@@ -145,8 +145,10 @@ for the native viewer, standalone Node.js runtime or container, or build the sou
 
 ### Run the native viewer
 
-Ceres viewer receives Bridge streams, records native sessions and exports LeRobot
-datasets. Download the package for your machine from the release assets:
+Ceres viewer receives Bridge streams in a native 3D scene with anatomical SOMA-X
+hands, a textured Quest 3 model, camera planes and depth. It records MCAP sessions
+and exports LeRobot datasets. Download the package for your machine from the
+release assets:
 
 | Platform | Download | System |
 | --- | --- | --- |
@@ -158,6 +160,21 @@ Extract the archive and start `ceres-viewer.exe` on Windows or `./ceres-viewer` 
 Linux. Each download includes the exporter, FFmpeg, runtime libraries, product
 documentation and licence notices. Install the NVIDIA display driver for your
 machine. The CUDA toolkit is needed only when building from source.
+
+**Recording** contains the save destination, episode review, LeRobot export and
+Hugging Face upload. Sign in through the browser, choose an organisation or
+username and repository, then upload the recording with its episode selections
+and optional LeRobot export. **Replay** opens a local file or lists the MCAP
+recordings in a Hugging Face repository. Select a recording to download and play
+it using the bottom timeline, frame controls and speed selector.
+
+The recording toolbar can restart a repetition with a short **Replay** press or
+restart the task with a long press. During a prescribed pause, these controls
+return to the preceding repetition or task. **Done** completes a repetition,
+**Next** ends a prescribed pause and **Pass**/**Fail** mark the result and advance.
+The **Publish** section is empty. The included SOMA-X meshes retain their Apache
+2.0 licence and source provenance, and users can also load authorised MANO assets
+locally.
 
 The archive's version matches its CERES release. Compare its SHA-256 digest with
 the signed `SHA256SUMS` file. To verify a complete locally assembled release,

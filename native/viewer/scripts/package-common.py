@@ -91,9 +91,15 @@ def create_metadata(package, source, platform, build, cuda_architectures):
         "toolchain": toolchain_versions(build, values),
     }
     write_json(package / "provenance/source.json", source_record)
-    exporter_cargo = tomllib.loads((source / "native/lerobot-exporter/Cargo.toml").read_text(encoding="utf-8"))
     components = [{"name": "ceres-viewer", "version": version, "revision": revision},
-                  {"name": "ceres-native-exporter", "version": exporter_cargo["package"]["version"], "revision": revision}]
+                  {"name": "ceres-native-exporter", "version": version, "revision": revision}]
+    hand_metadata = json.loads((package / "assets/hands/model.json").read_text(encoding="utf-8"))
+    hand_source = hand_metadata["source"]
+    components.append({"name": "SOMA-X-native-hand-mid", "version": hand_source["release"],
+                       "license": "Apache-2.0", "copyright": "Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES.",
+                       "download": hand_source["assets_repository"] + "/tree/" + hand_source["assets_revision"],
+                       "source_info": "Converted native template hand assets. Source revision " + hand_source["revision"]
+                                      + ". Geometry SHA-256 " + hand_metadata["geometry_sha256"] + "."})
     dependencies = (source / "native/viewer/cmake/Dependencies.cmake").read_text(encoding="utf-8")
     dependencies += (source / "native/viewer/CMakeLists.txt").read_text(encoding="utf-8")
     for name, declaration in re.findall(r"FetchContent_Declare\((\w+)\s+([^\n]+)\)", dependencies):
@@ -140,12 +146,17 @@ def create_metadata(package, source, platform, build, cuda_architectures):
             continue
         inventory.append({"SPDXID": "SPDXRef-File-" + hashlib.sha256(relative.encode()).hexdigest()[:24],
                           "fileName": "./" + relative, "checksums": [{"algorithm": "SHA256", "checksumValue": sha256(path)}],
-                          "licenseConcluded": "NOASSERTION", "copyrightText": "NOASSERTION"})
+                          "licenseConcluded": "Apache-2.0" if relative.startswith("assets/hands/") else "NOASSERTION",
+                          "copyrightText": "Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES."
+                                           if relative.startswith("assets/hands/") else "NOASSERTION"})
     spdx_packages = []
     for index, item in enumerate(components):
         entry = {"SPDXID": f"SPDXRef-Package-{index}", "name": item["name"], "versionInfo": item["version"],
-                 "downloadLocation": "NOASSERTION", "filesAnalyzed": False,
-                 "licenseConcluded": "NOASSERTION", "licenseDeclared": "NOASSERTION", "copyrightText": "NOASSERTION"}
+                 "downloadLocation": item.get("download", "NOASSERTION"), "filesAnalyzed": False,
+                 "licenseConcluded": item.get("license", "NOASSERTION"), "licenseDeclared": item.get("license", "NOASSERTION"),
+                 "copyrightText": item.get("copyright", "NOASSERTION")}
+        if "source_info" in item:
+            entry["sourceInfo"] = item["source_info"]
         if "checksum" in item:
             entry["checksums"] = [{"algorithm": "SHA256", "checksumValue": item["checksum"]}]
         spdx_packages.append(entry)

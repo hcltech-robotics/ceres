@@ -674,6 +674,7 @@ struct Renderer::Impl {
     float point_size_limit = 1;
     float scene_width_fraction = 1;
     float scene_top_fraction = 0;
+    float scene_bottom_fraction = 0;
     bool first_mouse = true;
     std::array<bool, 3> mouse_down{}, scene_drag{};
     double mx = 0, my = 0;
@@ -898,7 +899,8 @@ struct Renderer::Impl {
         glfwGetWindowSize(window, &w, &h);
         return w > 0 && h > 0 && glfwGetWindowAttrib(window, GLFW_ICONIFIED) == GLFW_FALSE &&
                x >= 0 && y >= double(h) * scene_top_fraction &&
-               x < double(w) * scene_width_fraction && y < h;
+               x < double(w) * scene_width_fraction &&
+               y < double(h) * (1.f - std::min(scene_bottom_fraction, .95f - scene_top_fraction));
     }
     void segment(glm::vec3 a, glm::vec3 b, float radius, glm::vec4 colour, bool lighting = true) {
         auto d = b - a;
@@ -937,6 +939,14 @@ void Renderer::set_scene_top_fraction(float fraction) {
     fraction = std::isfinite(fraction) ? std::clamp(fraction, 0.f, .95f) : 0.f;
     if (p.scene_top_fraction != fraction) {
         p.scene_top_fraction = fraction;
+        p.scene_drag = {};
+    }
+}
+void Renderer::set_scene_bottom_fraction(float fraction) {
+    auto& p = *impl_;
+    fraction = std::isfinite(fraction) ? std::clamp(fraction, 0.f, .95f) : 0.f;
+    if (p.scene_bottom_fraction != fraction) {
+        p.scene_bottom_fraction = fraction;
         p.scene_drag = {};
     }
 }
@@ -1561,10 +1571,11 @@ void Renderer::draw(const ReceiverSnapshot& s, const Calibration& c, const ViewO
     glClearColor(.055f, .063f, .076f, 1);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     int scene_width = int(double(w) * p.scene_width_fraction);
-    const int scene_height = std::max(1, int(double(h) * (1.f - p.scene_top_fraction)));
+    const int scene_bottom = int(double(h) * std::min(p.scene_bottom_fraction, .95f - p.scene_top_fraction));
+    const int scene_height = std::max(1, int(double(h) * (1.f - p.scene_top_fraction)) - scene_bottom);
     if (scene_width <= 0)
         return;
-    glViewport(0, 0, scene_width, scene_height);
+    glViewport(0, scene_bottom, scene_width, scene_height);
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);

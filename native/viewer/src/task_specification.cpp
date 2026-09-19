@@ -469,4 +469,47 @@ std::vector<TaskTransition> TaskRun::stop(int64_t now_us) {
     }
     return result;
 }
+
+std::optional<TaskRun::RestartPoint> TaskRun::restart_point() const {
+    if (!running())
+        return std::nullopt;
+    if (phase_ == TaskRunPhase::active_task || phase_ == TaskRunPhase::post_task_pause)
+        return RestartPoint{task_index_, repetition_};
+    // Tasks before a prescribed pause have finished all their repetitions.
+    // The cycle cursor advances only after its pause, so this never crosses cycles.
+    for (size_t index = std::min(task_index_, specification_.tasks.size()); index > 0;) {
+        const auto& task = specification_.tasks[--index];
+        if (task.type != TaskType::pause)
+            return RestartPoint{index, task.repeat_count};
+    }
+    return std::nullopt;
+}
+
+bool TaskRun::can_restart() const {
+    return restart_point().has_value();
+}
+
+std::vector<TaskTransition> TaskRun::restart(int64_t now_us, TaskTransitionReason reason) {
+    auto result = update(now_us);
+    if (const auto target = restart_point()) {
+        const auto before = snapshot(elapsed_us_);
+        task_index_ = target->task_index;
+        repetition_ = reason == TaskTransitionReason::restart_task ? 1 : target->repetition;
+        phase_ = TaskRunPhase::active_task;
+        paused_ = false;
+        phase_started_us_ = elapsed_us_;
+        // Even an active-to-active restart is an episode boundary at the current
+        // capture time. Prior recording and elapsed run time remain intact.
+        result.push_back({now_us, before, snapshot(elapsed_us_), reason});
+    }
+    return result;
+}
+
+std::vector<TaskTransition> TaskRun::restart_repetition(int64_t now_us) {
+    return restart(now_us, TaskTransitionReason::restart_repetition);
+}
+
+std::vector<TaskTransition> TaskRun::restart_task(int64_t now_us) {
+    return restart(now_us, TaskTransitionReason::restart_task);
+}
 } // namespace ceres

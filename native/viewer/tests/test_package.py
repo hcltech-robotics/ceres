@@ -111,6 +111,16 @@ class PackageTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Checksum mismatch"):
             verify.verify_contents(package, "linux-x64", "1.2.3")
 
+    def test_sbom_records_anatomical_source_licence_and_release_version(self):
+        package = self.fixture_package()
+        sbom = json.loads((package / "SBOM.spdx.json").read_text())
+        hand = next(item for item in sbom["packages"] if item["name"] == "SOMA-X-native-hand-mid")
+        self.assertEqual(hand["licenseDeclared"], "Apache-2.0")
+        self.assertEqual(hand["versionInfo"], "0.3.1")
+        self.assertIn("104578ed58857f6faa7592fb83d0a2dad43c36fa", hand["downloadLocation"])
+        exporter = next(item for item in sbom["packages"] if item["name"] == "ceres-native-exporter")
+        self.assertEqual(exporter["versionInfo"], "1.2.3")
+
     def test_undeclared_file_is_rejected(self):
         package = self.fixture_package()
         (package / "extra.dll").write_bytes(b"unexpected")

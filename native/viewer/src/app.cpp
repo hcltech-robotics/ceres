@@ -9,6 +9,7 @@
 #include "ceres/detail/stereo_pairing.hpp"
 #include "ceres/stereo.hpp"
 #include "ceres/export_job.hpp"
+#include "ceres/hugging_face.hpp"
 #include "ceres/mesh.hpp"
 #include "ceres/protocol.hpp"
 #include "ceres/renderer.hpp"
@@ -101,7 +102,7 @@ std::filesystem::path application_directory() {
 #endif
     return std::filesystem::current_path();
 }
-enum class PaneSection { none = -1, connection, hands, depth, task, recording, telemetry, calibration };
+enum class PaneSection { none = -1, connection, hands, depth, task, recording, replay, publish, telemetry, calibration };
 struct Preferences {
     Calibration calibration = Calibration::quest(640, 480, "right");
     ViewOptions view;
@@ -113,6 +114,7 @@ struct Preferences {
     std::filesystem::path data_path = data_directory();
     std::filesystem::path recording_destination = data_path / "sessions";
     std::string task_description, task_specification_path;
+    std::string hf_organisation, hf_repository, hf_folder;
     std::optional<TaskSpecification> task_specification;
     Json to_json() const {
         return {
@@ -120,6 +122,8 @@ struct Preferences {
             {"version", 1},
             {"data_directory", data_path.string()},
             {"recording_destination", recording_destination.string()},
+            {"hugging_face", {{"organisation", hf_organisation}, {"repository", hf_repository},
+                              {"folder", hf_folder}}},
             {"task",
              {{"description", task_description},
               {"path", task_specification_path},
@@ -130,7 +134,9 @@ struct Preferences {
                {"hands", section == PaneSection::hands},
                {"depth", section == PaneSection::depth},
               {"task", section == PaneSection::task},
-              {"recording", section == PaneSection::recording},
+               {"recording", section == PaneSection::recording},
+               {"replay", section == PaneSection::replay},
+               {"publish", section == PaneSection::publish},
               {"telemetry", section == PaneSection::telemetry},
               {"calibration", section == PaneSection::calibration}}},
             {"calibration",
@@ -188,6 +194,15 @@ Preferences load_preferences(const std::filesystem::path& path) {
     result.data_path = data;
     result.recording_destination =
         json.value("recording_destination", (result.data_path / "sessions").string());
+    if (json.contains("hugging_face")) {
+        const auto& hf = json.at("hugging_face");
+        result.hf_organisation = hf.value("organisation", std::string{});
+        result.hf_repository = hf.value("repository", std::string{});
+        result.hf_folder = hf.value("folder", std::string{});
+        if (result.hf_organisation.size() > 127 || result.hf_repository.size() > 127 ||
+            result.hf_folder.size() > 511)
+            throw std::runtime_error("Invalid Hugging Face destination settings");
+    }
     if (result.recording_destination.empty() || result.recording_destination.string().size() > 2047)
         throw std::runtime_error("Invalid recording destination");
     if (json.contains("task")) {
@@ -272,6 +287,8 @@ Preferences load_preferences(const std::filesystem::path& path) {
                          : sections.value("depth", false)       ? PaneSection::depth
                          : sections.value("task", false)        ? PaneSection::task
                          : sections.value("recording", false)   ? PaneSection::recording
+                         : sections.value("replay", false)      ? PaneSection::replay
+                         : sections.value("publish", false)     ? PaneSection::publish
                          : sections.value("telemetry", false)   ? PaneSection::telemetry
                          : sections.value("calibration", false) ? PaneSection::calibration
                                                                 : PaneSection::none;
@@ -607,6 +624,7 @@ void qr_code(const std::string& url, float size) {
 struct Episode {
     int64_t start_us = 0, end_us = 0;
     std::string task;
+    Json attributes = Json::object();
 };
 std::filesystem::path episode_sidecar(const std::filesystem::path& session) {
     auto path = session;
@@ -633,7 +651,7 @@ EpisodeSelection load_episodes(const ReplaySource& replay) {
         if (a.value("action", std::string{}) == "stop" && a.contains("start_us") &&
             a.contains("end_us")) {
             Episode episode{a.at("start_us").get<int64_t>(), a.at("end_us").get<int64_t>(),
-                            a.value("name", std::string{})};
+                            a.value("name", std::string{}), a};
             if (episode.start_us >= 0 && episode.end_us > episode.start_us)
                 result.episodes.push_back(std::move(episode));
         }
@@ -651,9 +669,9 @@ EpisodeSelection load_episodes(const ReplaySource& replay) {
         std::vector<Episode> episodes;
         for (const auto& item : json.at("episodes")) {
             Episode episode{item.at("start_us").get<int64_t>(), item.at("end_us").get<int64_t>(),
-                            item.at("task").get<std::string>()};
+                            item.at("task").get<std::string>(), item.value("attributes", Json::object())};
             if (episode.start_us < 0 || episode.end_us <= episode.start_us ||
-                episode.end_us > replay.duration_us())
+                episode.end_us > replay.duration_us() || !episode.attributes.is_object())
                 throw std::runtime_error("Episode sidecar contains an invalid range");
             episodes.push_back(std::move(episode));
         }
@@ -670,7 +688,8 @@ void save_episodes(const std::filesystem::path& session, const std::vector<Episo
             throw std::runtime_error(
                 "Episode ranges must have a non-negative start and a later end");
         ranges.push_back(
-            {{"start_us", episode.start_us}, {"end_us", episode.end_us}, {"task", episode.task}});
+            {{"start_us", episode.start_us}, {"end_us", episode.end_us}, {"task", episode.task},
+             {"attributes", episode.attributes}});
     }
     save_preferences(episode_sidecar(session),
                      {{"schema", "ceres-viewer-episodes"},
@@ -800,6 +819,7 @@ int run_app(const AppOptions& options) {
     };
     Recorder recorder;
     ExportJob exporter(options.helper, options.ffmpeg);
+    HuggingFaceClient hugging_face(config_directory() / "private");
     Calibration calibration = Calibration::quest(640, 480, "right");
     ViewOptions view;
     bool custom_calibration = false;
@@ -886,6 +906,8 @@ int run_app(const AppOptions& options) {
     std::atomic<uint64_t> accepted_head_frames{0};
     detail::HoldPress record_press;
     bool record_keyboard_gesture = false;
+    detail::HoldPress repeat_press;
+    bool repeat_keyboard_gesture = false;
     auto event_sink = [&](const SessionEvent& e) {
         if (!accepting.load())
             return;
@@ -958,6 +980,8 @@ int run_app(const AppOptions& options) {
         cancel_count_in("Recording cancelled: source changed");
         record_press.reset();
         record_keyboard_gesture = false;
+        repeat_press.reset();
+        repeat_keyboard_gesture = false;
         decoder->cancel_replay();
         secondary_decoder->cancel_replay();
         reset_stereo_acquisition();
@@ -1028,6 +1052,13 @@ int run_app(const AppOptions& options) {
     text_buffer(stereo_path, preferences.stereo_path);
     char task[512]{}, session_path[2048]{}, export_path[2048]{}, profile_path[2048]{},
         data_path[2048]{}, recording_destination[2048]{}, task_specification_path[2048]{};
+    char hf_organisation[128]{}, hf_repository[128]{}, hf_folder[512]{}, hf_filter[256]{};
+    text_buffer(hf_organisation, preferences.hf_organisation);
+    text_buffer(hf_repository, preferences.hf_repository);
+    text_buffer(hf_folder, preferences.hf_folder);
+    std::string hf_selected;
+    std::filesystem::path hf_ready_recording;
+    bool hf_private = true, hf_include_export = false, hf_auth_popup = false, hf_new_code = false;
     text_buffer(data_path, preferences.data_path.string());
     text_buffer(recording_destination, preferences.recording_destination.string());
     text_buffer(task, preferences.task_description);
@@ -1167,7 +1198,7 @@ int run_app(const AppOptions& options) {
         if (!episode_open)
             return;
         if (t > episode_begin)
-            episodes.push_back({episode_begin, t, episode_task});
+            episodes.push_back({episode_begin, t, episode_task, episode_attributes});
         auto attributes = episode_attributes;
         attributes.update({{"action", "stop"}, {"start_us", episode_begin}, {"end_us", t}});
         recorder.add_episode(episode_task, attributes);
@@ -1187,6 +1218,13 @@ int run_app(const AppOptions& options) {
     // them, so receiver events cannot slip across a manual recording boundary.
     auto apply_task_transitions = [&](const std::vector<TaskTransition>& transitions) {
         for (const auto& transition : transitions) {
+            const char* restart = transition.reason == TaskTransitionReason::restart_repetition
+                                      ? "restart-repetition"
+                                  : transition.reason == TaskTransitionReason::restart_task
+                                      ? "restart-task"
+                                      : nullptr;
+            if (restart && episode_open)
+                episode_attributes["completion"] = restart;
             if (transition.before.phase == TaskRunPhase::active_task && !transition.before.paused)
                 end_episode(std::max<int64_t>(0, transition.time_us - record_origin));
             const bool capture =
@@ -1205,6 +1243,12 @@ int run_app(const AppOptions& options) {
             recorder.set_capture_window(transition.time_us, capture_end);
             const bool was_paused = recorder.status().paused;
             recorder.set_paused(!capture);
+            if (restart) {
+                recorder.add_episode("Task control", {{"action", restart},
+                    {"at_us", std::max<int64_t>(0, transition.time_us - record_origin)},
+                    {"task_index", transition.after.task_index},
+                    {"repetition", transition.after.repetition}, {"cycle", transition.after.cycle}});
+            }
             const bool request_keyframe = capture && was_paused && !recorder.status().failed;
             if (transition.after.phase == TaskRunPhase::active_task && !transition.after.paused &&
                 task_specification && !recorder.status().failed) {
@@ -1253,7 +1297,7 @@ int run_app(const AppOptions& options) {
     bool panels = preferences.panels, preview = preferences.preview, fullscreen = false,
          last_tab = false, last_f11 = false, restore_maximised = false;
     detail::AccordionMotion accordion;
-    std::array<float, 7> section_heights{}, section_scroll{};
+    std::array<float, 9> section_heights{}, section_scroll{};
     float section_width = 0.f;
     int previous_section = -1;
     int restore_x = 80, restore_y = 60, restore_w = options.width, restore_h = options.height;
@@ -1287,6 +1331,9 @@ int run_app(const AppOptions& options) {
         preferences.task_description = task;
         preferences.task_specification_path = task_specification_path;
         preferences.task_specification = task_specification;
+        preferences.hf_organisation = hf_organisation;
+        preferences.hf_repository = hf_repository;
+        preferences.hf_folder = hf_folder;
         auto json = preferences.to_json();
         if (json != saved_preferences) {
             save_preferences(config / "preferences.json", json);
@@ -1824,6 +1871,7 @@ int run_app(const AppOptions& options) {
         auto scene_started = std::chrono::steady_clock::now();
         renderer->set_scene_width_fraction(panels ? .8f : 1.f);
         renderer->set_scene_top_fraction(instrument_height / std::max(1.f, io.DisplaySize.y));
+        renderer->set_scene_bottom_fraction(replay ? instrument_height / std::max(1.f, io.DisplaySize.y) : 0.f);
         renderer->process_input(dt, io.WantCaptureMouse, io.WantCaptureKeyboard);
         const auto trail_time =
             replay ? std::max<int64_t>(0, replay->position_us() -
@@ -1836,6 +1884,46 @@ int run_app(const AppOptions& options) {
         auto scene_finished = std::chrono::steady_clock::now();
         auto record_status = recorder.status();
         auto export_status = exporter.status();
+        const auto hf_status = hugging_face.status();
+        if (hf_new_code && !hf_status.running) {
+            hf_new_code = false;
+            hugging_face.sign_in();
+        }
+        if (auto downloaded = hugging_face.take_download(); !downloaded.empty())
+            hf_ready_recording = std::move(downloaded);
+        if (!hf_ready_recording.empty() && !source_job.valid() && !record_status.recording &&
+            !pending_recording) {
+            text_buffer(session_path, hf_ready_recording.string());
+            change_source(hf_ready_recording, false);
+            hf_ready_recording.clear();
+        }
+        const auto hf_account_controls = [&] {
+            ImGui::PushID("HuggingFaceAccount");
+            if (hf_status.username.empty()) {
+                ImGui::BeginDisabled(hf_status.running);
+                if (ui::primary_button("Sign in to Hugging Face"))
+                    hugging_face.sign_in();
+                ImGui::EndDisabled();
+            } else {
+                ImGui::TextWrapped("Signed in as %s", hf_status.username.c_str());
+                ImGui::BeginDisabled(hf_status.running);
+                if (ImGui::Button("Sign out")) hugging_face.sign_out();
+                same_line_if_room("Sign in again");
+                if (ImGui::Button("Sign in again")) hugging_face.sign_in();
+                ImGui::EndDisabled();
+            }
+            if (hf_status.running) {
+                ImGui::ProgressBar(hf_status.progress, {-1, 0}, hf_status.message.c_str());
+                if (ImGui::Button("Cancel##HuggingFace")) hugging_face.cancel();
+            } else if (!hf_status.message.empty())
+                ImGui::TextWrapped("%s", hf_status.message.c_str());
+            if (!hf_status.error.empty()) {
+                ImGui::PushStyleColor(ImGuiCol_Text, ui::colour::red);
+                ImGui::TextWrapped("%s", hf_status.error.c_str());
+                ImGui::PopStyleColor();
+            }
+            ImGui::PopID();
+        };
         if (rate_source != source.get()) {
             rate_source = source.get();
             fps_history = {};
@@ -2261,55 +2349,15 @@ int run_app(const AppOptions& options) {
                 begin_body("Recording body");
                 ImGui::PushID("Recording");
                 ImGui::BeginDisabled(record_status.recording || pending_recording.has_value());
-                pane_text_input("Destination", recording_destination,
+                pane_text_input("Destination##Recording", recording_destination,
                                 sizeof(recording_destination));
                 ImGui::EndDisabled();
                 if (!recording_start_notice.empty())
                     ImGui::TextWrapped("%s", recording_start_notice.c_str());
                 if (record_status.failed)
                     ImGui::TextWrapped("%s", record_status.error.c_str());
-                if (ui::disclosure("Replay", replay ? ImGuiTreeNodeFlags_DefaultOpen : 0)) {
-                    ImGui::PushID("Replay");
-                    pane_text_input("File", session_path, sizeof(session_path), ".mcap");
-                    if (ImGui::Button("Open"))
-                        change_source(session_path, false);
+                if (ui::disclosure("Episodes")) {
                     if (replay) {
-                        same_line_if_room(replay->playing() ? "Pause" : "Play");
-                        if (ImGui::Button(replay->playing() ? "Pause###Playback"
-                                                            : "Play###Playback"))
-                            replay->set_playing(!replay->playing());
-                        double position = replay->position_us() / 1e6,
-                               duration = replay->duration_us() / 1e6, zero = 0;
-                        ImGui::TextUnformatted("Timeline");
-                        ImGui::SetNextItemWidth(-1);
-                        if (ImGui::SliderScalar("##Timeline", ImGuiDataType_Double, &position,
-                                                &zero, &duration, "%.3f s")) {
-                            decoder->cancel_replay();
-                            secondary_decoder->cancel_replay();
-                            reset_stereo_acquisition();
-                            renderer->invalidate_video();
-                            replay->seek(int64_t(position * 1e6));
-                        }
-                        float speed = float(replay->speed());
-                        if (pane_slider("Speed", &speed, .1f, 4.f, "%.1fx"))
-                            replay->set_speed(speed);
-                        if (ImGui::Button("Previous")) {
-                            replay->set_playing(false);
-                            decoder->cancel_replay();
-                            secondary_decoder->cancel_replay();
-                            reset_stereo_acquisition();
-                            renderer->invalidate_video();
-                            replay->step_frame(-1);
-                        }
-                        same_line_if_room("Next");
-                        if (ImGui::Button("Next")) {
-                            replay->set_playing(false);
-                            decoder->cancel_replay();
-                            secondary_decoder->cancel_replay();
-                            reset_stereo_acquisition();
-                            renderer->invalidate_video();
-                            replay->step_frame(1);
-                        }
                         ImGui::BeginDisabled(episode_load.valid());
                         if (ImGui::Button("Mark in")) {
                             episode_begin = replay->position_us();
@@ -2328,9 +2376,6 @@ int run_app(const AppOptions& options) {
                         }
                         ImGui::EndDisabled();
                     }
-                    ImGui::PopID();
-                }
-                if (ui::disclosure("Episodes")) {
                     if (episode_load.valid())
                         ui::muted("Loading");
                     else if (episodes.empty())
@@ -2339,6 +2384,12 @@ int run_app(const AppOptions& options) {
                     for (size_t i = 0; i < episodes.size(); ++i) {
                         ImGui::PushID(int(i));
                         auto& e = episodes[i];
+                        const auto outcome = e.attributes.value("outcome", std::string{});
+                        if (outcome == "pass" || outcome == "fail" || outcome == "restarted")
+                            ImGui::TextColored(outcome == "pass" ? ui::colour::green :
+                                               outcome == "fail" ? ui::colour::red : ui::colour::muted,
+                                               "%s", outcome == "pass" ? "Pass" :
+                                               outcome == "fail" ? "Fail" : "Restarted");
                         char label[512]{};
                         text_buffer(label, e.task);
                         if (pane_text_input("Task", label, sizeof(label))) {
@@ -2370,7 +2421,7 @@ int run_app(const AppOptions& options) {
                     ImGui::EndDisabled();
                 }
                 if (ui::disclosure("Export")) {
-                    pane_text_input("Destination", export_path, sizeof(export_path));
+                    pane_text_input("Destination##LeRobot", export_path, sizeof(export_path));
                     if (episodes.empty()) {
                         ImGui::BeginDisabled(record_status.recording || episode_load.valid());
                         if (ImGui::Button("Use whole session")) {
@@ -2448,6 +2499,38 @@ int run_app(const AppOptions& options) {
                     if (!export_status.error.empty())
                         ImGui::TextWrapped("%s", export_status.error.c_str());
                 }
+                if (ui::disclosure("Hugging Face export")) {
+                    ImGui::PushID("HuggingFaceExport");
+                    hf_account_controls();
+                    ImGui::BeginDisabled(hf_status.running);
+                    pane_text_input("Organisation or username##Upload", hf_organisation, sizeof(hf_organisation));
+                    pane_text_input("Repository##Upload", hf_repository, sizeof(hf_repository));
+                    pane_text_input("Folder##Upload", hf_folder, sizeof(hf_folder), "Optional folder in the repository");
+                    ImGui::Checkbox("Create a private repository if missing", &hf_private);
+                    ImGui::Checkbox("Include LeRobot export", &hf_include_export);
+                    const auto upload_recording = replay ? replay->path() : closed_recording;
+                    if (!upload_recording.empty())
+                        ImGui::TextWrapped("Recording: %s", upload_recording.filename().string().c_str());
+                    if (hf_include_export)
+                        ImGui::TextWrapped("Export: %s", export_path);
+                    const bool unavailable = hf_status.username.empty() || upload_recording.empty() ||
+                        record_status.recording || pending_recording.has_value() || export_status.running ||
+                        episode_load.valid();
+                    ImGui::BeginDisabled(unavailable);
+                    if (ui::primary_button("Upload recording")) {
+                        try {
+                            persist_episodes();
+                            hugging_face.upload(hf::repository_id(hf_organisation, hf_repository), upload_recording,
+                                hf_include_export ? std::filesystem::path(export_path) : std::filesystem::path{},
+                                hf_folder, hf_private);
+                        } catch (const std::exception& error) { ui_error = error.what(); }
+                    }
+                    ImGui::EndDisabled();
+                    ImGui::EndDisabled();
+                    if (!hf_status.commit_url.empty() && ImGui::Button("View uploaded recording"))
+                        hf::open_browser(hf_status.commit_url);
+                    ImGui::PopID();
+                }
                 if (ui::disclosure("Recovery")) {
                     ImGui::BeginDisabled(record_status.recording || pending_recording.has_value() ||
                                          recovery_job.valid());
@@ -2472,7 +2555,75 @@ int run_app(const AppOptions& options) {
                 ImGui::PopID();
                 end_body();
             }
-            if (section("Telemetry", "06", PaneSection::telemetry)) {
+            if (section("Replay", "06", PaneSection::replay)) {
+                begin_body("Replay body");
+                ImGui::PushID("Replay");
+                if (ui::disclosure("File", ImGuiTreeNodeFlags_DefaultOpen)) {
+                    ImGui::PushID("File");
+                    pane_text_input("Recording", session_path, sizeof(session_path), ".mcap");
+                    ImGui::BeginDisabled(record_status.recording || pending_recording.has_value() || source_job.valid());
+                    if (ui::primary_button("Open recording")) change_source(session_path, false);
+                    ImGui::EndDisabled();
+                    ImGui::PopID();
+                }
+                if (ui::disclosure("Hugging Face", ImGuiTreeNodeFlags_DefaultOpen)) {
+                    ImGui::PushID("HuggingFaceReplay");
+                    hf_account_controls();
+                    ImGui::BeginDisabled(hf_status.running);
+                    pane_text_input("Organisation or username", hf_organisation, sizeof(hf_organisation));
+                    pane_text_input("Repository", hf_repository, sizeof(hf_repository));
+                    if (ImGui::Button("Browse recordings")) {
+                        try {
+                            hf_selected.clear();
+                            hugging_face.browse(hf::repository_id(hf_organisation, hf_repository));
+                        } catch (const std::exception& error) { ui_error = error.what(); }
+                    }
+                    ImGui::EndDisabled();
+                    if (!hf_status.repository.empty()) {
+                        ImGui::TextWrapped("%s", hf_status.repository.c_str());
+                        pane_text_input("Filter", hf_filter, sizeof(hf_filter), "Recording name");
+                        std::vector<size_t> visible;
+                        for (size_t index = 0; index < hf_status.recordings->size(); ++index)
+                            if (!hf_filter[0] || (*hf_status.recordings)[index].path.find(hf_filter) != std::string::npos)
+                                visible.push_back(index);
+                        ImGui::BeginDisabled(hf_status.running);
+                        if (ImGui::BeginListBox("##Recordings", {-1, 160.f * dpi})) {
+                            ImGuiListClipper clipper;
+                            clipper.Begin(static_cast<int>(visible.size()));
+                            while (clipper.Step())
+                                for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; ++row) {
+                                    const auto& entry = (*hf_status.recordings)[visible[static_cast<size_t>(row)]];
+                                    ImGui::PushID(entry.path.c_str());
+                                    if (ImGui::Selectable(entry.path.c_str(), hf_selected == entry.path))
+                                        hf_selected = entry.path;
+                                    ui::help((std::to_string(entry.bytes / 1048576) + " MiB").c_str());
+                                    ImGui::PopID();
+                                }
+                            ImGui::EndListBox();
+                        }
+                        if (visible.empty()) ui::muted("No matching recordings");
+                        ImGui::BeginDisabled(hf_selected.empty() || record_status.recording ||
+                                             pending_recording.has_value() || source_job.valid());
+                        if (ui::primary_button("Load into player")) {
+                            for (const auto& entry : *hf_status.recordings)
+                                if (entry.path == hf_selected) {
+                                    hugging_face.download(entry, std::filesystem::path(data_path) / "downloads" / "hugging-face");
+                                    break;
+                                }
+                        }
+                        ImGui::EndDisabled();
+                        ImGui::EndDisabled();
+                    }
+                    ImGui::PopID();
+                }
+                ImGui::PopID();
+                end_body();
+            }
+            if (section("Publish", "07", PaneSection::publish)) {
+                begin_body("Publish body");
+                end_body();
+            }
+            if (section("Telemetry", "08", PaneSection::telemetry)) {
                 begin_body("Telemetry body");
                 ImGui::PushID("Telemetry");
                 ImFont* cadence_font =
@@ -2539,7 +2690,7 @@ int run_app(const AppOptions& options) {
                 ImGui::PopID();
                 end_body();
             }
-            if (section("Calibration", "07", PaneSection::calibration)) {
+            if (section("Calibration", "09", PaneSection::calibration)) {
                 begin_body("Calibration body");
                 ImGui::PushID("Calibration");
                 ui::small_label("Camera");
@@ -2823,6 +2974,40 @@ int run_app(const AppOptions& options) {
                     text << " T-- R--";
                 counters = text.str();
             }
+            const bool task_running = record_status.recording && have_spec &&
+                                      progress.phase != TaskRunPhase::stopped &&
+                                      progress.phase != TaskRunPhase::complete;
+            const bool repeat_enabled = task_running && task_run.can_restart();
+            ImGui::BeginDisabled(!repeat_enabled);
+            const auto repeat_cell = cell("##Repeat", true);
+            if (ImGui::IsItemActivated())
+                repeat_keyboard_gesture = repeat_cell.pressed;
+            const auto repeat_action = repeat_press.update(
+                {ImGui::GetTime(), repeat_cell.pressed, ImGui::IsItemActive(),
+                 repeat_keyboard_gesture ? ImGui::IsItemFocused()
+                                         : ImGui::IsItemHovered(ImGuiHoveredFlags_NoNavOverride),
+                 repeat_enabled, true,
+                 ImGui::IsKeyPressed(ImGuiKey_Escape, false) || io.AppFocusLost ||
+                     !ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)});
+            ui::instrument_text(repeat_cell, "REPLAY", mono_font, 11.f * dpi, .5f,
+                                repeat_enabled ? ui::colour::text : ui::colour::muted);
+            ui::instrument_hold(repeat_cell, repeat_press.progress());
+            ui::help("Restart the current repetition. Hold for 0.8 seconds to restart the task. "
+                     "During a pause, return to the preceding repetition or task.");
+            ImGui::EndDisabled();
+            if (repeat_action != detail::HoldPress::Action::None) {
+                try {
+                    std::lock_guard lock(recording_mutex);
+                    const auto at = monotonic_us();
+                    const bool whole_task = repeat_action == detail::HoldPress::Action::Stop;
+                    apply_task_transitions(whole_task ? task_run.restart_task(at)
+                                                      : task_run.restart_repetition(at));
+                    manual_recording_pause = false;
+                    ++recording_actions[whole_task ? "restart_task" : "restart_repetition"];
+                } catch (const std::exception& error) {
+                    ui_error = error.what();
+                }
+            }
             const auto progress_cell = cell("##Progress");
             ui::instrument_text(progress_cell, "CYCLE / TASK / REP", mono_font, 11.f * dpi,
                                 .23f, ui::colour::muted);
@@ -2830,10 +3015,59 @@ int run_app(const AppOptions& options) {
             ui::help(step && !step->instructions.empty() ? step->instructions.c_str()
                      : step ? step->label.c_str() : "No task specification");
 
-            const bool next_open = record_status.recording && !record_status.paused && step &&
-                                   step->type == TaskType::open &&
-                                   progress.phase == TaskRunPhase::active_task;
-            const char* remaining_title = next_open ? "NEXT REP" : "REMAINING";
+            const auto advance_task = [&](std::optional<bool> success) {
+                try {
+                    std::lock_guard lock(recording_mutex);
+                    const auto at = monotonic_us();
+                    apply_task_transitions(task_run.update(at));
+                    const auto current = task_run.progress(at);
+                    // A timed boundary can pass between drawing and activation. Keep
+                    // a judgement attached to the repetition shown to the capture director.
+                    if (current.phase != progress.phase || current.task_index != progress.task_index ||
+                        current.repetition != progress.repetition || current.cycle != progress.cycle ||
+                        current.paused)
+                        return;
+                    if (success) {
+                        if (!episode_open || current.phase != TaskRunPhase::active_task)
+                            return;
+                        episode_attributes["outcome"] = *success ? "pass" : "fail";
+                        episode_attributes["success"] = *success;
+                    }
+                    if (episode_open)
+                        episode_attributes["completion"] = "done";
+                    apply_task_transitions(task_run.advance(at));
+                    ++recording_actions[success ? (*success ? "pass" : "fail") : "advance"];
+                } catch (const std::exception& error) {
+                    ui_error = error.what();
+                }
+            };
+            const bool advance_enabled = task_running && !progress.paused;
+            const bool outcome_enabled = advance_enabled && progress.phase == TaskRunPhase::active_task;
+            const char* advance_label = progress.phase == TaskRunPhase::active_task ? "DONE" : "NEXT";
+            ImGui::BeginDisabled(!advance_enabled);
+            const auto next_cell = cell("##Advance", true);
+            ui::instrument_text(next_cell, advance_label, mono_font, 11.f * dpi, .5f,
+                                advance_enabled ? ui::colour::text : ui::colour::muted);
+            ui::help(progress.phase == TaskRunPhase::active_task
+                         ? "Complete this repetition and advance"
+                         : "Finish this pause and advance");
+            ImGui::EndDisabled();
+            if (next_cell.pressed)
+                advance_task(std::nullopt);
+            ImGui::BeginDisabled(!outcome_enabled);
+            const auto pass_cell = cell("##Pass", true);
+            ui::instrument_text(pass_cell, "PASS", mono_font, 11.f * dpi, .5f,
+                                outcome_enabled ? ui::colour::green : ui::colour::muted);
+            ui::help("Mark this repetition as passed and advance");
+            const auto fail_cell = cell("##Fail", true);
+            ui::instrument_text(fail_cell, "FAIL", mono_font, 11.f * dpi, .5f,
+                                outcome_enabled ? ui::colour::red : ui::colour::muted);
+            ui::help("Mark this repetition as failed and advance");
+            ImGui::EndDisabled();
+            if (pass_cell.pressed || fail_cell.pressed)
+                advance_task(pass_cell.pressed);
+
+            const char* remaining_title = "REMAINING";
             std::string remaining = "OPEN";
             if (progress.phase == TaskRunPhase::complete) {
                 remaining_title = "COMPLETE";
@@ -2849,18 +3083,13 @@ int run_app(const AppOptions& options) {
             } else if (step && step->type != TaskType::open) {
                 remaining = elapsed_label(int64_t(std::ceil(step->duration_s * 1000000)) + 999999);
             }
-            const auto remaining_cell = cell("##Remaining", next_open);
+            const auto remaining_cell = cell("##Remaining");
             ui::instrument_text(remaining_cell, remaining_title, mono_font, 11.f * dpi, .23f,
                                 ui::colour::muted);
             ui::instrument_text(remaining_cell, remaining.c_str(), readout_font,
                                 readout_font->FontSize, .64f,
-                                next_open ? ui::colour::amber : ui::colour::text);
-            ui::help(next_open ? "Complete this open repetition and advance"
-                              : "Time remaining in the current repetition or labelled rest");
-            if (remaining_cell.pressed) {
-                std::lock_guard lock(recording_mutex);
-                apply_task_transitions(task_run.advance(monotonic_us()));
-            }
+                                 ui::colour::text);
+            ui::help("Time remaining in the current repetition or labelled rest");
 
             const std::array<const char*, 3> rate_labels{"Pose", "Image", "Render"};
             const std::array<double, 3> rates{head_fps, video_fps, render_hz};
@@ -2899,12 +3128,134 @@ int run_app(const AppOptions& options) {
                     {"paused", manual_recording_pause}, {"count_in", pending_recording.has_value()},
                     {"elapsed_label", elapsed}, {"counters", counters},
                     {"remaining_label", remaining}, {"remaining_title", remaining_title},
+                    {"task_controls", {{"repeat_enabled", repeat_enabled},
+                        {"advance_enabled", advance_enabled}, {"outcome_enabled", outcome_enabled},
+                        {"advance_label", advance_label}, {"repeat_hold_progress", repeat_press.progress()},
+                        {"replay_bounds", {{repeat_cell.first.x, repeat_cell.first.y}, {repeat_cell.last.x, repeat_cell.last.y}}},
+                        {"progress_bounds", {{progress_cell.first.x, progress_cell.first.y}, {progress_cell.last.x, progress_cell.last.y}}},
+                        {"next_bounds", {{next_cell.first.x, next_cell.first.y}, {next_cell.last.x, next_cell.last.y}}},
+                        {"pass_bounds", {{pass_cell.first.x, pass_cell.first.y}, {pass_cell.last.x, pass_cell.last.y}}},
+                        {"fail_bounds", {{fail_cell.first.x, fail_cell.first.y}, {fail_cell.last.x, fail_cell.last.y}}}}},
                     {"spark_samples", {fps_history[0].size(), fps_history[1].size(), fps_history[2].size()}},
                     {"fps", rates}, {"actions", recording_actions}};
             ImGui::End();
             ImGui::PopStyleColor(3);
             ImGui::PopStyleVar(6);
         }
+        if (replay) {
+            ImGui::SetNextWindowPos({0, io.DisplaySize.y - instrument_height}, ImGuiCond_Always);
+            ImGui::SetNextWindowSize({scene_width, instrument_height}, ImGuiCond_Always);
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+            ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 0));
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0);
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0);
+            ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 0);
+            ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0);
+            ImGui::PushStyleColor(ImGuiCol_Button, ui::colour::surface);
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ui::colour::overlay);
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ui::colour::raised);
+            ImGui::Begin("Replay transport", nullptr,
+                         ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+                             ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
+                             ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoFocusOnAppearing |
+                             ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+            float x = 0;
+            const auto cell = [&](const char* id, float width, bool interactive = false) {
+                ImGui::SetCursorPos({x, 0});
+                x += width;
+                return ui::instrument_cell(id, {width, instrument_height}, interactive);
+            };
+            const auto clear_replay_frames = [&] {
+                decoder->cancel_replay();
+                secondary_decoder->cancel_replay();
+                reset_stereo_acquisition();
+                renderer->invalidate_video();
+            };
+            const float play_width = std::min(100.f * dpi, scene_width * .13f);
+            const float step_width = std::min(60.f * dpi, scene_width * .075f);
+            const float speed_width = std::min(100.f * dpi, scene_width * .13f);
+            const float time_width = std::min(175.f * dpi, scene_width * .22f);
+            const auto play_cell = cell("##Playback", play_width, true);
+            ui::instrument_text(play_cell, "PLAYBACK", mono_font, 11.f * dpi, .23f, ui::colour::muted);
+            ui::instrument_text(play_cell, replay->playing() ? "PAUSE" : "PLAY", mono_font, 18.f * dpi,
+                                .64f, replay->playing() ? ui::colour::amber : ui::colour::green);
+            if (play_cell.pressed) replay->set_playing(!replay->playing());
+            for (const int direction : {-1, 1}) {
+                const auto step_cell = cell(direction < 0 ? "##PreviousFrame" : "##NextFrame", step_width, true);
+                ui::instrument_text(step_cell, "FRAME", mono_font, 10.f * dpi, .23f, ui::colour::muted);
+                ui::instrument_text(step_cell, direction < 0 ? "-1" : "+1", readout_font,
+                                    22.f * dpi, .64f);
+                if (step_cell.pressed) {
+                    replay->set_playing(false);
+                    clear_replay_frames();
+                    replay->step_frame(direction);
+                }
+            }
+            const auto timeline = cell("##TimelineCell", scene_width - play_width - step_width * 2 - speed_width - time_width);
+            ui::instrument_text(timeline, "TIMELINE", mono_font, 11.f * dpi, .22f, ui::colour::muted, false);
+            ImGui::SetCursorScreenPos({timeline.first.x + 12.f * dpi, timeline.first.y + instrument_height * .47f});
+            ImGui::SetNextItemWidth(std::max(1.f, timeline.last.x - timeline.first.x - 24.f * dpi));
+            double position = replay->position_us() / 1e6, duration = replay->duration_us() / 1e6, zero = 0;
+            ImGui::BeginDisabled(duration <= 0);
+            ImGui::PushStyleColor(ImGuiCol_FrameBg, ui::colour::raised);
+            ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ui::colour::overlay);
+            ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ui::colour::overlay);
+            ImGui::PushStyleColor(ImGuiCol_SliderGrab, ui::colour::green);
+            ImGui::PushStyleColor(ImGuiCol_SliderGrabActive, ui::colour::amber);
+            if (ImGui::SliderScalar("##ReplayPosition", ImGuiDataType_Double, &position,
+                                    &zero, &duration, "%.2f s", ImGuiSliderFlags_AlwaysClamp)) {
+                clear_replay_frames();
+                replay->seek(int64_t(position * 1e6));
+            }
+            ImGui::PopStyleColor(5);
+            ImGui::EndDisabled();
+            const auto speed_cell = cell("##SpeedCell", speed_width);
+            ui::instrument_text(speed_cell, "SPEED", mono_font, 11.f * dpi, .22f, ui::colour::muted);
+            ImGui::SetCursorScreenPos({speed_cell.first.x + 8.f * dpi, speed_cell.first.y + instrument_height * .47f});
+            ImGui::SetNextItemWidth(std::max(1.f, speed_width - 16.f * dpi));
+            char speed_label[32]{};
+            std::snprintf(speed_label, sizeof(speed_label), "%.2gx", replay->speed());
+            if (ImGui::BeginCombo("##PlaybackSpeed", speed_label)) {
+                for (double speed : {.25, .5, 1., 1.5, 2., 4.}) {
+                    char label[32]{}; std::snprintf(label, sizeof(label), "%.2gx", speed);
+                    if (ImGui::Selectable(label, replay->speed() == speed)) replay->set_speed(speed);
+                }
+                ImGui::EndCombo();
+            }
+            const auto time_cell = cell("##ReplayTime", time_width);
+            const auto elapsed = elapsed_label(replay->position_us());
+            const auto total = elapsed_label(replay->duration_us());
+            ui::instrument_text(time_cell, elapsed.c_str(), mono_font, 21.f * dpi, .35f);
+            ui::instrument_text(time_cell, ("/ " + total).c_str(), mono_font, 14.f * dpi, .72f, ui::colour::muted);
+            ImGui::End();
+            ImGui::PopStyleColor(3);
+            ImGui::PopStyleVar(6);
+        }
+        if (hf_status.authenticating && !hf_status.user_code.empty() && !hf_auth_popup) {
+            ImGui::OpenPopup("Hugging Face sign-in");
+            hf_auth_popup = true;
+        }
+        ImGui::SetNextWindowSize({420.f * dpi, 0}, ImGuiCond_Appearing);
+        if (ImGui::BeginPopupModal("Hugging Face sign-in", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+            if (!hf_status.authenticating) ImGui::CloseCurrentPopup();
+            else {
+                ImGui::TextWrapped("Enter this code in the Hugging Face browser window.");
+                ImGui::PushFont(readout_font);
+                ImGui::TextUnformatted(hf_status.user_code.c_str());
+                ImGui::PopFont();
+                ImGui::Text("Code expires in %d:%02d", hf_status.seconds_remaining / 60,
+                            hf_status.seconds_remaining % 60);
+                if (ImGui::Button("Copy code")) ImGui::SetClipboardText(hf_status.user_code.c_str());
+                ImGui::SameLine();
+                if (ImGui::Button("Open browser")) hf::open_browser(hf_status.verification_url);
+                ImGui::SameLine();
+                if (ImGui::Button("Cancel sign-in")) { hugging_face.cancel(); ImGui::CloseCurrentPopup(); }
+                if (ImGui::Button("Get a new code")) { hf_new_code = true; hugging_face.cancel(); }
+                ui::muted("Waiting for authorisation");
+            }
+            ImGui::EndPopup();
+        }
+        if (!hf_status.authenticating) hf_auth_popup = false;
         if (pending_recording) {
             auto current = source ? source->snapshot() : snap;
             if (glfwWindowShouldClose(window) ||

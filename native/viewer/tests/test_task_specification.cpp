@@ -1,4 +1,5 @@
 #include "ceres/task_specification.hpp"
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cmath>
@@ -238,6 +239,183 @@ void open_tasks_and_zero_pauses() {
           "Large valid task duration overflowed its clock");
 }
 
+void restart_active_repetitions() {
+    TaskRun run;
+    run.start(timed_run(2, 3, 2), 1000000);
+    check(run.can_restart(), "An active task could not be restarted");
+    auto transitions = run.restart_repetition(1750000);
+    check(transitions.size() == 1 && transitions[0].time_us == 1750000 &&
+              transitions[0].reason == TaskTransitionReason::restart_repetition &&
+              transitions[0].before.phase == TaskRunPhase::active_task &&
+              transitions[0].after.phase == TaskRunPhase::active_task &&
+              transitions[0].before.phase_elapsed_us == 750000 &&
+              transitions[0].after.phase_elapsed_us == 0 &&
+              transitions[0].after.elapsed_us == 750000 &&
+              transitions[0].after.repetition == 1 && transitions[0].after.cycle == 1,
+          "Repetition restart did not expose a new episode without rewinding the run");
+    check(run.update(3000000).empty(), "Restarted repetition retained its old deadline");
+    transitions = run.update(3750000);
+    check(transitions.size() == 1 && transitions[0].time_us == 3750000 &&
+              transitions[0].reason == TaskTransitionReason::progression &&
+              transitions[0].after.phase == TaskRunPhase::post_task_pause,
+          "Restarted timed repetition did not receive its full duration");
+    run.advance(4000000);
+    check(run.progress(4250000).repetition == 2, "Restart test did not reach repetition two");
+    transitions = run.restart_task(4500000);
+    check(transitions.size() == 1 && transitions[0].reason == TaskTransitionReason::restart_task &&
+              transitions[0].time_us == 4500000 && transitions[0].before.repetition == 2 &&
+              transitions[0].after.repetition == 1 && transitions[0].after.task_index == 0 &&
+              transitions[0].after.cycle == 1 && transitions[0].after.elapsed_us == 3500000 &&
+              transitions[0].after.phase_elapsed_us == 0,
+          "Whole-task restart changed cycle, elapsed time or the wrong repetition");
+    transitions = run.restart_task(4500000);
+    check(transitions.size() == 1 && transitions[0].time_us == 4500000 &&
+              transitions[0].before.phase == transitions[0].after.phase &&
+              transitions[0].reason == TaskTransitionReason::restart_task,
+          "A restart at the same cursor silently lost its episode boundary");
+
+    run.start(timed_run(1, 2), 10000000);
+    transitions = run.restart_repetition(11250000);
+    check(transitions.size() == 2 && transitions[0].time_us == 11000000 &&
+              transitions[0].after.phase == TaskRunPhase::post_task_pause &&
+              transitions[1].time_us == 11250000 &&
+              transitions[1].before.phase == TaskRunPhase::post_task_pause &&
+              transitions[1].after.phase == TaskRunPhase::active_task &&
+              transitions[1].after.elapsed_us == 1250000 &&
+              transitions[1].after.phase_elapsed_us == 0,
+          "Late restart lost the previous timed boundary or backdated the new capture");
+    transitions = run.update(12250000);
+    check(transitions.size() == 1 && transitions[0].time_us == 12250000,
+          "A repetition restarted during reset used the original task clock");
+    rejects([&] { run.restart_repetition(12249999); },
+            "Repetition restart accepted a backwards capture clock");
+    rejects([&] { run.restart_task(12249999); },
+            "Whole-task restart accepted a backwards capture clock");
+}
+
+void restart_manually_paused_tasks() {
+    TaskSpecification specification;
+    specification.run_title = "Open task restart";
+    specification.tasks = {
+        {"open", "Inspect", "Inspect the part.", TaskType::open, 0, 5, 3}};
+    TaskRun run;
+    run.start(specification, 0);
+    run.advance(1000000);
+    run.advance(2000000);
+    run.pause(3000000);
+    check(run.can_restart(), "Manually paused task could not be restarted");
+    auto transitions = run.restart_repetition(20000000);
+    check(transitions.size() == 1 && transitions[0].time_us == 20000000 &&
+              transitions[0].before.paused && !transitions[0].after.paused &&
+              transitions[0].after.phase == TaskRunPhase::active_task &&
+              transitions[0].after.repetition == 2 && transitions[0].after.elapsed_us == 3000000 &&
+              transitions[0].after.phase_elapsed_us == 0 &&
+              !transitions[0].after.phase_remaining_us,
+          "Restart did not resume the paused open repetition with intact run time");
+    check(run.progress(21000000).elapsed_us == 4000000 &&
+              run.progress(21000000).phase_elapsed_us == 1000000,
+          "Restart included manually paused wall time in the run duration");
+    run.advance(22000000);
+    run.pause(23000000);
+    transitions = run.restart_task(40000000);
+    check(transitions.size() == 1 && transitions[0].before.paused &&
+              transitions[0].before.phase == TaskRunPhase::post_task_pause &&
+              !transitions[0].after.paused && transitions[0].after.repetition == 1 &&
+              transitions[0].after.elapsed_us == 6000000 &&
+              transitions[0].after.phase_elapsed_us == 0,
+          "Whole-task restart from a manually paused reset did not resume repetition one");
+}
+
+void restart_prescribed_pauses() {
+    auto specification = timed_run(1, 2, 2);
+    specification.tasks.push_back({"pause-a", "Rest", "Rest.", TaskType::pause, 3, 0, 1});
+    specification.tasks.push_back({"pause-b", "Wait", "Wait.", TaskType::pause, 4, 0, 1});
+    for (bool whole_task : {false, true}) {
+        TaskRun run;
+        run.start(specification, 0);
+        run.update(16000000);
+        check(run.can_restart() && run.progress(16000000).phase == TaskRunPhase::task_pause &&
+                  run.progress(16000000).task_index == 2,
+              "Restart test did not reach consecutive explicit pauses");
+        const auto transitions = whole_task ? run.restart_task(17000000)
+                                             : run.restart_repetition(17000000);
+        check(transitions.size() == 1 && transitions[0].time_us == 17000000 &&
+                  transitions[0].after.task_index == 0 &&
+                  transitions[0].after.repetition == (whole_task ? 1 : 2) &&
+                  transitions[0].after.phase == TaskRunPhase::active_task &&
+                  transitions[0].after.cycle == 1 &&
+                  transitions[0].after.elapsed_us == 17000000 &&
+                  transitions[0].after.phase_elapsed_us == 0,
+              "Explicit pause restart did not return to the last performed task or repetition");
+        run.start(specification, 30000000);
+        run.update(49000000);
+        check(run.can_restart() && run.progress(49000000).phase == TaskRunPhase::cycle_pause,
+              "Cycle pause did not retain a restartable task");
+        const auto cycle = whole_task ? run.restart_task(50000000)
+                                      : run.restart_repetition(50000000);
+        check(cycle.size() == 1 && cycle[0].after.task_index == 0 &&
+                  cycle[0].after.repetition == (whole_task ? 1 : 2) &&
+                  cycle[0].after.cycle == 1 && cycle[0].after.elapsed_us == 20000000 &&
+                  cycle[0].after.phase_elapsed_us == 0 && !cycle[0].after.paused,
+              "Cycle pause restart selected a pause task or crossed the cycle boundary");
+    }
+
+    specification = parse_task_specification(document());
+    TaskRun run;
+    run.start(specification, 0);
+    run.update(17000000);
+    run.advance(18000000);
+    run.update(23000000);
+    const auto transitions = run.restart_repetition(24000000);
+    check(transitions.size() == 1 && transitions[0].after.task_index == 2 &&
+              run.current_task()->id == "inspect",
+          "Cycle restart returned to the first task instead of the most recent performed task");
+}
+
+void restart_availability() {
+    TaskRun run;
+    check(!run.can_restart() && run.restart_repetition(0).empty() && run.restart_task(0).empty(),
+          "An unstarted run offered a restart");
+    auto specification = timed_run(1, 1, 2);
+    specification.tasks.insert(specification.tasks.begin(),
+                               {"intro", "Wait", "Wait.", TaskType::pause, 2, 0, 1});
+    run.start(specification, 0);
+    check(!run.can_restart() && run.restart_repetition(1000000).empty() &&
+              run.restart_task(1000000).empty() && run.progress(1000000).task_index == 0,
+          "Leading pause fabricated a previously performed repetition");
+    run.pause(1000000);
+    check(!run.can_restart() && run.restart_task(5000000).empty() && run.progress(5000000).paused,
+          "Restart from an initial manual pause changed an unavailable target");
+    run.resume(5000000);
+    run.update(27000000);
+    check(!run.can_restart() && run.progress(27000000).phase == TaskRunPhase::task_pause &&
+              run.progress(27000000).cycle == 2 && run.restart_task(27000000).empty(),
+          "Leading pause in a new cycle restarted a task from the previous cycle");
+    run.update(29000000);
+    check(run.can_restart(), "A performed task in the new cycle could not be restarted");
+    run.stop(29500000);
+    check(!run.can_restart() && run.restart_repetition(30000000).empty() &&
+              run.restart_task(30000000).empty(),
+          "Stopped run restarted capture");
+    run.start(timed_run(1), 40000000);
+    const auto completed = run.restart_task(70000000);
+    check(!run.can_restart() && run.progress(70000000).phase == TaskRunPhase::complete &&
+              run.progress(70000000).elapsed_us == 21000000 && completed.size() == 3 &&
+              std::all_of(completed.begin(), completed.end(), [](const TaskTransition& transition) {
+                  return transition.reason == TaskTransitionReason::progression;
+              }) &&
+              run.restart_repetition(71000000).empty(),
+          "Restart revived an already completed run or changed its elapsed duration");
+    TaskSpecification pauses;
+    pauses.run_title = "Rest only";
+    pauses.tasks = {{"rest", "Rest", "Rest.", TaskType::pause, 1, 0, 1}};
+    run.start(pauses, 80000000);
+    run.update(82000000);
+    check(run.progress(82000000).phase == TaskRunPhase::cycle_pause && !run.can_restart() &&
+              run.restart_repetition(82000000).empty(),
+          "A pause-only cycle fabricated a recordable restart target");
+}
+
 void file_import() {
     const auto nonce = std::chrono::steady_clock::now().time_since_epoch().count();
     const auto path = std::filesystem::temp_directory_path() /
@@ -274,6 +452,10 @@ int main() {
         timed_progression();
         pause_resume_and_stop();
         open_tasks_and_zero_pauses();
+        restart_active_repetitions();
+        restart_manually_paused_tasks();
+        restart_prescribed_pauses();
+        restart_availability();
         file_import();
         std::cout << "PASS: CERES task imports, timing, repetitions, pauses and cycles\n";
         return 0;
