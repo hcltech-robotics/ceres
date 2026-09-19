@@ -1499,11 +1499,8 @@ export class SessionStore {
     else if (connection && connection.role !== "monitor" && connection.role !== "monitor-control") throw new Error("Only the capture director or active demonstrator can control the run");
     await this.enqueueRun(session, async () => {
       const actor = connection?.role === "capture" ? "demonstrator" : "director";
-      if (action === "finish" && actor !== "demonstrator") {
-        throw new Error("Only the demonstrator can finish the run");
-      }
       if (isStateBoundRunControlAction(action)
-        && (connection !== undefined || nextCursor !== undefined)
+        && (action === "finish" || connection !== undefined || nextCursor !== undefined)
         && nextCursor !== nextRunControlCursor(session, action)) {
         this.publishSnapshot(session);
         return;
@@ -1856,7 +1853,11 @@ export class SessionStore {
     const episode = session.currentEpisode ?? session.pendingEpisode;
     if (!episode) throw new Error("There is no active recording to stop");
     if (session.pendingStopOutcome) return;
-    this.clearTimedTaskTimer(session);
+    if (nextAction === "stop-run" || nextAction === "finish-run") {
+      this.clearRunTimers(session);
+      session.run.phase = null;
+      session.run.resetDeadlineMs = null;
+    } else this.clearTimedTaskTimer(session);
     this.freezeTakeAndRecordingClocks(session);
     session.pendingStopOutcome = outcome;
     session.pendingRunAction = nextAction;

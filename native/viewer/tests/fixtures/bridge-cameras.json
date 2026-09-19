@@ -1,0 +1,36 @@
+{
+  "provenance": {
+    "repository": "https://github.com/hcltech-robotics/ceres",
+    "base_revision": "05a0a2cd39a749687507c2411f9f238444c261e4",
+    "revision": "15c707767d35ec7c5435eca059da659e10e32f07",
+    "contract_state": "committed",
+    "files_sha256": {
+      "shared/bridge-protocol.ts": "b1ebe9f788baa7f6c82c8b5c2c083f29512b2db8d9c4438cd0bced426b755faf",
+      "src/bridge/peer.ts": "5ede5eb0c3a2b1336bd85d3c0aa296a439c5c4cf7abff4fa2d5b66be98bf45e3",
+      "test/bridge-protocol.test.ts": "f133e04734082c87135073ef800e47ca918dbe9c86437f1b31dee60cca510cc1"
+    },
+    "source_fixture": "test/bridge-protocol.test.ts description()"
+  },
+  "description": {
+    "type": "description",
+    "version": 1,
+    "epoch": 1,
+    "clock": {"id": "camera-test", "units": "microseconds", "domain": "sender-monotonic"},
+    "referenceSpace": "local-floor",
+    "axes": "right-handed-x-right-y-up-z-back",
+    "units": "metres",
+    "quaternion": "xyzw",
+    "joints": [
+      "wrist", "thumb-metacarpal", "thumb-phalanx-proximal", "thumb-phalanx-distal", "thumb-tip",
+      "index-finger-metacarpal", "index-finger-phalanx-proximal", "index-finger-phalanx-intermediate", "index-finger-phalanx-distal", "index-finger-tip",
+      "middle-finger-metacarpal", "middle-finger-phalanx-proximal", "middle-finger-phalanx-intermediate", "middle-finger-phalanx-distal", "middle-finger-tip",
+      "ring-finger-metacarpal", "ring-finger-phalanx-proximal", "ring-finger-phalanx-intermediate", "ring-finger-phalanx-distal", "ring-finger-tip",
+      "pinky-finger-metacarpal", "pinky-finger-phalanx-proximal", "pinky-finger-phalanx-intermediate", "pinky-finger-phalanx-distal", "pinky-finger-tip"
+    ],
+    "camera": {"side": "right", "width": 1280, "height": 960, "requestedWidth": 640, "fps": 30, "calibration": null},
+    "cameras": [
+      {"side": "right", "width": 1280, "height": 960, "requestedWidth": 640, "fps": 30, "calibration": null, "mid": "0"},
+      {"side": "left", "width": 1280, "height": 960, "requestedWidth": 640, "fps": 30, "calibration": null, "mid": "1"}
+    ]
+  }
+}

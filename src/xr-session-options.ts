@@ -1,4 +1,4 @@
-import { SessionMode, type XROptions } from "@iwsdk/core/dist/init/xr.js";
+import { ReferenceSpaceType, SessionMode, type XROptions } from "@iwsdk/core/dist/init/xr.js";
 
 export interface XrSideRecognition {
   left: boolean;
@@ -219,5 +219,23 @@ export const CERES_SOLO_XR_SESSION_OPTIONS = {
   features: {
     ...CERES_XR_SESSION_OPTIONS.features,
     handTracking: true,
+  },
+} satisfies XROptions;
+
+/** Optional depth can be requested by the director during an existing XR session. */
+export const CERES_DIRECTED_XR_SESSION_OPTIONS = {
+  ...CERES_XR_SESSION_OPTIONS,
+  features: {
+    ...CERES_XR_SESSION_OPTIONS.features,
+    depthSensing: { usage: "cpu-optimized", format: "float32" },
+  },
+} satisfies XROptions;
+
+export const CERES_BRIDGE_XR_SESSION_OPTIONS = {
+  ...CERES_SOLO_XR_SESSION_OPTIONS,
+  referenceSpace: { type: ReferenceSpaceType.LocalFloor, required: true },
+  features: {
+    ...CERES_SOLO_XR_SESSION_OPTIONS.features,
+    depthSensing: { usage: "cpu-optimized", format: "float32" },
   },
 } satisfies XROptions;

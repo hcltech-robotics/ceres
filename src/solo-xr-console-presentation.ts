@@ -272,7 +272,7 @@ const DEFAULT_EXPORT_STATE: SoloXrConsoleExportState = {
   visibility: "private",
   state: "idle",
   progress: null,
-  message: "Choose accepted episodes to export",
+  message: "Choose accepted captures to export",
   canCancel: false,
   canRetry: false,
   jobs: [],
@@ -333,7 +333,7 @@ export function buildSoloXrConsolePresentation(
   const visibleHint = collapsed ? "Capture controls remain on the demonstrator HUD" : hint;
   return deepFreeze({
     page,
-    hint: options.notice ? `${options.notice} / ${visibleHint}` : visibleHint,
+    hint: options.notice ? `${options.notice}/${visibleHint}` : visibleHint,
     identity: sessionIdentity(snapshot.sessionId, options.sessionRecovery ?? "active"),
     collapsed,
     statusIndicators: statusIndicators(snapshot, options.finalising === true, exportState),
@@ -580,8 +580,8 @@ function rowsForPage(
         };
   return [accountRow, ...exportState.jobs.map((job) => ({
     id: `export-job-${job.id}`,
-    primary: `${job.type === "upload" ? "Hugging Face" : "Local export"} / ${job.state}`,
-    secondary: `${compactText(job.detail, 54)} / ${formatJobTime(job.updatedAt)}`,
+    primary: `${job.type === "upload" ? "Hugging Face" : "Local export"}/${job.state}`,
+    secondary: `${compactText(job.detail, 54)}/${formatJobTime(job.updatedAt)}`,
     selected: job.state === "queued" || job.state === "running",
     enabled: true,
     intent: null,
@@ -812,7 +812,7 @@ function controlsForPage(
     controls.push({
       kind: "progress",
       id: "export-progress",
-      label: `${exportState.message} / ${Math.round(progress * 100)}%`,
+      label: `${exportState.message}/${Math.round(progress * 100)}%`,
       value: progress,
     });
   }
@@ -921,7 +921,7 @@ function episodeRow(
   return {
     id: episode.id,
     primary: episode.taskLabel || episode.runTitle || episode.id,
-    secondary: `${kind} / ${episode.outcome} / ${episode.integrity} / ${exportability} / take ${episode.take}`,
+    secondary: `${kind === "episode" ? "capture" : "attempt"}/${episode.outcome}/${episode.integrity}/${exportability}/cycle ${episode.cycle}/rep ${episode.repetition}/attempt ${episode.take}`,
     selected,
     enabled: episode.integrity !== "pending",
     control: "checkbox",
@@ -934,9 +934,9 @@ function episodeRow(
 }
 
 function taskSummary(task: TaskDefinition) {
-  if (task.type === "pause") return `Pause / ${task.durationS}s`;
-  if (task.type === "open") return `Open / ${task.repeatCount} repeat`;
-  return `Timed / ${task.durationS}s / ${task.repeatCount} repeat`;
+  if (task.type === "pause") return `Pause/${task.durationS}s`;
+  if (task.type === "open") return `Open/${task.repeatCount} rep${task.repeatCount === 1 ? "" : "s"}`;
+  return `Timed/${task.durationS}s/${task.repeatCount} rep${task.repeatCount === 1 ? "" : "s"}`;
 }
 
 function statusIndicators(
@@ -1049,7 +1049,7 @@ function pageHint(
   if (page !== "export" && (exportState.state === "preparing" || exportState.state === "uploading")) {
     const progress = exportState.progress === null
       ? ""
-      : ` / ${Math.round(Math.max(0, Math.min(1, exportState.progress)) * 100)}%`;
+      : `/${Math.round(Math.max(0, Math.min(1, exportState.progress)) * 100)}%`;
     return `${exportState.message}${progress}`;
   }
   if (page === "run") {
@@ -1063,9 +1063,9 @@ function pageHint(
   }
   if (page === "import") {
     const preview = importState.preview
-      ? ` / ${importState.preview.runTitle} / ${importState.preview.tasks.length} tasks`
+      ? `/${importState.preview.runTitle}/${importState.preview.tasks.length} tasks`
       : importState.previewLabel
-        ? ` / ${importState.previewLabel}`
+        ? `/${importState.previewLabel}`
         : "";
     return `${importState.message}${preview}`;
   }
@@ -1074,7 +1074,7 @@ function pageHint(
   }
   const progress = exportState.progress === null
     ? ""
-    : ` / ${Math.round(Math.max(0, Math.min(1, exportState.progress)) * 100)}%`;
+    : `/${Math.round(Math.max(0, Math.min(1, exportState.progress)) * 100)}%`;
   return `${exportState.message}${progress}`;
 }
 
@@ -1086,15 +1086,15 @@ function importPreviewRows(preview: SoloXrConsoleImportPreview): SoloXrConsoleRo
     {
       id: "preview-run",
       primary: compactText(preview.runTitle || "Untitled run", 48),
-      secondary: `${preview.cycleCount} cycle${preview.cycleCount === 1 ? "" : "s"} / ${compactText(preview.runDescription || "No description", 72)}`,
+      secondary: `${preview.cycleCount} cycle${preview.cycleCount === 1 ? "" : "s"}/${compactText(preview.runDescription || "No description", 72)}`,
       selected: false,
       enabled: true,
       intent: null,
     },
     {
       id: "preview-provenance",
-      primary: compactText(`${preview.sourceLabel} / ${preview.fileName}`, 52),
-      secondary: `SHA-256 ${compactHash(preview.taskSpecHash)} / ${compactText(warnings, 52)}`,
+      primary: compactText(`${preview.sourceLabel}/${preview.fileName}`, 52),
+      secondary: `SHA-256 ${compactHash(preview.taskSpecHash)}/${compactText(warnings, 52)}`,
       selected: false,
       enabled: true,
       intent: null,
@@ -1102,7 +1102,7 @@ function importPreviewRows(preview: SoloXrConsoleImportPreview): SoloXrConsoleRo
     ...preview.tasks.map((task, index): SoloXrConsoleRow => ({
       id: `preview-task-${task.id}`,
       primary: compactText(`${index + 1}. ${task.label}`, 48),
-      secondary: `${previewTaskTiming(task)} / ${compactText(task.instructions || "No instructions", 56)}`,
+      secondary: `${previewTaskTiming(task)}/${compactText(task.instructions || "No instructions", 56)}`,
       selected: false,
       enabled: true,
       intent: null,
@@ -1111,18 +1111,18 @@ function importPreviewRows(preview: SoloXrConsoleImportPreview): SoloXrConsoleRo
 }
 
 function previewTaskTiming(task: SoloXrConsoleImportPreviewTask) {
-  if (task.type === "pause") return `Pause / ${task.durationS ?? 0}s`;
+  if (task.type === "pause") return `Pause/${task.durationS ?? 0}s`;
   if (task.type === "open") {
-    return `Open / ${task.repeatCount ?? 1} repeat / ${task.resetTimeS ?? 0}s reset`;
+    return `Open/${task.repeatCount ?? 1} rep${(task.repeatCount ?? 1) === 1 ? "" : "s"}/${task.resetTimeS ?? 0}s reset`;
   }
-  return `Timed / ${task.durationS ?? 0}s / ${task.repeatCount ?? 1} repeat / ${task.resetTimeS ?? 0}s reset`;
+  return `Timed/${task.durationS ?? 0}s/${task.repeatCount ?? 1} rep${(task.repeatCount ?? 1) === 1 ? "" : "s"}/${task.resetTimeS ?? 0}s reset`;
 }
 
 function readinessSummary(snapshot: SessionSnapshot) {
   const messages = snapshot.sequenceReadiness.blockers
     .slice(0, 2)
     .map(({ message }) => message.replace(/^The demonstrator /, "Solo capture "));
-  return messages.length > 0 ? messages.join(" / ") : "Capture is not ready";
+  return messages.length > 0 ? messages.join("/") : "Capture is not ready";
 }
 
 function sessionIdentity(
@@ -1132,7 +1132,7 @@ function sessionIdentity(
   const displayId = sessionId.length > 20
     ? `${sessionId.slice(0, 10)}...${sessionId.slice(-6)}`
     : sessionId;
-  return `SESSION ${displayId} / ${recovery.toUpperCase()}`;
+  return `SESSION ${displayId}/${recovery.toUpperCase()}`;
 }
 
 function formatJobTime(value: string) {

@@ -9,6 +9,7 @@ import {
   type VerifiedEpisodeHuggingFaceUpload,
 } from "../shared/protocol.js";
 import { DirectSessionReducer } from "../src/direct-session-reducer.js";
+import { isExportableEpisode } from "../shared/lerobot-export.js";
 
 const validSummary = {
   frameCount: 2,
@@ -935,24 +936,26 @@ test("stop and recorder rejection fail closed without accepting a cycle", () => 
   assert.equal(rejected.snapshot.attempts[0]?.segments?.[0]?.outcome, "stopped");
 });
 
-test("demonstrator Finish completes and accepts a run only after recorder finalisation", () => {
-  const fixture = readyReducer("direct-finish");
+for (const actor of ["director", "demonstrator"] as const) test(`${actor} finish preserves a partial cycle only after recorder finalisation`, () => {
+  const fixture = readyReducer(`direct-finish-${actor}`, (configuration) => {
+    configuration.totalCycles = 3;
+    configuration.tasks = [
+      { id: "task-a", label: "Task A", instructions: "Reach", type: "open", repeatCount: 2, resetTimeS: 5 },
+      { id: "task-b", label: "Task B", instructions: "Place", type: "open", repeatCount: 1, resetTimeS: 5 },
+    ];
+  });
   const { reducer } = fixture;
   reducer.control("start-sequence");
   reducer.recordingAccepted("cycle-episode-1");
 
   const finishCursor = nextRunControlCursor(reducer.snapshot, "finish");
-  assert.throws(
-    () => reducer.control("finish", "director", finishCursor),
-    /Only the demonstrator can finish/,
-  );
-  const cursorless = reducer.control("finish", "demonstrator");
+  const cursorless = reducer.control("finish", actor);
   assert.equal(cursorless.some((command) => command.type === "control"), false);
   assert.equal(reducer.snapshot.run.recordingState, "recording");
-  const stale = reducer.control("finish", "demonstrator", "stale-finish-cursor");
+  const stale = reducer.control("finish", actor, "stale-finish-cursor");
   assert.equal(stale.some((command) => command.type === "control"), false);
   assert.equal(reducer.snapshot.run.recordingState, "recording");
-  const finishCommands = reducer.control("finish", "demonstrator", finishCursor);
+  const finishCommands = reducer.control("finish", actor, finishCursor);
   assert.deepEqual(
     finishCommands.filter((command) => command.type === "control").map((command) => command.action),
     ["recording-paused", "recording-event", "recording-stopping"],
@@ -963,18 +966,26 @@ test("demonstrator Finish completes and accepts a run only after recorder finali
   assert.equal(reducer.snapshot.currentEpisode?.runFinalisation, "finish-requested");
   assert.equal(reducer.snapshot.currentEpisode?.segments?.[0]?.outcome, "completed");
   assert.equal(reducer.snapshot.currentEpisode?.segments?.[0]?.accepted, false);
+  assert.equal(reducer.snapshot.run.phase, null);
+  assert.equal(reducer.snapshot.run.resetDeadlineMs, null);
   assert.equal(
-    reducer.control("finish", "demonstrator", finishCursor).some((command) => command.type === "control"),
+    reducer.control("finish", actor, finishCursor).some((command) => command.type === "control"),
     false,
   );
+  assert.throws(() => reducer.control("finish", actor, nextRunControlCursor(reducer.snapshot, "finish")), /already finalising/);
+  fixture.setNow(60_000);
+  reducer.advanceTime();
+  assert.equal(reducer.snapshot.run.recordingState, "stopping");
+  assert.equal(reducer.snapshot.run.activeTaskIndex, 0);
+  assert.equal(reducer.snapshot.run.cycle, 1);
 
-  fixture.setNow(2_000);
+  fixture.setNow(61_000);
   reducer.recordingFinalised("cycle-episode-1", validSummaryFor(reducer));
 
   assert.equal(reducer.snapshot.run.status, "complete");
   assert.equal(reducer.snapshot.run.phase, null);
   assert.equal(reducer.snapshot.run.recordingState, "idle");
-  assert.equal(reducer.snapshot.run.endedAtMs, 2_000);
+  assert.equal(reducer.snapshot.run.endedAtMs, 61_000);
   assert.equal(reducer.snapshot.currentEpisode, null);
   assert.equal(reducer.snapshot.attempts.length, 0);
   assert.equal(reducer.snapshot.episodes[0]?.outcome, "completed");
@@ -982,15 +993,25 @@ test("demonstrator Finish completes and accepts a run only after recorder finali
   assert.equal(reducer.snapshot.episodes[0]?.runFinalisation, "finish-completed");
   assert.equal(reducer.snapshot.episodes[0]?.segments?.[0]?.outcome, "completed");
   assert.equal(reducer.snapshot.episodes[0]?.segments?.[0]?.accepted, true);
+  assert.equal(reducer.snapshot.episodes[0]?.frameCount, 1);
+  assert.equal(reducer.snapshot.episodes[0]?.mediaChunkCount, 1);
+  assert.equal(isExportableEpisode(reducer.snapshot.episodes[0]), true);
+  assert.deepEqual(reducer.snapshot.episodes[0]?.segments?.map(({ taskId }) => taskId), ["task-a"]);
+  assert.equal(reducer.control("finish", actor, finishCursor).some((command) => command.type === "control"), false);
+  fixture.setNow(120_000);
+  reducer.advanceTime();
+  assert.equal(reducer.snapshot.run.status, "complete");
+  assert.equal(reducer.snapshot.run.cycle, 1);
+  assert.equal(reducer.snapshot.pendingEpisode, null);
 });
 
-test("Finish rejects a delayed direct recorder acceptance without publishing a terminal boundary", () => {
+for (const actor of ["director", "demonstrator"] as const) test(`${actor} finish waits for direct recorder acceptance before closing a segment`, () => {
   const { reducer } = readyReducer("direct-finish-during-arming");
   reducer.control("start-sequence");
   const armingCursor = nextRunControlCursor(reducer.snapshot, "finish");
 
   assert.throws(
-    () => reducer.control("finish", "demonstrator", armingCursor),
+    () => reducer.control("finish", actor, armingCursor),
     /accept the recording before finishing/,
   );
   assert.equal(reducer.snapshot.run.recordingState, "arming");
@@ -1000,13 +1021,44 @@ test("Finish rejects a delayed direct recorder acceptance without publishing a t
   reducer.recordingAccepted("cycle-episode-1");
   const commands = reducer.control(
     "finish",
-    "demonstrator",
+    actor,
     nextRunControlCursor(reducer.snapshot, "finish"),
   );
   assert.deepEqual(
     commands.filter((command) => command.type === "control").map((command) => command.action),
     ["recording-paused", "recording-event", "recording-stopping"],
   );
+});
+
+for (const phase of ["paused", "reset", "cycle-pause"] as const) test(`director finish completes from ${phase} without advancing another task or cycle`, () => {
+  const fixture = readyReducer(`direct-finish-${phase}`, (configuration) => {
+    configuration.totalCycles = 3;
+    configuration.tasks = [{ id: "task-a", label: "Task A", instructions: "Reach", type: "open", repeatCount: 1, resetTimeS: 5 }];
+  });
+  const { reducer } = fixture;
+  reducer.control("start-sequence");
+  reducer.recordingAccepted("cycle-episode-1");
+  if (phase === "paused") reducer.control("pause");
+  else {
+    next(reducer);
+    if (phase === "cycle-pause") {
+      next(reducer);
+      reducer.recordingFinalised("cycle-episode-1", validSummaryFor(reducer));
+    }
+  }
+  reducer.control("finish", "director", nextRunControlCursor(reducer.snapshot, "finish"));
+  fixture.setNow(60_000);
+  reducer.advanceTime();
+  assert.equal(reducer.snapshot.run.cycle, 1);
+  assert.equal(reducer.snapshot.pendingEpisode, null);
+  if (phase !== "cycle-pause") {
+    assert.equal(reducer.snapshot.run.recordingState, "stopping");
+    assert.equal(reducer.snapshot.episodes.length, 0);
+    reducer.recordingFinalised("cycle-episode-1", validSummaryFor(reducer));
+  }
+  assert.equal(reducer.snapshot.run.status, "complete");
+  assert.equal(reducer.snapshot.episodes.length, 1);
+  assert.equal(isExportableEpisode(reducer.snapshot.episodes[0]), true);
 });
 
 test("post-task-pause Finish survives a direct authority restart as terminal finalisation", () => {

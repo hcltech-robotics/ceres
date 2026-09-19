@@ -1,6 +1,7 @@
 import { parseMetadata, XR_HAND_JOINTS, type BridgeCameraDescription, type BridgeDescription } from "../../shared/bridge-protocol.js";
 import type { BridgeCamera } from "./camera.js";
 import { relayBase, refreshBinding, type Binding } from "./pairing.js";
+import { DEPTH_CHANNEL, DEPTH_FEATURE, type DepthStatus } from "../../shared/bridge-depth.js";
 
 const nowUs = () => Math.round(performance.now() * 1000);
 
@@ -12,9 +13,10 @@ const describeCamera = (camera: BridgeCamera): BridgeCameraDescription => ({
 export class BridgePeer {
   pc: RTCPeerConnection | null = null;
   pose: RTCDataChannel | null = null;
+  depth: RTCDataChannel | null = null;
   epoch = 0;
   private paused = false;
-  private videoSenders: RTCRtpSender[] = [];
+  private videoSender: RTCRtpSender | null = null;
   private audioSender: RTCRtpSender | null = null;
   private audioTrack: MediaStreamTrack | null = null;
   private socket: WebSocket | null = null;
@@ -26,12 +28,10 @@ export class BridgePeer {
   private metadata: RTCDataChannel | null = null;
   private signalComplete = false;
 
-  constructor(private binding: Binding, private cameras: readonly BridgeCamera[], private referenceSpace: "local" | "local-floor",
+  constructor(private binding: Binding, private camera: BridgeCamera | null, private referenceSpace: "local" | "local-floor",
     private status: (message: string) => void, private fatal: (error: Error) => void) {
-    if (cameras.length < 1 || cameras.length > 2
-      || cameras.length === 2 && (new Set(cameras.map(camera => camera.side)).size !== 2
-        || cameras.some(camera => camera.side === "unknown"))) {
-      throw new Error("Bridge requires one camera or a left and right camera pair");
+    if (camera && (!camera.track || !camera.stream)) {
+      throw new Error("Bridge accepts one selected camera");
     }
   }
 
@@ -44,13 +44,15 @@ export class BridgePeer {
     this.epoch = this.binding.epoch;
     const pc = this.pc = new RTCPeerConnection({ iceServers: [], bundlePolicy: "max-bundle" });
     this.pose = pc.createDataChannel("ceres.pose.v1", { ordered: false, maxRetransmits: 0 });
+    this.depth = pc.createDataChannel(DEPTH_CHANNEL, { ordered: false, maxRetransmits: 0 });
     const meta = this.metadata = pc.createDataChannel("ceres.meta.v1", { ordered: true });
     const description: BridgeDescription = {
       type: "description", version: 1, epoch: this.epoch,
       clock: { id: crypto.randomUUID(), units: "microseconds", domain: "sender-monotonic" },
       referenceSpace: this.referenceSpace, axes: "right-handed-x-right-y-up-z-back", units: "metres",
       quaternion: "xyzw", joints: XR_HAND_JOINTS,
-      camera: describeCamera(this.cameras[0]),
+      ...(this.camera ? { camera: describeCamera(this.camera) } : {}),
+      environment_depth: { ...DEPTH_FEATURE },
     };
     let acknowledged = false, remoteEnd = false, localEndSent = false, offered = false;
     let remoteSet = false;
@@ -121,12 +123,12 @@ export class BridgePeer {
         if (message.epoch !== this.epoch) return;
         if (message.type === "peer-ready" && !offered) {
           offered = true;
-          const videos = this.cameras.map(camera => pc.addTransceiver(camera.track, {
-            direction: "sendonly", streams: [camera.stream],
-            sendEncodings: [{ maxBitrate: 2_000_000, scaleResolutionDownBy: Math.max(1, camera.width / 640) }],
-          }));
-          this.videoSenders = videos.map(video => video.sender);
-          if (this.paused) await Promise.all(this.videoSenders.map(sender => sender.replaceTrack(null)));
+          const video = this.camera ? pc.addTransceiver(this.camera.track, {
+            direction: "sendonly", streams: [this.camera.stream],
+            sendEncodings: [{ maxBitrate: 2_000_000, scaleResolutionDownBy: Math.max(1, this.camera.width / 640) }],
+          }) : null;
+          this.videoSender = video?.sender ?? null;
+          if (this.paused) await this.videoSender?.replaceTrack(null);
           if (!active()) return;
           const audio = pc.addTransceiver("audio", { direction: "sendonly", sendEncodings: [{ maxBitrate: 32_000 }] });
           const opus = RTCRtpSender.getCapabilities("audio")?.codecs.filter(codec => codec.mimeType.toLowerCase() === "audio/opus");
@@ -137,21 +139,13 @@ export class BridgePeer {
           if (codecs?.length) {
             const preferred = new URLSearchParams(location.search).get("codec") === "vp8" ? "video/VP8" : "video/H264";
             codecs.sort((a, b) => Number(b.mimeType === preferred) - Number(a.mimeType === preferred));
-            for (const video of videos) video.setCodecPreferences(codecs);
+            video?.setCodecPreferences(codecs);
           }
           const offer = await pc.createOffer();
           if (!active()) return;
           await pc.setLocalDescription(offer);
           if (!active()) return;
-          const cameraDescriptions = this.cameras.map(describeCamera);
-          description.camera = cameraDescriptions[0];
-          if (this.cameras.length > 1) {
-            description.cameras = cameraDescriptions.map((camera, index) => {
-              const mid = videos[index].mid;
-              if (mid === null) throw new Error("Bridge camera track has no negotiated identity");
-              return { ...camera, mid };
-            });
-          }
+          if (this.camera) description.camera = describeCamera(this.camera);
           send({ type: "offer", sdp: offer.sdp });
         } else if (message.type === "signal") {
           const signal = message.signal;
@@ -205,7 +199,7 @@ export class BridgePeer {
   async setPaused(paused: boolean) {
     this.paused = paused;
     await Promise.all([
-      ...this.videoSenders.map((sender, index) => sender.replaceTrack(paused ? null : this.cameras[index].track)),
+      this.videoSender?.replaceTrack(paused ? null : this.camera?.track ?? null),
       this.audioSender?.replaceTrack(paused ? null : this.audioTrack),
     ]);
   }
@@ -215,8 +209,15 @@ export class BridgePeer {
     this.audioTrack = track;
   }
 
+  sendDepthStatus(status: DepthStatus): boolean {
+    const meta = this.metadata;
+    if (!meta || meta.readyState !== "open" || meta.bufferedAmount >= 4096 || status.epoch !== this.epoch) return false;
+    try { meta.send(JSON.stringify(status)); return true; }
+    catch { return false; }
+  }
+
   private cleanup() {
-    this.videoSenders = [];
+    this.videoSender = null;
     this.audioSender = null;
     if (this.timer) clearTimeout(this.timer);
     if (this.setupTimer) clearTimeout(this.setupTimer);
@@ -226,6 +227,7 @@ export class BridgePeer {
     if (this.socket) { this.socket.onopen = null; this.socket.onmessage = null; this.socket.onclose = null; this.socket.onerror = null; this.socket.close(); }
     if (this.pc) { this.pc.onconnectionstatechange = null; this.pc.onicecandidate = null; this.pc.close(); }
     this.pose = null;
+    this.depth = null;
     if (this.metadata) { this.metadata.onopen = null; this.metadata.onmessage = null; }
     this.metadata = null;
     this.socket = null;

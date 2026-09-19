@@ -462,7 +462,7 @@
   <img class="logo-underlay noninteractive" src="/assets/ceres-project-icon-monochrome.webp" />
 
   <Container class="header foreground">
-    <Text id="solo-console-identity" class="identity noninteractive">SOLO / SESSION -- / ACTIVE</Text>
+    <Text id="solo-console-identity" class="identity noninteractive">SOLO/SESSION --/ACTIVE</Text>
     <Container class="header-actions">
       <Button id="solo-console-back" class="header-button header-back" variant="secondary" size="lg">
         <ButtonIcon><ArrowLeft class="noninteractive"></ArrowLeft></ButtonIcon>
@@ -486,7 +486,7 @@
       <ButtonLabel class="navigation-label"><Text id="nav-import-label" class="noninteractive">Import</Text></ButtonLabel>
     </Button>
     <Button id="nav-episodes" class="navigation-button" variant="tertiary" size="lg">
-      <ButtonLabel class="navigation-label"><Text id="nav-episodes-label" class="noninteractive">Episodes</Text></ButtonLabel>
+      <ButtonLabel class="navigation-label"><Text id="nav-episodes-label" class="noninteractive">Captures</Text></ButtonLabel>
     </Button>
     <Button id="nav-export" class="navigation-button" variant="tertiary" size="lg">
       <ButtonLabel class="navigation-label"><Text id="nav-export-label" class="noninteractive">Export</Text></ButtonLabel>
@@ -579,17 +579,17 @@
   </Container>
 
   <Container id="task-properties-duration-field" class="task-properties-field task-properties-slider-field">
-    <Text id="task-properties-duration-label" class="task-properties-label noninteractive">Duration / 5 s</Text>
+    <Text id="task-properties-duration-label" class="task-properties-label noninteractive">Duration/5 s</Text>
     <Slider id="task-properties-duration" class="task-properties-slider" size="md"></Slider>
   </Container>
 
   <Container id="task-properties-repetitions-field" class="task-properties-field task-properties-slider-field">
-    <Text id="task-properties-repetitions-label" class="task-properties-label noninteractive">Repetitions / 1</Text>
+    <Text id="task-properties-repetitions-label" class="task-properties-label noninteractive">Repetitions/1</Text>
     <Slider id="task-properties-repetitions" class="task-properties-slider" size="md"></Slider>
   </Container>
 
   <Container id="task-properties-reset-field" class="task-properties-field task-properties-slider-field">
-    <Text id="task-properties-reset-label" class="task-properties-label noninteractive">Reset / 5 s</Text>
+    <Text id="task-properties-reset-label" class="task-properties-label noninteractive">Reset/5 s</Text>
     <Slider id="task-properties-reset" class="task-properties-slider" size="md"></Slider>
   </Container>
 

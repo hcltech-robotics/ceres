@@ -1,0 +1,4 @@
+Cousine Regular, Steve Matteson.
+Unmodified font bundled with Dear ImGui 1.91.9b.
+Digitized data copyright (c) 2010 Google Corporation.
+SIL Open Font License 1.1. See Cousine-LICENCE.txt.

@@ -330,7 +330,7 @@ function soloPreparingUploadEpisodeReference(
     ))
     .flatMap(({ id }, index) => selected.has(id) ? [String(index).padStart(6, "0")] : []);
   if (indices.length === 0) return null;
-  return indices.length === 1 ? `episode ${indices[0]}` : `episodes ${indices.join(", ")}`;
+  return indices.length === 1 ? `capture ${indices[0]}` : `captures ${indices.join(", ")}`;
 }
 
 
@@ -1640,7 +1640,7 @@ export class SoloApp {
         <div class="solo-launch-session">
           <span>Local session</span>
           <div class="solo-launch-session-status">
-            <strong id="solo-session-id" class="status-pill is-ready" title="${escapeHtml(sessionId)}">OK / ${sessionSuffix}</strong>
+            <strong id="solo-session-id" class="status-pill is-ready" title="${escapeHtml(sessionId)}">OK/${sessionSuffix}</strong>
             <button id="solo-resume-previous-session" class="solo-session-refresh" type="button" aria-label="Resume previous local session" title="Resume previous local session" hidden><i data-lucide="arrow-right" aria-hidden="true"></i></button>
             <button id="solo-start-new-session" class="solo-session-refresh" type="button" aria-label="Start a new local session" title="Start a new local session"><i data-lucide="rotate-cw" aria-hidden="true"></i></button>
           </div>
@@ -2030,11 +2030,11 @@ export class SoloApp {
       runSummary.textContent = completedRunReadyForReset
         ? "Resumable task retained."
         : pausedOngoingCapture
-          ? `${configuration?.runTitle ?? "Solo run"} / capture paused. Resume where you left off.`
+          ? `${configuration?.runTitle ?? "Solo run"}/capture paused. Resume where you left off.`
         : resumableRun
-          ? `${configuration?.runTitle ?? "Solo run"} / run in progress. Resume where you left off.`
+          ? `${configuration?.runTitle ?? "Solo run"}/run in progress. Resume where you left off.`
         : configuration
-        ? `${configuration.runTitle} / ${recordableTaskCount} ${recordableTaskCount === 1 ? "task" : "tasks"}`
+        ? `${configuration.runTitle}/${recordableTaskCount} ${recordableTaskCount === 1 ? "task" : "tasks"}`
         : "Review, edit or import the run.";
     }
 
@@ -2303,13 +2303,13 @@ export class SoloApp {
       );
       const episodeCount = active?.browserRecovery?.episodeIds.length ?? 0;
       const episodeLabel = episodeCount > 0
-        ? `${episodeCount} ${episodeCount === 1 ? "episode" : "episodes"}`
+        ? `${episodeCount} ${episodeCount === 1 ? "capture" : "captures"}`
         : null;
       const progressDetail = this.exportSnapshot?.active.progress?.detail
         ?? active?.detail
         ?? "Preparing immutable upload artefacts";
       detail.textContent = episodeLabel
-        ? `${episodeLabel} / ${progressDetail}`
+        ? `${episodeLabel}/${progressDetail}`
         : progressDetail;
       detail.hidden = false;
       progress.hidden = false;
@@ -2576,7 +2576,7 @@ export class SoloApp {
       this.sessionRecovery = restoring ? "restored" : "new";
       this.setActiveSession(sessionId);
       root.dataset.sessionId = sessionId;
-      root.querySelector<HTMLElement>("#solo-session-id")!.textContent = `OK / ${sessionId.replace(/-/g, "").slice(-4).toUpperCase()}`;
+      root.querySelector<HTMLElement>("#solo-session-id")!.textContent = `OK/${sessionId.replace(/-/g, "").slice(-4).toUpperCase()}`;
       root.querySelector<HTMLElement>("#solo-session-gate")!.classList.add("is-compact");
       this.mountHeadsetControllers(controller.snapshot);
       this.restoreSystemTransition(sessionId);
@@ -2994,7 +2994,7 @@ export class SoloApp {
       }
       if (intent.type === "episode-delete") {
         const exportController = this.exportController;
-        if (!exportController) throw new Error("Solo episode review is unavailable");
+        if (!exportController) throw new Error("Solo capture review is unavailable");
         exportController.requestDelete(intent.episodeId);
         return true;
       }
@@ -3002,7 +3002,7 @@ export class SoloApp {
         const exportController = this.exportController;
         if (!exportController?.snapshot.deleteConfirmation
           || exportController.snapshot.deleteConfirmation.episodeId !== intent.episodeId) {
-          throw new Error("The Solo episode delete confirmation has changed");
+          throw new Error("The Solo capture delete confirmation has changed");
         }
         await exportController.confirmDelete();
         return true;
@@ -3627,13 +3627,13 @@ export class SoloApp {
       samples: value.catalogueEntries.map((entry) => ({
         id: entry.id,
         label: entry.title,
-        detail: `${entry.taskCount} tasks / ${entry.summary}`,
+        detail: `${entry.taskCount} tasks/${entry.summary}`,
       })),
       selectedSampleId: this.selectedImportSampleId,
       candidates: value.gistCandidates.map((entry) => ({
         id: String(entry.index),
         label: entry.fileName,
-        detail: `${entry.taskCount} tasks / ${entry.runTitle}`,
+        detail: `${entry.taskCount} tasks/${entry.runTitle}`,
       })),
       selectedCandidateId: this.selectedImportCandidateId,
       previewLabel: value.preview?.runTitle ?? null,
@@ -3675,7 +3675,7 @@ export class SoloApp {
         ?? active?.progress?.detail
         ?? active?.job?.detail
         ?? terminal?.detail
-        ?? "Choose accepted episodes to export",
+        ?? "Choose accepted captures to export",
       canCancel: active?.canCancel ?? false,
       canRetry: value?.retry.available ?? false,
       jobs: [...(value?.jobs ?? [])]
@@ -4320,7 +4320,7 @@ export class SoloApp {
     try {
       const episodes = [...controller.snapshot.episodes, ...controller.snapshot.attempts]
         .filter((episode) => intent.episodeIds.includes(episode.id));
-      if (episodes.length === 0) throw new Error("Select at least one exportable episode");
+      if (episodes.length === 0) throw new Error("Select at least one exportable capture");
       requestId = crypto.randomUUID();
       deliveryCreatedAt = new Date().toISOString();
       if (intent.type === "upload") {
@@ -4690,7 +4690,7 @@ export class SoloApp {
         id: event.requestId,
         type: "export",
         state: "completed",
-        detail: `${event.episodeCount} episodes and ${event.artifactCount} artefacts written`,
+        detail: `${event.episodeCount} captures and ${event.artifactCount} artefacts written`,
         createdAt: this.jobCreatedAt(event.requestId),
         updatedAt: new Date().toISOString(),
       });

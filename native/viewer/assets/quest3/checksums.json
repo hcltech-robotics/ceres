@@ -1,0 +1,42 @@
+{
+  "vertices.bin": {
+    "file": "vertices.bin",
+    "bytes": 1523904,
+    "sha256": "225f22ed07e475cb54d560bd1b6ffd740e1046e33372286a594b5b1bbe2af392"
+  },
+  "indices.bin": {
+    "file": "indices.bin",
+    "bytes": 915120,
+    "sha256": "af61e317fae6d476319dd8421479cf50cd149b4de5a862278ba88e4c4118928d"
+  },
+  "base-colour.rgba": {
+    "file": "base-colour.rgba",
+    "bytes": 16777216,
+    "sha256": "c8345ab0f271fad6afe8e7848073842fdd3eee4c758be62b1b5172ecba37a7e2"
+  },
+  "normal.rgba": {
+    "file": "normal.rgba",
+    "bytes": 16777216,
+    "sha256": "1f56531cdd6f5ae87d52a6a945974c46f65b02e24f4cb072913773f7e10b4138"
+  },
+  "orm.rgba": {
+    "file": "orm.rgba",
+    "bytes": 16777216,
+    "sha256": "18b57dfda92914f447ac7ff586bb233c7375295f7c7a4dcf1d610d5d9b952fe4"
+  },
+  "NOTICE": {
+    "file": "NOTICE",
+    "bytes": 779,
+    "sha256": "5ce5fbf8d1307fcbd54a31a72c32a679155ed587a1fd22cd9a4d9474667951ad"
+  },
+  "FORMAT.md": {
+    "file": "FORMAT.md",
+    "bytes": 1372,
+    "sha256": "1f0c71ad8b88e85ef9f30fbe987de5487cb9424b8604fa914b2bcbcc09978278"
+  },
+  "model.json": {
+    "file": "model.json",
+    "bytes": 11186,
+    "sha256": "81ec05e4b5464b715d775d808376bd09192d57ec10ffc4e044e2ae279f0a746a"
+  }
+}

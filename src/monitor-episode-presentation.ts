@@ -36,10 +36,10 @@ export function episodeBlockPresentation(
     || episode.outcome === "retry"
     || episode.outcome === "stopped"
     || episode.integrity === "interrupted") {
-    return { ...base, state: "failed", detail: `Failed episode with ${episode.frameCount} durable sensor frames.${uploadDetail}` };
+    return { ...base, state: "failed", detail: `Failed capture with ${episode.frameCount} durable sensor frames.${uploadDetail}` };
   }
   if (episode.annotation === "pass" || episode.outcome === "successful") {
-    return { ...base, state: "passed", detail: `Passed episode with ${episode.frameCount} durable sensor frames.${uploadDetail}` };
+    return { ...base, state: "passed", detail: `Passed capture with ${episode.frameCount} durable sensor frames.${uploadDetail}` };
   }
-  return { ...base, state: "unannotated", detail: `Unannotated episode with ${episode.frameCount} durable sensor frames.${uploadDetail}` };
+  return { ...base, state: "unannotated", detail: `Unannotated capture with ${episode.frameCount} durable sensor frames.${uploadDetail}` };
 }

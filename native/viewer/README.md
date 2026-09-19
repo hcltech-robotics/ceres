@@ -1,0 +1,150 @@
+# Ceres viewer
+
+Ceres viewer receives Ceres Bridge camera video and tracking in a native 3D scene. Articulated hands, a textured Quest 3 model, calibrated camera planes and optional stereo depth fill the left 80% of the window. A fixed Dear ImGui control pane occupies the right 20%. Reception, hardware decoding, recording and rendering run independently.
+
+The application targets Windows 11 and Ubuntu 24.04 on x86-64 NVIDIA systems. CUDA and OpenGL must use the same GPU. The renderer uses OpenGL 4.5, CUDA image conversion and NVDEC H.264 decoding.
+
+## Run
+
+Launch `ceres-viewer` from its distribution directory. **Connection** shows a QR code and access code. Open Ceres Bridge on the headset and enter that code. The receiver identity is retained between launches. **Disconnect** closes the active connection and **Pair again** creates a new pairing identity.
+
+**Connection**, **Hands**, **Depth**, **Task**, **Recording**, **Telemetry** and **Calibration** organise the control pane. The sidebar reaches the top edge, and the recording strip ends at its left edge. Five buttons in the fixed sidebar footer control visibility: **HAND**, **HMD**, **TRL**, **RGB** and **DEPTH**. Hiding a layer preserves its appearance settings, tracking and spatial map. The selected section, display settings, task specification, calibration and recording destination persist between launches. Hiding the control pane lets the scene fill the window while the recording toolbar remains accessible. Text and controls follow the display scale.
+
+| Control | Behaviour |
+| --- | --- |
+| Left drag | Orbit |
+| Middle drag | Pan |
+| Wheel | Zoom |
+| Right drag | Look around |
+| Right button with W/A/S/D | Fly forwards, left, backwards or right |
+| Right button with Q/E | Fly down or up |
+| Shift while flying | Move faster |
+| F11 | Toggle borderless fullscreen on the current monitor |
+| Tab from the scene | Hide or show the control pane |
+| F6 | Focus the controls for keyboard navigation |
+| F7 | Focus the recording control |
+| F8 | Focus the visibility buttons |
+| Tab/Shift+Tab in controls | Move between controls |
+| Escape | Cancel the count-in or return focus to the scene |
+
+**Depth** provides reset, frame-hands and headset-view commands. Mouse and keyboard input belongs to the pane whenever ImGui captures it. Scrolling or dragging in the pane does not move the scene.
+
+## Live view
+
+Hands follow the latest accepted tracking independently of camera video. The receiver retains the Bridge freshness policy of 50 ms. When headset tracking is lost, its last accepted position and orientation remain visible until valid tracking returns. The headset-view command also uses this retained pose. Hand visibility has a 120 ms grace period after tracking loss, then fades smoothly to zero within one second. Renewed hand tracking restores opacity over 80 ms. Recording and export retain the source validity flags.
+
+**Hands > Level** selects **Outline**, **Points**, **Bones** or **Mesh**. **Colours** selects **Side**, **Normals**, **Velocity** or **Motion flow (Middlebury)**. Side colours distinguish left and right hands, normal colours show orientation, velocity shows speed and Middlebury colours show motion in the horizontal plane.
+
+**Trails** selects **Hand (COG)**, **Joints**, **Bones** or **Fingertips**, while **TRL** in the sidebar footer controls visibility. Hand trails follow the centre of gravity, joint trails follow all 25 joints, bone trails retain fading skeletons and fingertip trails follow the five tips. A separate **Colours** selector offers the same four colour choices. **Trail span** sets the visible history from 0.25 to 5 seconds. Paths break at tracking gaps and clear when changing source, reference space or replay position. Display settings persist between launches.
+
+The Quest preset supplies camera intrinsics and camera-to-head placement. A version 1 JSON calibration profile can replace it with measured values. Projection distance changes the size and location of the image plane without changing calibration. See [the calibration profile](docs/calibration.md).
+
+Use **DEPTH** in the sidebar footer to show the persistent spatial map. **Automatic** prefers the headset's environment depth, with stereo images as the fallback. Unseen surfaces remain in the map. New observations reduce confidence in contradicted geometry, while a fixed memory budget keeps distant detail coarse and prunes low-value cells when necessary. **Mask hands** excludes tracked fingers and palms. Quest depth arrives independently of camera video at two updates per second and uses the same tracking reference space as the hands. See [environment depth](docs/environment-depth.md).
+
+Recordings containing both cameras retain independently decoded left/right images. **Preview** shows both images and **RGB** in the sidebar footer places both camera planes in the scene. Select **Stereo** as the depth source to reconstruct from paired images. **Calibration > Stereo** provides the Quest default and measured profiles. Stereo pairs use sender media timestamps within the selected time limit. See [stereo calibration and reconstruction](docs/stereo-calibration.md).
+
+**Depth** contains the camera preview. **Telemetry** separates rendering, camera cadence and tracking packet rate, alongside decode time, GPU scene/UI time, depth updates, pose age, clock uncertainty and recorder queue use. The [instrument design system](docs/design-system.md) defines the shared controls, typography and signal colours.
+
+The built-in hand surfaces follow the 25 WebXR joints. The Quest rig uses the supplied USDZ mesh, base colour, normal and material maps. Its visual placement is independent of camera calibration. Optional authorised MANO assets retain all 16 skinning influences. Asset preparation is described in [the asset guide](assets/README.md).
+
+**Delay** selects earlier tracking from the live history. Replay also accepts negative values to inspect later tracking. The adjustment changes the displayed hands and headset, while recordings, exported observations and camera frame associations retain their source timestamps.
+
+## Record and replay
+
+Choose a folder in **Recording > Destination**. Windows defaults to `D:\data\ceres-viewer\sessions`. Linux uses the `sessions` folder beneath the local data directory.
+
+Set the description in **Task**, or paste a JSON file path or HTTP/HTTPS URL into **Specification** and select **Load**. The viewer reads `ceres-task-specification` version 1 and CERES run exports, including timed tasks, open tasks, repetitions, reset intervals and cycles. Loading runs in the background and can be cancelled. The task list shows the imported instructions and repetition counts. `--task-spec FILE.json-or-URL` loads the same format from the command line. The source and the loaded specification persist between launches.
+
+The instrument strip spans the top edge of the scene, ending at the sidebar. Its full-height sections show **LOCT** and **UTC**, an icon-only recording control, recorded time, cycle/task/repetition counters, repetition time and pose/image/render rate traces. The circle starts recording, pause bars pause it and the play triangle resumes it. Hold for 0.8 seconds to stop, shown by a square during the hold. The control is red while capturing. The hold indicator shows progress towards stopping. **F7** focuses the recording control for Space or Enter. A three-second count-in precedes recording, including when using `--record`. Press Escape or the cross to cancel the count-in. The recording file and elapsed clock begin after the count-in. The task and destination remain locked during the count-in and recording.
+
+Timed tasks advance automatically. Click the **OPEN** field to complete an open task repetition. Task repetitions create episode boundaries, and the strip labels reset and cycle pauses separately from repetition time. Counters show `--` when no task specification is loaded. The three traces retain up to 60 readings at one-second intervals, with pose cadence measured from head observations. A completed task run stops recording. Pausing freezes task progress and the elapsed recording clock, then the play control continues them. The recorder omits observations during a manual pause and resumes each video stream at a keyframe while preserving source timestamps.
+
+A recording contains compressed video, original pose packets, stream descriptions, clock mappings, calibration, the task specification, episode markers and replay assets. The recorder writes a `.mcap.partial` file and finalises it to `.mcap` on completion. Storage failure or an exhausted recording queue stops recording and displays the error.
+
+Open an MCAP recording to use the replay timeline, frame stepping and speed control. Seeking starts at the preceding video keyframe and cancels earlier outstanding scrubs. **Recover** writes complete recovered data into a new indexed recording while retaining the original file.
+
+Recorded episode markers populate **Recording > Episodes** when a session opens. Edits to task text and ranges persist beside the recording in `<recording>.mcap.episodes.json`. The sidecar contains episode selection data and identifies its source recording. The recording toolbar remains visible when the control pane is hidden.
+
+The binary envelope, timeline and recovery rules are documented in [the session format](docs/session-format.md).
+
+Dual-camera recordings retain both complete H.264 streams with independent keyframe indexes,
+camera identities and timing. Replay restores both images and their stereo calibration.
+
+## Export
+
+**Recording > Export** exports completed recordings to CERES-compatible LeRobot v3 at 30 Hz by default. Each episode needs task text and a selected time range. Mark a range in replay or choose **Use whole session** before starting export. Connection and reference-space changes split episodes. Missing observations have false validity and zeroed geometry, while missing camera slots are black.
+
+The `observation.images.passthrough` feature uses the declared primary camera. Its selection
+is explicit and independent of which camera's frame arrives first. Both cameras remain in
+the source MCAP for stereo replay.
+
+The default acquisition profile is `ceres-bridge-lerobot3-v1`:
+
+| Feature | Shape and meaning |
+| --- | --- |
+| `observation.state` | `float32[410]`, Ceres head and hand ordering |
+| `observation.valid` | `bool[51]`, head and individual joint validity |
+| `observation.images.passthrough` | Source-dimension video |
+| `observation.video_valid` | `bool[1]`, source image present |
+| `action` | `float32[2]`, left/right thumb-to-index fingertip distance in metres |
+| `action.valid` | `bool[2]`, both fingertips observed for each distance |
+
+The 410 state values retain Ceres ordering: head tracking flag, head position and XYZW quaternion (8 values), then left and right hands (201 values each). Each hand contains its tracking flag followed by 25 joints, with position[3], quaternion[4] and radius for each joint.
+
+The action values are measured pinch distances. Missing distances are zero with false validity. `ceres.source_timestamp` is the receiver-session sampling time in seconds and `ceres.source_frame_index` identifies its sampling slot. Original sender timestamps, sequences, epochs and frame associations remain separate provenance. The exporter stages its output and publishes the dataset directory after validation.
+
+Upload the complete export directory as a Hugging Face dataset. Its root is a standard LeRobot v3 dataset, with per-episode views under `shards/` for the CERES dataset viewer. The included dataset card selects the observation Parquet files for Hugging Face. The native export job also accepts `ceres-bridge-observation-v1` when an observation-only dataset is explicitly required.
+
+The reusable Rust exporter lives in the sibling `native/lerobot-exporter` directory and is built from the same repository revision as the viewer. The distribution includes the exporter and FFmpeg. The exporter job protocol is documented in `native/lerobot-exporter/README.md`.
+
+The desktop viewer replays local MCAP recordings. [Export compatibility](docs/export-compatibility.md) describes the dataset contract shared by the official LeRobot reader and the CERES Hugging Face dataset viewer.
+
+## Build
+
+Requirements are CMake 3.25 or newer, a C++20 compiler, Ninja, CUDA, a compatible NVIDIA driver and Git for fetching dependencies. Packaging also requires Rust 1.91 or newer, Python 3.11 or newer and an FFmpeg distribution with the `libx264` encoder. Run these commands from `native/viewer` within the CERES source tree.
+
+On Windows, use Visual Studio 2022 Build Tools with the C++ workload and CUDA. From a developer command prompt:
+
+```text
+scripts\configure-windows.cmd
+scripts\build-windows.cmd
+ctest --test-dir build-native --output-on-failure
+```
+
+The configure script discovers Visual Studio 2022 and uses `CUDA_PATH` when set. `CERES_VS_INSTALL` selects a specific installation and `CERES_MSVC_TOOLSET` selects an installed compiler toolset. An existing Visual Studio developer environment is retained. The script accepts additional CMake options, including `CMAKE_CUDA_COMPILER` and `CMAKE_CUDA_ARCHITECTURES`. `BUILD_DIRECTORY` selects a build directory. Dependencies are pinned in [the CMake dependency file](cmake/Dependencies.cmake).
+
+On Ubuntu, install a C++ compiler, CMake, Ninja, Git, Python, pkg-config, OpenGL headers, the X11/Wayland development libraries required by GLFW and CUDA. Keep the source and build directory on a local Linux filesystem:
+
+```sh
+cmake -S . -B build-native -G Ninja -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_CUDA_COMPILER=/usr/local/cuda/bin/nvcc
+cmake --build build-native --parallel
+ctest --test-dir build-native --output-on-failure
+```
+
+The protocol, session, calibration, queue and exporter process tests can also run without a GPU application build:
+
+```sh
+cmake -S . -B build-core -DCERES_BUILD_APP=OFF
+cmake --build build-core --config Release
+ctest --test-dir build-core -C Release --output-on-failure
+```
+
+## Reproducible checks
+
+`--fixture` supplies deterministic articulated hands. Add `--fixture-video` with an Annex B H.264 stream containing access-unit delimiters to exercise hardware decoding and image projection. `--record` records that source through the normal recorder.
+
+```text
+ceres-viewer --fixture --fixture-video camera.h264 --no-vsync --fps 120 --borderless \
+  --width 2560 --height 1440 --seconds 60 \
+  --metrics metrics.json --screenshot view.ppm --record session.mcap
+ceres-viewer --replay session.mcap
+```
+
+Metrics use bounded histograms and report actual framebuffer dimensions, render frame count, CPU/GPU percentiles, buffer swap time, pacing time, decoded/presented frame counts, recording status and complete-frame-arrival-to-swap latency. Video cadence is independent of rendering cadence. Explicit screenshots read pixels only when requested. `--config-dir DIRECTORY` selects a separate configuration directory for an independent receiver identity, layout and preferences.
+
+The [qualification guide](docs/qualification.md) describes the hardware gates for Windows x64, Linux x64 and Linux ARM64. The GPU test suite includes full-frame NVDEC comparisons against independent software decoding. [Packaging](docs/packaging.md) describes downloadable archives and clean-extraction verification.
+
+## Repository boundary
+
+The `native/viewer` directory owns the viewer, renderer, native Bridge client, MCAP implementation, tests and distribution scripts. Bridge wire compatibility is checked against the pinned fixtures under `tests/fixtures`. The sibling Rust exporter and its shared Wasm crate are included in the same CERES source release. The viewer version follows the root `package.json`.

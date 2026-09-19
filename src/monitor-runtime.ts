@@ -1,5 +1,13 @@
 import "@fontsource-variable/geist";
 import "./style.css";
+import "./monitor-capture-metadata.css";
+import "./monitor-export-preference.css";
+import "./monitor-command-bar.css";
+import "./monitor-depth.css";
+import "./monitor-hf-panel.css";
+import "./monitor-run-stack.css";
+import "./monitor-run-position.css";
+import "./monitor-run-timeline.css";
 import "./task-import.css";
 import { bindDisposableAppLifecycle, type HotDisposeContext } from "./app-lifecycle.js";
 

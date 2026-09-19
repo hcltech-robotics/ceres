@@ -109,11 +109,11 @@ python -m pip install '.[worker,foxglove,teleop]'
 ceres-bridge listen --app-origin https://ceres.example.org --name dual-arm-demo
 ```
 
-Open `/bridge/` on the Quest at that deployment, enter the displayed pairing code
-and enable the camera. Choose the right camera, left camera or **Both cameras**
-in the camera selector, then enter XR to start streaming. The **Both cameras**
-option appears when both outward cameras are available and sends each feed as a
-separate video track. In another terminal in the same environment:
+Open `/bridge/` on the Quest at that deployment and enter the displayed pairing
+code. For camera video, enable the camera and choose the left or right outward
+camera, then enter XR to start streaming. Optional WebXR environment depth travels
+independently to supporting receivers. A motion and depth session can start
+without enabling an RGB camera. In another terminal in the same environment:
 
 ```sh
 ceres-bridge foxglove --robot xlerobot --robot-rate 60
@@ -140,8 +140,36 @@ Hugging Face uploads, Gist imports and speech services are explicit options.
 
 ## Run CERES
 
-Use the [signed release](https://github.com/hcltech-robotics/ceres/releases/tag/v1.1.0)
-for a standalone Node.js runtime or container, or build the source locally.
+Use the [signed release](https://github.com/hcltech-robotics/ceres/releases/latest)
+for the native viewer, standalone Node.js runtime or container, or build the source locally.
+
+### Run the native viewer
+
+Ceres viewer receives Bridge streams, records native sessions and exports LeRobot
+datasets. Download the package for your machine from the release assets:
+
+| Platform | Download | System |
+| --- | --- | --- |
+| Windows x64 | `ceres-viewer-<version>-windows-x64.zip` | Windows 11 with an NVIDIA GPU |
+| Linux x64 | `ceres-viewer-<version>-linux-x64.tar.gz` | Ubuntu 22.04 or newer with an NVIDIA GPU |
+| Linux ARM64 | `ceres-viewer-<version>-linux-arm64.tar.gz` | Ubuntu 24.04 or newer on NVIDIA GB10 |
+
+Extract the archive and start `ceres-viewer.exe` on Windows or `./ceres-viewer` on
+Linux. Each download includes the exporter, FFmpeg, runtime libraries, product
+documentation and licence notices. Install the NVIDIA display driver for your
+machine. The CUDA toolkit is needed only when building from source.
+
+The archive's version matches its CERES release. Compare its SHA-256 digest with
+the signed `SHA256SUMS` file. To verify a complete locally assembled release,
+run `node scripts/prepare-local-release.mjs verify release --signer chrisvoncsefalvay`
+from the source checkout. This verifies the SSH signature against the
+maintainer's GitHub key and checks every download. Releases built by GitHub
+Actions also support `gh attestation verify <archive> --repo hcltech-robotics/ceres`.
+Platform manifests record the source revision, compiler, CUDA runtime and bundled
+dependencies.
+
+The [viewer guide](native/viewer/README.md) describes pairing, recording, replay
+and the source build.
 
 ### Build from source
 
@@ -165,8 +193,8 @@ on Windows.
 ### Run the container
 
 Download `ceres-container.tar.gz` from the
-[release](https://github.com/hcltech-robotics/ceres/releases/tag/v1.1.0) and verify it
-with `gh attestation verify ceres-container.tar.gz --repo hcltech-robotics/ceres`.
+[release](https://github.com/hcltech-robotics/ceres/releases/latest) and verify its
+digest against the signed `SHA256SUMS` file.
 To run the container behind your HTTPS reverse proxy, set `CERES_PUBLIC_ORIGIN`
 and load the image before starting Compose:
 
@@ -199,12 +227,28 @@ request. Official releases also verify the complete export manifest with
 | `shared/` | Task, recording and signalling contracts |
 | `server/` | Self-hosted HTTP/WebSocket server, pairing and local recording storage |
 | `receiver/` | Python Bridge receiver, ROS 2, Foxglove and dual-arm example |
+| `native/viewer/` | Native Windows/Linux viewer, recording and runtime packaging |
+| `native/lerobot-exporter/` | Native LeRobot exporter used by the viewer |
 | `test/` | Core behaviour, storage, protocol and browser checks |
 
 Hosted CI builds the public source, checks it on Linux and Windows, rebuilds the
-source archive and produces release packages. Releases include SPDX SBOMs,
-checksums, Sigstore signatures and build provenance. Verify a downloaded release
-artefact with `gh attestation verify <file> --repo hcltech-robotics/ceres`.
+source archive and produces separate viewer packages for Windows x64, Linux x64
+and Linux ARM64. Native runtime changes require matching NVIDIA hardware
+qualification before publication. Releases include SPDX SBOMs, signed checksums
+and source provenance. Locally assembled releases use a maintainer's SSH
+signature and hosted releases also include Sigstore signatures and attestations.
+
+For local release assembly, collect the three verified platform directories with
+`node scripts/collect-native-release.mjs native-artifacts release`, then add the
+source, runtime, container, receiver distributions, SBOMs and successful hardware
+qualification report. Set `GITHUB_SHA` to the exact public source commit. Run
+`node scripts/prepare-local-release.mjs prepare release --signer chrisvoncsefalvay --signing-key <key-path>`
+to sign and verify the complete payload. The key must already belong to the
+maintainer's GitHub account. The publisher checks the matching `v<version>` tag
+on public `main`, uploads and verifies every draft asset, then publishes once
+with `node scripts/publish-public-release.mjs release`. It reads the public
+repository, tag and credentials from `GITHUB_REPOSITORY`, `GITHUB_REF_NAME` and
+`GH_TOKEN`.
 
 ## Licence and citation
 
@@ -218,7 +262,7 @@ please cite the version you used. The citation below is also available in
   author  = {Foldi, Tamas and von Csefalvay, Chris and Unni Krishnan, Achyuthan},
   title   = {{CERES: Capturing Egocentric Recordings with Ease and Speed}},
   year    = {2026},
-  version = {1.1.0},
+  version = {1.1.1},
   doi     = {10.5281/zenodo.22729061},
   url     = {https://github.com/hcltech-robotics/ceres},
   license = {MIT}

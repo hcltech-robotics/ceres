@@ -67,8 +67,8 @@ export function soloUploadEpisodeReference(
     return match ? [match[1]!] : [];
   }))].sort();
   if (episodeNumbers.length === 0) return null;
-  if (episodeNumbers.length === 1) return `episode ${episodeNumbers[0]}`;
-  return `episodes ${episodeNumbers.join(", ")}`;
+  if (episodeNumbers.length === 1) return `capture ${episodeNumbers[0]}`;
+  return `captures ${episodeNumbers.join(", ")}`;
 }
 
 export type SoloUploadWorkerOptions =

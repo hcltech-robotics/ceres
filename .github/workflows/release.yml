@@ -6,6 +6,11 @@ on:
     branches: [main]
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      check-native-qualification:
+        description: Build all native downloads and check NVIDIA qualification receipts
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -39,6 +44,7 @@ jobs:
           cargo install wasm-bindgen-cli --version 0.2.127 --locked
           python -m venv .venv
           .venv/bin/python -m pip install './receiver[worker,foxglove,test]' 'datasets==3.6.0' build
+          python .github/scripts/install-native-tools.py --platform linux-x64 --directory "$RUNNER_TEMP/native-tools"
           echo "$GITHUB_WORKSPACE/.venv/bin" >> "$GITHUB_PATH"
           npx playwright install --with-deps chromium
       - name: Check public source
@@ -48,6 +54,7 @@ jobs:
           npm run check:citation
           npm run check
           npm test
+          node --test test/native-release.test.mjs
           npm run test:rust
           .venv/bin/python -m pytest receiver/tests
       - name: Build public source
@@ -73,6 +80,10 @@ jobs:
           npm run build
           diff -qr "$GITHUB_WORKSPACE/dist" dist
           diff -qr "$GITHUB_WORKSPACE/dist-server" dist-server
+          cmake -S native/viewer -B "$RUNNER_TEMP/ceres-source-core" -G Ninja -DCERES_BUILD_APP=OFF -DCERES_BUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Release
+          cmake --build "$RUNNER_TEMP/ceres-source-core" --parallel 2
+          ctest --test-dir "$RUNNER_TEMP/ceres-source-core" --output-on-failure
+          cargo build --locked --release --manifest-path native/lerobot-exporter/Cargo.toml
       - name: Build runtime image
         run: |
           docker build --build-arg CERES_REVISION="$GITHUB_SHA" -t ceres-release .
@@ -133,12 +144,42 @@ jobs:
       - run: npm run check
       - run: npm test
 
+  native-viewer:
+    name: Native release packages
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.check-native-qualification)
+    uses: ./.github/workflows/native-viewer.yml
+
+  native-qualification-gate:
+    name: NVIDIA hardware qualification
+    needs: native-viewer
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: ceres-native-${{ github.sha }}-*
+          path: native-artifacts
+      - name: Verify the qualified runtime inputs
+        run: python native/viewer/scripts/qualification.py check --root . --artifacts native-artifacts --receipts native/viewer/qualification > native-hardware-qualification.json
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ceres-native-qualification-${{ github.sha }}
+          path: native-hardware-qualification.json
+          retention-days: 14
+          if-no-files-found: error
+
   release:
     name: Sign and publish
     if: startsWith(github.ref, 'refs/tags/v') && github.repository == 'hcltech-robotics/ceres'
-    needs: [qualify, windows]
+    needs: [qualify, windows, native-viewer, native-qualification-gate]
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 30
     permissions:
       contents: write
       packages: write
@@ -150,9 +191,11 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
       - name: Verify release identity
+        id: identity
         run: |
           test "$GITHUB_REF_NAME" = "v$(node -p 'JSON.parse(require("fs").readFileSync("package.json")).version')"
           git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+          echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: ceres-release-${{ github.sha }}
@@ -160,31 +203,27 @@ jobs:
       - name: Verify qualified artefacts
         working-directory: release
         run: sha256sum --check SHA256SUMS
-      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
-      - name: Sign checksums and SBOMs
-        working-directory: release
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: ceres-native-${{ github.sha }}-*
+          path: native-artifacts
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ceres-native-qualification-${{ github.sha }}
+          path: release
+      - name: Collect all verified native packages
         run: |
-          for file in SHA256SUMS ceres-source.spdx.json ceres-container.spdx.json; do
-            cosign sign-blob --yes --bundle "$file.sigstore.json" "$file"
-          done
-      - name: Build provenance
-        id: provenance
-        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
-        with:
-          subject-checksums: release/SHA256SUMS
-      - name: Source SBOM attestation
-        id: source-sbom
-        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
-        with:
-          subject-path: release/ceres-*-source.tar.gz
-          sbom-path: release/ceres-source.spdx.json
-      - name: Container SBOM attestation
-        id: container-sbom
-        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
-        with:
-          subject-path: release/ceres-container.tar.gz
-          sbom-path: release/ceres-container.spdx.json
+          node scripts/collect-native-release.mjs native-artifacts release
+          node scripts/check-release-sboms.mjs
+      - name: Check for an already published release
+        id: release-state
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/publish-public-release.mjs release --preflight
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        if: steps.release-state.outputs.published != 'true'
       - name: Publish signed container
+        if: steps.release-state.outputs.published != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -198,14 +237,74 @@ jobs:
           printf '%s\n' "$digest" > release/container-reference.txt
           cosign sign-blob --yes --bundle release/container-reference.txt.sigstore.json release/container-reference.txt
           docker logout ghcr.io
+      - name: Checksum the complete release payload
+        if: steps.release-state.outputs.published != 'true'
+        working-directory: release
+        run: |
+          find . -maxdepth 1 -type f ! -name SHA256SUMS ! -name '*.sigstore.json' -printf '%f\n' | LC_ALL=C sort | xargs sha256sum > SHA256SUMS
+      - name: Sign checksums and SBOMs
+        if: steps.release-state.outputs.published != 'true'
+        working-directory: release
+        run: |
+          for file in SHA256SUMS *.spdx.json; do
+            cosign sign-blob --yes --bundle "$file.sigstore.json" "$file"
+          done
+      - name: Build provenance
+        id: provenance
+        if: steps.release-state.outputs.published != 'true'
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-checksums: release/SHA256SUMS
+      - name: Source SBOM attestation
+        id: source-sbom
+        if: steps.release-state.outputs.published != 'true'
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: release/ceres-*-source.tar.gz
+          sbom-path: release/ceres-source.spdx.json
+      - name: Container SBOM attestation
+        id: container-sbom
+        if: steps.release-state.outputs.published != 'true'
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: release/ceres-container.tar.gz
+          sbom-path: release/ceres-container.spdx.json
+      - name: Windows viewer SBOM attestation
+        id: windows-viewer-sbom
+        if: steps.release-state.outputs.published != 'true'
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: release/ceres-viewer-${{ steps.identity.outputs.version }}-windows-x64.zip
+          sbom-path: release/ceres-viewer-${{ steps.identity.outputs.version }}-windows-x64.zip.spdx.json
+      - name: Linux x64 viewer SBOM attestation
+        id: linux-x64-viewer-sbom
+        if: steps.release-state.outputs.published != 'true'
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: release/ceres-viewer-${{ steps.identity.outputs.version }}-linux-x64.tar.gz
+          sbom-path: release/ceres-viewer-${{ steps.identity.outputs.version }}-linux-x64.tar.gz.spdx.json
+      - name: Linux ARM64 viewer SBOM attestation
+        id: linux-arm64-viewer-sbom
+        if: steps.release-state.outputs.published != 'true'
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: release/ceres-viewer-${{ steps.identity.outputs.version }}-linux-arm64.tar.gz
+          sbom-path: release/ceres-viewer-${{ steps.identity.outputs.version }}-linux-arm64.tar.gz.spdx.json
       - name: Publish release and archive with Zenodo
+        if: steps.release-state.outputs.published != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           PROVENANCE: ${{ steps.provenance.outputs.bundle-path }}
           SOURCE_SBOM: ${{ steps.source-sbom.outputs.bundle-path }}
           CONTAINER_SBOM: ${{ steps.container-sbom.outputs.bundle-path }}
+          WINDOWS_VIEWER_SBOM: ${{ steps.windows-viewer-sbom.outputs.bundle-path }}
+          LINUX_X64_VIEWER_SBOM: ${{ steps.linux-x64-viewer-sbom.outputs.bundle-path }}
+          LINUX_ARM64_VIEWER_SBOM: ${{ steps.linux-arm64-viewer-sbom.outputs.bundle-path }}
         run: |
           cp "$PROVENANCE" release/provenance.sigstore.json
           cp "$SOURCE_SBOM" release/source-sbom-attestation.sigstore.json
           cp "$CONTAINER_SBOM" release/container-sbom-attestation.sigstore.json
-          gh release create "$GITHUB_REF_NAME" release/* --verify-tag --title "CERES ${GITHUB_REF_NAME#v}" --notes-file RELEASE.md
+          cp "$WINDOWS_VIEWER_SBOM" release/viewer-windows-x64-sbom-attestation.sigstore.json
+          cp "$LINUX_X64_VIEWER_SBOM" release/viewer-linux-x64-sbom-attestation.sigstore.json
+          cp "$LINUX_ARM64_VIEWER_SBOM" release/viewer-linux-arm64-sbom-attestation.sigstore.json
+          node scripts/publish-public-release.mjs release

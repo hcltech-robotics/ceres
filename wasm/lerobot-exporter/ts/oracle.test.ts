@@ -51,7 +51,8 @@ test(
         bundle.free();
       }
       const script = fileURLToPath(new URL("../tests/oracle/verify_lerobot.py", import.meta.url));
-      const result = await execFileAsync("python", [script, root], {
+      const oraclePython = process.env.CERES_LEROBOT_ORACLE_PYTHON || "python";
+      const result = await execFileAsync(oraclePython, [script, root], {
         env: process.env,
       });
       assert.match(result.stdout, /PASS: LeRobot v0\.4\.0 oracle/);

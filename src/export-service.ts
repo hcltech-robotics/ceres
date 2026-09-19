@@ -1,5 +1,6 @@
 import type { AccountExportSession, AccountExportRepositoryCatalogue, AccountExportDestinationValidation, AccountExportDestinationValidationRequest, AccountUploadJob, AccountUploadManifestArtefact, AccountUploadCreateRequest, AccountUploadCreateResponse, AccountUploadCancelResponse, HuggingFaceAppendAllocation, HuggingFaceMissingRepositoryBehaviour } from "../shared/export-destination.js";
 import type { VerifiedEpisodeHuggingFaceUpload } from "../shared/protocol.js";
+import type { AccountExportRepositoryBranches } from "../shared/export-destination.js";
 
 
 export interface AccountUploadProgress {
@@ -123,6 +124,7 @@ export function sameStringArray(left: readonly string[], right: readonly string[
 export interface ExportDestinationService {
   session(signal?: AbortSignal): Promise<AccountExportSession>;
   repositoryCatalogue(organisation?: string, prefix?: string, signal?: AbortSignal): Promise<AccountExportRepositoryCatalogue>;
+  repositoryBranches?(repository: string, signal?: AbortSignal): Promise<AccountExportRepositoryBranches>;
   validateDestination(request: AccountExportDestinationValidationRequest, signal?: AbortSignal): Promise<AccountExportDestinationValidation>;
   disconnectHuggingFace(signal?: AbortSignal): Promise<{ disconnected: true }>;
   huggingFaceConnectUrl(returnPath: string): string;

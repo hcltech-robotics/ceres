@@ -4,6 +4,7 @@ import { Observations } from "./observations.js";
 import { BridgePeer } from "./peer.js";
 import { completeClaim, forgetReceiver, pairReceiver, storedBinding, type Binding } from "./pairing.js";
 import { verifyBridgeConfiguration } from "./config.js";
+import { BridgeDepth, type DepthRenderer } from "./depth.js";
 
 /** Sender services for CaptureApp, which owns the same IWSDK runtime used by Solo. */
 export class BridgeSender implements CaptureAuthorityPort {
@@ -14,8 +15,9 @@ export class BridgeSender implements CaptureAuthorityPort {
   readonly supportsPairing = false;
   readonly supportsPeerMedia = false;
   readonly observations = new Observations();
+  readonly depth = new BridgeDepth();
   private binding: Binding | null = null;
-  private cameras: readonly BridgeCamera[] = [];
+  private camera: BridgeCamera | null = null;
   private audioTrack: MediaStreamTrack | null = null;
   private peer: BridgePeer | null = null;
   private session: XRSession | null = null;
@@ -147,28 +149,30 @@ export class BridgeSender implements CaptureAuthorityPort {
     });
   }
 
-  setCamera(camera: BridgeCamera | null) { this.setCameras(camera ? [camera] : []); }
-  setCameras(cameras: readonly BridgeCamera[]) { this.cameras = [...cameras]; }
+  setCamera(camera: BridgeCamera | null) { this.camera = camera; }
 
-  start(session: XRSession, space: XRReferenceSpace, referenceSpace: "local" | "local-floor") {
-    if (!this.ready || !this.binding || !this.cameras.length
-      || this.cameras.some(camera => camera.track.readyState !== "live")) {
-      throw new Error("Pair a receiver and enable the selected cameras before entering XR");
+  start(session: XRSession, space: XRReferenceSpace, referenceSpace: "local" | "local-floor", renderer?: DepthRenderer) {
+    if (!this.ready || !this.binding
+      || (this.camera && this.camera.track.readyState !== "live")) {
+      throw new Error("Pair a receiver and reconnect the selected camera before entering XR");
     }
     this.stop();
     this.session = session;
+    this.depth.start(session, renderer);
     this.observations.spaceEpoch = (this.observations.spaceEpoch + 1) >>> 0;
     this.sessionEvents = new AbortController();
     const options = { signal: this.sessionEvents.signal };
-    space.addEventListener("reset", () => { this.observations.spaceEpoch = (this.observations.spaceEpoch + 1) >>> 0; }, options);
-    for (const camera of this.cameras) {
-      camera.track.addEventListener("ended", () => {
-        this.stop();
-        this.setStatus("A selected camera disconnected. Enable the cameras again before restarting Bridge.");
-        void session.end().catch(() => undefined);
-      }, options);
-    }
-    const peer = this.peer = new BridgePeer(this.binding, this.cameras, referenceSpace,
+    session.addEventListener("end", () => this.depth.stop(), options);
+    space.addEventListener("reset", () => {
+      this.observations.spaceEpoch = (this.observations.spaceEpoch + 1) >>> 0;
+      this.depth.reset();
+    }, options);
+    this.camera?.track.addEventListener("ended", () => {
+      this.stop();
+      this.setStatus("The selected camera disconnected. Enable the camera again before restarting Bridge.");
+      void session.end().catch(() => undefined);
+    }, options);
+    const peer = this.peer = new BridgePeer(this.binding, this.camera, referenceSpace,
       message => this.setStatus(message), error => {
         if (this.peer !== peer) return;
         this.stop();
@@ -197,6 +201,10 @@ export class BridgeSender implements CaptureAuthorityPort {
       Math.round(performance.now() * 1000), displayTime);
   }
 
+  publishDepth(frame: XRFrame, space: XRReferenceSpace, displayTime: number) {
+    this.depth.publish(frame, space, displayTime, this.peer, this.observations.spaceEpoch, this.paused);
+  }
+
   async togglePause() {
     const peer = this.peer;
     if (!peer || this.pauseBusy) return;
@@ -204,6 +212,7 @@ export class BridgeSender implements CaptureAuthorityPort {
     this.paused = !this.paused;
     try {
       await peer.setPaused(this.paused);
+      this.depth.reset();
       if (this.peer !== peer) return;
       if (this.paused) this.videoFps = this.motionFps = 0;
       this.setStatus(this.paused ? "Streaming paused" : (this.streaming ? "Streaming directly to " : "Connecting to ") + this.label);
@@ -242,11 +251,11 @@ export class BridgeSender implements CaptureAuthorityPort {
             ? 1000 * (stat.framesSent - previous.frames) / Math.max(1, stat.timestamp - previous.time) : 0);
           videos.set(stat.id, { frames: stat.framesSent, time: stat.timestamp });
         });
-        // The HUD reports the slower camera rather than adding two frame rates.
-        this.videoFps = rates.length === this.cameras.length ? Math.min(...rates) : 0;
+        this.videoFps = this.camera && rates.length === 1 ? rates[0] : 0;
         lastVideos = videos;
         let geometryChanged = false;
-        for (const camera of this.cameras) {
+        if (this.camera) {
+          const camera = this.camera;
           const settings = camera.track.getSettings();
           if (settings.width && settings.height
             && (settings.width !== camera.width || settings.height !== camera.height)) {
@@ -268,6 +277,7 @@ export class BridgeSender implements CaptureAuthorityPort {
 
   stop() {
     this.paused = false;
+    this.depth.stop();
     if (this.statsTimer) clearTimeout(this.statsTimer);
     this.statsTimer = null;
     this.videoFps = this.motionFps = 0;
@@ -291,7 +301,7 @@ export class BridgeSender implements CaptureAuthorityPort {
     this.scanner?.abort();
     this.lifetime.abort();
     this.releaseTab?.();
-    this.cameras = [];
+    this.camera = null;
     this.audioTrack = null;
   }
   // The local sender does not accept run commands or expose recording services.

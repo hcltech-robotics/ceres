@@ -1215,7 +1215,7 @@ export type RecorderError = Extract<ServerMessage, { type: "recorder-error" }>;
 export const defaultConfiguration: CaptureConfiguration = {
   schemaVersion: CAPTURE_CONFIGURATION_SCHEMA_VERSION,
   runTitle: "Open capture",
-  runDescription: "Perform the task until the capture director stops the take.",
+  runDescription: "Perform the task until the capture director finishes it.",
   totalCycles: 1,
   tasks: [{
     id: "task-001",

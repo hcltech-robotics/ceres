@@ -687,7 +687,7 @@ export class SoloXrConsole {
       300,
       1,
       draft.durationS,
-      `Duration / ${Math.round(draft.durationS)} s`,
+      `Duration/${Math.round(draft.durationS)} s`,
     );
     this.renderTaskPropertiesSlider(
       "task-properties-repetitions",
@@ -696,7 +696,7 @@ export class SoloXrConsole {
       20,
       1,
       draft.repeatCount,
-      `Repetitions / ${Math.round(draft.repeatCount)}`,
+      `Repetitions/${Math.round(draft.repeatCount)}`,
     );
     this.renderTaskPropertiesSlider(
       "task-properties-reset",
@@ -705,7 +705,7 @@ export class SoloXrConsole {
       60,
       1,
       draft.resetTimeS,
-      `Reset / ${Math.round(draft.resetTimeS)} s`,
+      `Reset/${Math.round(draft.resetTimeS)} s`,
     );
     this.renderTaskPropertiesSaveState();
   }
@@ -800,8 +800,8 @@ export class SoloXrConsole {
         this.setText(
           labelId,
           field === "repeatCount"
-            ? `Repetitions / ${normalisedValue}`
-            : `${field === "durationS" ? "Duration" : "Reset"} / ${Math.round(normalisedValue)} s`,
+            ? `Repetitions/${normalisedValue}`
+            : `${field === "durationS" ? "Duration" : "Reset"}/${Math.round(normalisedValue)} s`,
         );
         this.taskPropertyRenderSignatures.set(
           id,

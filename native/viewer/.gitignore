@@ -1,0 +1,13 @@
+/build*/
+/out/
+/stage/
+/deps/
+/.cache/
+*.mcap
+*.mcap.partial
+imgui.ini
+*.log
+/artifacts/
+/dist/
+/assets/local/
+__pycache__/

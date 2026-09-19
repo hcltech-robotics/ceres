@@ -40,8 +40,8 @@ function environment(t: TestContext) {
       closed = false;
       connectionState = "new";
       constructor() { peers.push(this); }
-      createDataChannel(label: string) {
-        const channel = { label, sent: [] as string[], send(value: string) { this.sent.push(value); } };
+      createDataChannel(label: string, options: RTCDataChannelInit) {
+        const channel = { label, options, readyState: "open", bufferedAmount: 0, sent: [] as string[], send(value: string) { this.sent.push(value); } };
         this.channels.push(channel);
         return channel;
       }
@@ -95,34 +95,33 @@ function environment(t: TestContext) {
   } };
 }
 
-test("Bridge negotiates independent camera tracks and pauses and resumes both with audio", async t => {
+test("Bridge negotiates one selected camera and pauses and resumes it with audio", async t => {
   const env = environment(t);
-  const cameras = [camera("right"), camera("left", 1920)];
-  const peer = new BridgePeer(binding, cameras, "local-floor", () => {}, error => env.errors.push(error));
+  const selected = camera("right");
+  const peer = new BridgePeer(binding, selected, "local-floor", () => {}, error => env.errors.push(error));
   t.after(() => peer.stop());
   const audio = { kind: "audio" } as MediaStreamTrack;
   await peer.setAudioTrack(audio);
   const { pc, description } = await env.offer(peer);
   assert.equal(description.type, "description");
   if (description.type !== "description") return;
-  assert.deepEqual(description.cameras?.map(({ side, mid }) => ({ side, mid })), [
-    { side: "right", mid: "1-0" }, { side: "left", mid: "1-1" },
-  ]);
-  assert.equal(description.camera.side, "right");
-  assert.deepEqual(pc.transceivers.map((item: any) => item.sender.track), [...cameras.map(item => item.track), audio]);
-  assert.deepEqual(pc.transceivers.slice(0, 2).map((item: any) => item.options.sendEncodings[0].scaleResolutionDownBy), [2, 3]);
-  assert.ok(pc.transceivers.slice(0, 2).every((item: any) => item.codecs[0].mimeType === "video/H264"));
+  assert.equal(description.cameras, undefined);
+  assert.equal(description.camera?.side, "right");
+  assert.equal(description.environment_depth?.channel, "ceres-depth-v1");
+  assert.deepEqual(pc.transceivers.map((item: any) => item.sender.track), [selected.track, audio]);
+  assert.equal(pc.transceivers[0].options.sendEncodings[0].scaleResolutionDownBy, 2);
+  assert.equal(pc.transceivers[0].codecs[0].mimeType, "video/H264");
   await peer.setPaused(true);
-  assert.deepEqual(pc.transceivers.map((item: any) => item.sender.track), [null, null, null]);
+  assert.deepEqual(pc.transceivers.map((item: any) => item.sender.track), [null, null]);
   await peer.setPaused(false);
-  assert.deepEqual(pc.transceivers.map((item: any) => item.sender.track), [...cameras.map(item => item.track), audio]);
+  assert.deepEqual(pc.transceivers.map((item: any) => item.sender.track), [selected.track, audio]);
   await peer.setPaused(true);
   const next = await env.offer(peer);
   assert.ok(pc.closed);
-  assert.deepEqual(next.pc.transceivers.map((item: any) => item.sender.track), [null, null, null]);
-  assert.equal(next.description.type === "description" && next.description.cameras?.[1].mid, "2-1");
+  assert.deepEqual(next.pc.transceivers.map((item: any) => item.sender.track), [null, null]);
+  assert.equal(next.description.type === "description" && next.description.camera?.side, "right");
   await peer.setPaused(false);
-  assert.deepEqual(next.pc.transceivers.map((item: any) => item.sender.track), [...cameras.map(item => item.track), audio]);
+  assert.deepEqual(next.pc.transceivers.map((item: any) => item.sender.track), [selected.track, audio]);
   peer.stop();
   assert.ok(next.pc.closed);
   assert.ok(env.sockets.every(socket => socket.closed));
@@ -130,11 +129,11 @@ test("Bridge negotiates independent camera tracks and pauses and resumes both wi
 
 test("Bridge single-camera offers retain the original metadata shape", async t => {
   const env = environment(t);
-  const peer = new BridgePeer(binding, [camera("left")], "local", () => {}, error => env.errors.push(error));
+  const peer = new BridgePeer(binding, camera("left"), "local", () => {}, error => env.errors.push(error));
   t.after(() => peer.stop());
   const { pc, description } = await env.offer(peer);
   assert.equal(pc.transceivers.filter((item: any) => item.kind === "video").length, 1);
-  assert.equal(description.type === "description" && description.camera.side, "left");
+  assert.equal(description.type === "description" && description.camera?.side, "left");
   assert.ok(!("cameras" in description));
 });
 
@@ -143,17 +142,35 @@ test("Bridge uses one camera metadata snapshot when measured settings change dur
   const right = camera("right");
   let reads = 0;
   right.track.getSettings = () => ({ frameRate: reads++ === 0 ? undefined : 30 });
-  const peer = new BridgePeer(binding, [right, camera("left")], "local", () => {}, error => env.errors.push(error));
+  const peer = new BridgePeer(binding, right, "local", () => {}, error => env.errors.push(error));
   t.after(() => peer.stop());
   const { description } = await env.offer(peer);
   assert.equal(description.type, "description");
   if (description.type !== "description") return;
-  assert.equal(description.camera.fps, 30);
-  assert.equal(description.cameras?.[0].fps, 30);
+  assert.equal(description.camera?.fps, 30);
+  assert.equal(description.cameras, undefined);
 });
 
-test("Bridge rejects camera sets without distinct identities", () => {
-  for (const cameras of [[], [camera("left"), camera("left")], [camera("left"), camera("right"), camera("left")]]) {
-    assert.throws(() => new BridgePeer(binding, cameras, "local", () => {}, () => {}), /camera/);
+test("Bridge rejects camera arrays even when passed by an old caller", () => {
+  for (const cameras of [[], [camera("left")], [camera("left"), camera("right")]]) {
+    assert.throws(() => new BridgePeer(binding, cameras as unknown as BridgeCamera, "local", () => {}, () => {}), /one selected camera/);
   }
+});
+
+test("Bridge depth-only offers require no camera and use a separate lossy channel", async t => {
+  const env = environment(t);
+  const peer = new BridgePeer(binding, null, "local-floor", () => {}, error => env.errors.push(error));
+  t.after(() => peer.stop());
+  const { pc, description } = await env.offer(peer);
+  assert.equal(description.type, "description");
+  if (description.type !== "description") return;
+  assert.equal(description.camera, undefined);
+  assert.equal(description.environment_depth?.channel, "ceres-depth-v1");
+  assert.equal(pc.transceivers.filter((item: any) => item.kind === "video").length, 0);
+  const depth = pc.channels.find((item: any) => item.label === "ceres-depth-v1");
+  assert.deepEqual(depth.options, { ordered: false, maxRetransmits: 0 });
+  assert.equal(peer.sendDepthStatus({ type: "depth-status", version: 1, epoch: peer.epoch,
+    status: "unsupported", usage: null, source_format: null }), true);
+  peer.stop();
+  assert.equal(peer.depth, null);
 });
