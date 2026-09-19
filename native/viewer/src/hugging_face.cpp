@@ -1,4 +1,5 @@
 #include "ceres/hugging_face.hpp"
+#include "ceres/lerobot_import.hpp"
 #include <curl/curl.h>
 #include <mbedtls/base64.h>
 #include <mbedtls/sha1.h>
@@ -33,6 +34,7 @@ constexpr const char* origin = "https://huggingface.co";
 constexpr const char* client_id = "https://ceres.cam/.well-known/oauth-cimd";
 constexpr const char* scopes = "openid profile read-repos write-repos contribute-repos read-memberships";
 constexpr uint64_t maximum_recording = uint64_t{1} << 40;
+constexpr unsigned replay_cache_version = 2;
 void require(bool valid, const char* message) {
     if (!valid)
         throw std::runtime_error(message);
@@ -58,8 +60,43 @@ bool hash_string(const std::string& value, size_t size) {
         return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
     });
 }
+std::string text_hash(const std::string& value) {
+    unsigned char digest[32]{};
+    require(mbedtls_sha256(reinterpret_cast<const unsigned char*>(value.data()), value.size(), digest, 0) == 0,
+            "Cannot identify the dataset replay cache");
+    return hex(digest, sizeof(digest));
+}
 bool file_metadata(uint64_t bytes, const std::string& sha, const std::string& git, uint64_t maximum) {
     return bytes > 0 && bytes <= maximum && (sha.empty() ? hash_string(git, 40) : hash_string(sha, 64));
+}
+HuggingFaceFile remote_file(const Json& entry) {
+    HuggingFaceFile file;
+    file.path = hf::repository_path(entry.at("path").get<std::string>());
+    file.bytes = entry.value("size", uint64_t{0});
+    file.git_oid = entry.value("oid", std::string{});
+    if (entry.contains("lfs") && entry["lfs"].is_object())
+        file.sha256 = entry["lfs"].value("oid", std::string{});
+    require(file_metadata(file.bytes, file.sha256, file.git_oid, maximum_recording),
+            "Hugging Face returned invalid dataset file metadata");
+    return file;
+}
+bool dataset_file(std::string_view relative) {
+    const bool directory = relative.starts_with("meta/") || relative.starts_with("data/") ||
+                           relative.starts_with("videos/") || relative.starts_with("ceres/");
+    return directory && (relative.ends_with(".json") || relative.ends_with(".jsonl") ||
+                         relative.ends_with(".parquet") || relative.ends_with(".mp4"));
+}
+Json dataset_manifest(const HuggingFaceRecording& recording) {
+    auto files = Json::array();
+    for (const auto& file : recording.files)
+        files.push_back({{"path", file.path}, {"bytes", file.bytes},
+                         {"sha256", file.sha256}, {"git_oid", file.git_oid}});
+    return {{"version", 1}, {"repository", recording.repository}, {"revision", recording.revision},
+            {"dataset_root", recording.dataset_root}, {"files", std::move(files)}};
+}
+Json replay_contract() {
+    return {{"schema", "ceres-lerobot-replay-cache"}, {"version", replay_cache_version},
+            {"task_schema", "ceres-replay-task"}, {"task_version", 1}};
 }
 std::string base64(std::string_view bytes) {
     if (bytes.empty())
@@ -229,6 +266,18 @@ std::string repository_id(std::string_view organisation, std::string_view reposi
     };
     require(valid(organisation) && valid(repository), "Enter an organisation or username and a repository name");
     return std::string(organisation) + '/' + std::string(repository);
+}
+std::string repository_id(std::string_view source) {
+    auto value = trim(std::string(source));
+    if (value.starts_with("hf:")) value.erase(0, 3);
+    const std::string prefix = "https://huggingface.co/datasets/";
+    if (value.starts_with(prefix)) {
+        value.erase(0, prefix.size());
+        if (value.ends_with('/')) value.pop_back();
+    }
+    const auto slash = value.find('/');
+    require(slash != value.npos, "Enter a Hugging Face repository as owner/name or hf:owner/name");
+    return repository_id(value.substr(0, slash), value.substr(slash + 1));
 }
 std::string repository_path(std::string_view value) {
     require(!value.empty() && value.size() <= 1024 && value.front() != '/' && value.back() != '/',
@@ -408,14 +457,17 @@ struct HuggingFaceClient::Impl {
     std::filesystem::path directory, completed_download;
     hf::Transport transport;
     hf::OpenBrowser browser;
+    hf::ImportReplay importer;
     mutable std::mutex mutex;
     HuggingFaceStatus state;
     Json credential = Json::object();
     int64_t authentication_expires_at = 0;
     std::jthread worker;
 
-    Impl(std::filesystem::path directory, hf::Transport transport, hf::OpenBrowser browser)
-        : directory(std::move(directory)), transport(std::move(transport)), browser(std::move(browser)) {
+    Impl(std::filesystem::path directory, hf::Transport transport, hf::OpenBrowser browser,
+         hf::ImportReplay importer)
+        : directory(std::move(directory)), transport(std::move(transport)), browser(std::move(browser)),
+          importer(importer ? std::move(importer) : hf::ImportReplay{import_lerobot_replay}) {
         try {
             credential = load_credential(this->directory);
             state.username = credential.value("username", std::string{});
@@ -528,8 +580,9 @@ struct HuggingFaceClient::Impl {
 };
 
 HuggingFaceClient::HuggingFaceClient(std::filesystem::path directory, hf::Transport transport,
-                                   hf::OpenBrowser browser)
-    : impl_(std::make_unique<Impl>(std::move(directory), std::move(transport), std::move(browser))) {}
+                                   hf::OpenBrowser browser, hf::ImportReplay importer)
+    : impl_(std::make_unique<Impl>(std::move(directory), std::move(transport), std::move(browser),
+                                   std::move(importer))) {}
 HuggingFaceClient::~HuggingFaceClient() = default;
 void HuggingFaceClient::cancel() { impl_->worker.request_stop(); }
 HuggingFaceStatus HuggingFaceClient::status() const {
@@ -599,18 +652,27 @@ bool HuggingFaceClient::sign_in() {
     }, true);
 }
 bool HuggingFaceClient::browse(std::string repository) {
-    return impl_->start("Loading recordings", [this, repo = std::move(repository)](std::stop_token stop) {
+    return impl_->start("Loading recordings", [this, source = std::move(repository)](std::stop_token stop) {
+        {
+            std::lock_guard lock(impl_->mutex);
+            impl_->state.recordings = std::make_shared<const std::vector<HuggingFaceRecording>>();
+            impl_->state.repository.clear(); impl_->state.revision.clear(); impl_->completed_download.clear();
+        }
+        const auto repo = hf::repository_id(source);
         const auto token = impl_->token(stop);
         const auto metadata = impl_->repository(repo, token, stop);
         const auto revision = metadata.value("sha", std::string{});
         const auto entries = impl_->tree(repo, revision, token, stop);
         std::map<std::string, const Json*> sidecars;
-        for (const auto& entry : entries)
+        for (const auto& entry : entries) {
+            cancelled(stop);
             if (entry.value("type", std::string{}) == "file" &&
                 lower(entry.value("path", std::string{})).ends_with(".mcap.episodes.json"))
                 sidecars[entry.value("path", std::string{})] = &entry;
+        }
         auto recordings = std::make_shared<std::vector<HuggingFaceRecording>>();
         for (const auto& entry : entries) {
+            cancelled(stop);
             if (entry.value("type", std::string{}) != "file") continue;
             const auto path = entry.value("path", std::string{});
             if (!lower(path).ends_with(".mcap")) continue;
@@ -633,20 +695,50 @@ bool HuggingFaceClient::browse(std::string repository) {
             }
             recordings->push_back(std::move(recording));
         }
+        for (const auto& entry : entries) {
+            cancelled(stop);
+            if (entry.value("type", std::string{}) != "file") continue;
+            const auto path = entry.value("path", std::string{});
+            if (path != "meta/info.json" && !path.ends_with("/meta/info.json")) continue;
+            const auto info = remote_file(entry);
+            HuggingFaceRecording recording{repo, revision, info.path, info.sha256, info.git_oid};
+            recording.dataset_root = path.substr(0, path.size() - std::string_view("meta/info.json").size());
+            if (!recording.dataset_root.empty()) recording.dataset_root.pop_back();
+            const auto prefix = recording.dataset_root.empty() ? "" : recording.dataset_root + '/';
+            bool data = false, video = false;
+            std::set<std::string> names;
+            for (const auto& candidate : entries) {
+                cancelled(stop);
+                if (candidate.value("type", std::string{}) != "file") continue;
+                const auto name = candidate.value("path", std::string{});
+                if (!name.starts_with(prefix) || !dataset_file(name.substr(prefix.size()))) continue;
+                auto file = remote_file(candidate);
+                require(names.insert(lower(file.path)).second, "Dataset contains conflicting file paths");
+                require(recording.bytes <= maximum_recording - file.bytes, "Hugging Face dataset is too large");
+                recording.bytes += file.bytes;
+                const auto relative = file.path.substr(prefix.size());
+                data = data || (relative.starts_with("data/") && relative.ends_with(".parquet"));
+                video = video || (relative.starts_with("videos/") && relative.ends_with(".mp4"));
+                recording.files.push_back(std::move(file));
+            }
+            if (!data || !video) continue;
+            std::sort(recording.files.begin(), recording.files.end(),
+                      [](const auto& a, const auto& b) { return a.path < b.path; });
+            recordings->push_back(std::move(recording));
+        }
         std::sort(recordings->begin(), recordings->end(), [](const auto& a, const auto& b) { return a.path < b.path; });
         std::lock_guard lock(impl_->mutex);
         impl_->state.repository = repo; impl_->state.revision = revision;
         impl_->state.recordings = recordings;
-        impl_->state.message = recordings->empty() ? "No MCAP recordings in this repository" :
+        impl_->state.message = recordings->empty() ? "No MCAP recordings or LeRobot video datasets in this repository" :
                                     std::to_string(recordings->size()) + " recordings";
         impl_->state.progress = 1;
     });
 }
 bool HuggingFaceClient::download(HuggingFaceRecording recording, std::filesystem::path cache) {
     return impl_->start("Downloading recording", [this, recording = std::move(recording), cache = std::move(cache)](std::stop_token stop) {
-        const auto slash = recording.repository.find('/');
-        require(slash != recording.repository.npos && hf::repository_id(recording.repository.substr(0, slash),
-                    recording.repository.substr(slash + 1)) == recording.repository,
+        { std::lock_guard lock(impl_->mutex); impl_->completed_download.clear(); }
+        require(hf::repository_id(recording.repository) == recording.repository,
                 "Invalid Hugging Face repository");
         require(hash_string(recording.revision, 40) && recording.bytes >= 8 &&
                     file_metadata(recording.bytes, recording.sha256, recording.git_oid, maximum_recording),
@@ -656,19 +748,31 @@ bool HuggingFaceClient::download(HuggingFaceRecording recording, std::filesystem
                                   recording.episodes_git_oid, 16 * 1024 * 1024),
                 "Recording episode metadata is invalid");
         const auto path = hf::repository_path(recording.path);
-        require(lower(path).ends_with(".mcap"), "Choose an MCAP recording to download");
-        const auto target = cache / recording.revision /
-                            (hash_string(recording.sha256, 64) ? recording.sha256 : recording.git_oid) /
-                            std::filesystem::u8path(path).filename();
+        const auto identity = recording.is_dataset() ? text_hash(dataset_manifest(recording).dump()) :
+                              hash_string(recording.sha256, 64) ? recording.sha256 : recording.git_oid;
+        const auto cache_root = std::filesystem::absolute(cache) /
+                               (recording.is_dataset() ? "datasets" : recording.revision) / identity;
+        // Importer upgrades retain verified sources and select a new derived recording.
+        const auto replay_name = "replay-v" + std::to_string(replay_cache_version);
+        const auto target = cache_root /
+                            (recording.is_dataset() ? std::filesystem::path(replay_name + ".mcap") :
+                                                      std::filesystem::u8path(path).filename());
+        enum class Contents { Binary, Mcap, EpisodeJson };
+        const auto valid_mcap = [](const std::filesystem::path& file) {
+            std::ifstream input(file, std::ios::binary); std::array<char, 8> magic{};
+            input.read(magic.data(), magic.size());
+            return bool(input) && std::string(magic.data(), magic.size()) == std::string("\x89MCAP0\r\n", 8);
+        };
         const auto fetch = [&](const std::string& remote, const std::filesystem::path& local,
-                               uint64_t bytes, const std::string& sha, const std::string& git, bool mcap) {
+                               uint64_t bytes, const std::string& sha, const std::string& git, Contents contents) {
+          cancelled(stop);
           const auto valid = [&](const std::filesystem::path& file) {
               return std::filesystem::is_regular_file(file) && std::filesystem::file_size(file) == bytes &&
                   file_hash(file, sha.empty(), stop) == (sha.empty() ? git : sha);
           };
           if (!valid(local)) {
-            std::filesystem::create_directories(target.parent_path());
-            const auto available = std::filesystem::space(target.parent_path()).available;
+            std::filesystem::create_directories(local.parent_path());
+            const auto available = std::filesystem::space(local.parent_path()).available;
             require(available >= bytes + 64 * 1024 * 1024, "There is not enough disk space for this recording");
             auto partial = local; partial += ".partial";
             struct Cleanup { std::filesystem::path path; ~Cleanup() { std::error_code ignored; std::filesystem::remove(path, ignored); } } cleanup{partial};
@@ -682,14 +786,13 @@ bool HuggingFaceClient::download(HuggingFaceRecording recording, std::filesystem
                 impl_->message("Downloading recording", total ? float(double(current) / total) : 0);
             });
             successful(response);
+            cancelled(stop);
             impl_->message("Verifying recording");
             require(valid(partial), "The downloaded recording failed its checksum. Download it again");
-            if (mcap) {
-                std::ifstream input(partial, std::ios::binary); std::array<char, 8> magic{};
-                input.read(magic.data(), magic.size());
-                require(std::string(magic.data(), magic.size()) == std::string("\x89MCAP0\r\n", 8),
+            if (contents == Contents::Mcap) {
+                require(valid_mcap(partial),
                         "The selected file is not an MCAP recording");
-            } else {
+            } else if (contents == Contents::EpisodeJson) {
                 require(parse_json(read_file(partial, 16 * 1024 * 1024)).is_object(),
                         "The recording episode metadata is invalid");
             }
@@ -697,11 +800,80 @@ bool HuggingFaceClient::download(HuggingFaceRecording recording, std::filesystem
             std::filesystem::rename(partial, local);
           }
         };
-        fetch(path, target, recording.bytes, recording.sha256, recording.git_oid, true);
-        if (recording.episodes_bytes) {
-            auto sidecar = target; sidecar += ".episodes.json";
-            fetch(path + ".episodes.json", sidecar, recording.episodes_bytes,
-                  recording.episodes_sha256, recording.episodes_git_oid, false);
+        if (recording.is_dataset()) {
+            const auto root = recording.dataset_root.empty() ? "" : hf::repository_path(recording.dataset_root) + '/';
+            require(path == root + "meta/info.json" && recording.files.size() <= 200000 &&
+                        recording.episodes_bytes == 0, "Dataset metadata is invalid");
+            uint64_t total = 0;
+            bool info = false, data = false, video = false;
+            std::set<std::string> names;
+            for (const auto& file : recording.files) {
+                cancelled(stop);
+                const auto name = hf::repository_path(file.path);
+                require(name.starts_with(root) && dataset_file(name.substr(root.size())) &&
+                            names.insert(lower(name)).second &&
+                            file_metadata(file.bytes, file.sha256, file.git_oid, maximum_recording) &&
+                            total <= maximum_recording - file.bytes, "Dataset file metadata is invalid");
+                total += file.bytes;
+                const auto relative = name.substr(root.size());
+                if (relative == "meta/info.json") {
+                    require(file.sha256 == recording.sha256 && file.git_oid == recording.git_oid,
+                            "Dataset info metadata is invalid");
+                    info = true;
+                }
+                data = data || (relative.starts_with("data/") && relative.ends_with(".parquet"));
+                video = video || (relative.starts_with("videos/") && relative.ends_with(".mp4"));
+            }
+            require(info && data && video && total == recording.bytes, "Dataset is missing its metadata, poses or video");
+            const auto dataset = cache_root / "dataset";
+            for (const auto& file : recording.files)
+                fetch(file.path, dataset / std::filesystem::u8path(file.path.substr(root.size())),
+                      file.bytes, file.sha256, file.git_oid, Contents::Binary);
+            const auto manifest = dataset_manifest(recording);
+            const auto contract = replay_contract();
+            const auto receipt_path = cache_root / (replay_name + ".json");
+            bool ready = false;
+            if (std::filesystem::is_regular_file(receipt_path) &&
+                std::filesystem::file_size(receipt_path) <= 64 * 1024 * 1024 && valid_mcap(target)) {
+                const auto receipt = Json::parse(read_file(receipt_path, 64 * 1024 * 1024), nullptr, false);
+                ready = receipt.is_object() && receipt.contains("source") && receipt.at("source") == manifest &&
+                        receipt.contains("replay_contract") && receipt.at("replay_contract") == contract &&
+                        receipt.contains("sha256") && receipt.at("sha256").is_string() &&
+                        receipt.at("sha256").get<std::string>() == hf::sha256_file(target, stop);
+            }
+            if (!ready) {
+                impl_->message("Preparing dataset replay");
+                auto partial = target; partial += ".partial";
+                auto receipt_partial = receipt_path; receipt_partial += ".partial";
+                struct Cleanup {
+                    std::filesystem::path recording, receipt;
+                    ~Cleanup() { std::error_code ignored; std::filesystem::remove(recording, ignored);
+                                 std::filesystem::remove(receipt, ignored); }
+                } cleanup{partial, receipt_partial};
+                impl_->importer(dataset, partial, stop);
+                cancelled(stop);
+                require(valid_mcap(partial), "The dataset importer did not produce a replay recording");
+                const Json receipt{{"source", manifest}, {"replay_contract", contract},
+                                   {"sha256", hf::sha256_file(partial, stop)}};
+                std::ofstream output(receipt_partial, std::ios::binary | std::ios::trunc);
+                require(bool(output << receipt.dump(2) << '\n'), "Cannot save the dataset replay receipt");
+                output.close();
+                require(bool(output), "Cannot finish the dataset replay receipt");
+                std::error_code ignored;
+                std::filesystem::remove(target, ignored);
+                std::filesystem::rename(partial, target);
+                std::filesystem::remove(receipt_path, ignored);
+                std::filesystem::rename(receipt_partial, receipt_path);
+            }
+        } else {
+            require(recording.dataset_root.empty() && lower(path).ends_with(".mcap"),
+                    "Choose an MCAP recording or a LeRobot dataset to download");
+            fetch(path, target, recording.bytes, recording.sha256, recording.git_oid, Contents::Mcap);
+            if (recording.episodes_bytes) {
+                auto sidecar = target; sidecar += ".episodes.json";
+                fetch(path + ".episodes.json", sidecar, recording.episodes_bytes,
+                      recording.episodes_sha256, recording.episodes_git_oid, Contents::EpisodeJson);
+            }
         }
         std::lock_guard lock(impl_->mutex);
         impl_->completed_download = target; impl_->state.message = "Recording ready"; impl_->state.progress = 1;

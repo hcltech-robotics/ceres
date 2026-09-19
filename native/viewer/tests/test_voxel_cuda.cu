@@ -35,7 +35,9 @@ struct Fixture {
     ceres::StereoPoint* output = nullptr;
     ceres::VoxelGpuConfig config;
     std::vector<ceres::StereoPoint> host;
-    explicit Fixture(size_t capacity) : volume(capacity), host(capacity) {
+    const size_t allocation_bytes;
+    explicit Fixture(size_t capacity) : volume(capacity), host(capacity),
+        allocation_bytes(volume.scratch_bytes()) {
         check(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking));
         check(cudaMalloc(&input, ceres::stereo_voxel_max_samples * sizeof(ceres::StereoPoint)));
         check(cudaMalloc(&output, capacity * sizeof(ceres::StereoPoint)));
@@ -71,7 +73,7 @@ struct Fixture {
                 continue;
             }
             const bool valid_width = std::isfinite(sample.valid) && sample.valid >= 1 &&
-                sample.valid <= 64 && sample.valid == std::floor(sample.valid) &&
+                   sample.valid <= float(1u << 21) && sample.valid == std::floor(sample.valid) &&
                 !(unsigned(sample.valid) & (unsigned(sample.valid) - 1));
             expect(valid_width && std::isfinite(sample.x) && std::isfinite(sample.y) &&
                        std::isfinite(sample.z) && std::isfinite(sample.a) && sample.a > 0 && sample.a <= 1 &&
@@ -101,8 +103,8 @@ struct Fixture {
 
 void geometry_and_colours() {
     Fixture f(256);
-    expect(f.volume.capacity() == 256 && f.volume.scratch_bytes() == 256 * 128 + 288,
-           "Fixed, accounted voxel allocation");
+    expect(f.volume.capacity() == 256 && f.volume.scratch_bytes() <= 256 * 768 + 4096,
+           "Surface cache and TSDF working storage have a fixed bounded allocation");
     expect(f.read().empty(), "New volume snapshot is empty");
     auto cloud = f.run({point(0.04f, 0.04f, -0.10f)}, 0);
     expect(cloud.size() == 1 && near(cloud[0].x, .045f) && near(cloud[0].y, .045f) &&
@@ -296,7 +298,7 @@ void collisions_and_reuse() {
                    return std::abs(p.x - x) < .3f;
                }), "New regions continue entering a saturated map");
     }
-    expect(f.volume.scratch_bytes() == 32 * 128 + 288, "Repeated reuse never grows memory");
+    expect(f.volume.scratch_bytes() == f.allocation_bytes, "Repeated reuse never grows memory");
 }
 
 using LodLocation = std::tuple<int, int, int, unsigned>;
@@ -384,7 +386,7 @@ void lod_density_and_world_grid() {
     lod.max_level = 0;
     expect(locations(f.read(&lod), .05f) == locations(fine, .05f),
            "Level zero preserves the full-resolution snapshot contract");
-    expect(f.volume.scratch_bytes() == 8192 * 128 + 288,
+    expect(f.volume.scratch_bytes() == f.allocation_bytes,
            "Repeated camera and level changes use only fixed allocated storage");
 }
 
@@ -735,7 +737,7 @@ void near_revisit_refinement() {
     });
     expect(coarse_count(cloud) == 0 && fine >= 36,
            "A near revisit restores fine detail from broad fresh surface coverage");
-    expect(f.volume.scratch_bytes() == 128 * 128 + 288,
+    expect(f.volume.scratch_bytes() == f.allocation_bytes,
            "Refinement reuses fixed allocated scratch storage");
 }
 
@@ -874,6 +876,316 @@ void sweep_reliability() {
                "Sparse and jittered depth cadence still replaces coherently contradicted surfaces");
     }
 }
+std::vector<ceres::SpatialMapPoint> metadata(Fixture& f, int64_t origin = 10000000,
+                                            const ceres::VoxelLodConfig* lod = nullptr) {
+    ceres::SpatialMapPoint* device = nullptr;
+    check(cudaMalloc(&device, f.volume.capacity() * sizeof(*device)));
+    std::vector<ceres::SpatialMapPoint> result(f.volume.capacity());
+    if (lod) check(f.volume.snapshot_metadata_lod(device, *lod, origin, f.stream));
+    else check(f.volume.snapshot_metadata(device, origin, f.stream));
+    check(cudaMemcpyAsync(result.data(), device, result.size() * sizeof(*device),
+                          cudaMemcpyDeviceToHost, f.stream));
+    check(cudaStreamSynchronize(f.stream));
+    check(cudaFree(device));
+    result.erase(std::remove_if(result.begin(), result.end(), [](const auto& p) { return !p.weight; }), result.end());
+    std::sort(result.begin(), result.end(), [](const auto& a, const auto& b) {
+        return std::tie(a.x, a.y, a.z) < std::tie(b.x, b.y, b.z);
+    });
+    return result;
+}
+ceres::VoxelStatistics statistics(Fixture& f) {
+    ceres::VoxelStatistics* device = nullptr;
+    check(cudaMalloc(&device, sizeof(*device)));
+    check(f.volume.statistics(device, f.stream));
+    ceres::VoxelStatistics result;
+    check(cudaMemcpyAsync(&result, device, sizeof(result), cudaMemcpyDeviceToHost, f.stream));
+    check(cudaStreamSynchronize(f.stream));
+    check(cudaFree(device));
+    return result;
+}
+std::vector<ceres::VoxelTsdfSample> tsdf(Fixture& f, const std::vector<ceres::StereoPoint>& positions) {
+    f.upload(positions);
+    ceres::VoxelTsdfSample* device = nullptr;
+    check(cudaMalloc(&device, positions.size() * sizeof(*device)));
+    check(f.volume.query_tsdf(f.input, positions.size(), device, f.stream));
+    std::vector<ceres::VoxelTsdfSample> result(positions.size());
+    check(cudaMemcpyAsync(result.data(), device, result.size() * sizeof(*device),
+                          cudaMemcpyDeviceToHost, f.stream));
+    check(cudaStreamSynchronize(f.stream));
+    check(cudaFree(device));
+    return result;
+}
+std::vector<ceres::StereoPoint> dense_plane(float depth, int side = 64, bool valid = true) {
+    std::vector<ceres::StereoPoint> result;
+    for (int y = 0; y < side; ++y)
+        for (int x = 0; x < side; ++x) {
+            auto p = point((2.f * (x + .5f) / side - 1) * depth,
+                           (1 - 2.f * (y + .5f) / side) * depth, -depth, .2f, .4f, .8f);
+            p.valid = valid ? 1.f : 0.f;
+            result.push_back(p);
+        }
+    return result;
+}
+void tsdf_metric_fusion_and_zero_crossings() {
+    Fixture f(65536);
+    f.config.voxel_size = .05f;
+    f.config.intrinsic_colour = false;
+    auto view = observation(f);
+    view.width = view.height = 64;
+    observe(f, dense_plane(2), 0, view);
+    const std::vector<ceres::StereoPoint> positions{
+        point(.025f, .025f, -1.925f), point(.025f, .025f, -2.075f), point(10, 10, 10)};
+    auto values = tsdf(f, positions);
+    expect(values[0].weight == 1 && near(values[0].distance_metres, .075f, .001f) &&
+               values[1].weight == 1 && near(values[1].distance_metres, -.075f, .001f) &&
+               values[2].weight == 0,
+           "TSDF stores signed metric samples around the surface and leaves unknown space unobserved");
+    const auto first = metadata(f);
+    expect(first.size() > 1000, "A depth plane produces a dense extracted zero-level surface");
+    for (const auto& p : first)
+        expect(near(p.z, -2, .0001f) && p.flags == 0 && p.r == 0 && p.g == 0 && p.b == 0 &&
+                   p.observed_us == 10000000,
+               "Depth metadata preserves the mathematical zero crossing without a display palette");
+    observe(f, dense_plane(2.04f), 1, view);
+    values = tsdf(f, positions);
+    expect(values[0].weight == 2 && near(values[0].distance_metres, .095f, .001f) &&
+               values[1].weight == 2 && near(values[1].distance_metres, -.055f, .001f),
+           "Independent depth captures fuse weighted signed metric distance");
+    observe(f, dense_plane(2.04f), 1, view, 2);
+    const auto repeated = tsdf(f, positions);
+    expect(repeated[0].weight == values[0].weight && repeated[0].distance_metres == values[0].distance_metres,
+           "Repeated capture timestamps do not double-count TSDF weight");
+    observe(f, dense_plane(1), 3, view);
+    const auto occluded = tsdf(f, positions);
+    expect(occluded[0].weight == values[0].weight && occluded[0].distance_metres == values[0].distance_metres,
+           "Foreground depth does not carve a hidden background TSDF surface");
+    observe(f, dense_plane(4, 64, false), 4, view);
+    const auto invalid = tsdf(f, positions);
+    expect(invalid[0].weight == values[0].weight && invalid[0].distance_metres == values[0].distance_metres,
+           "Invalid range samples do not change a retained TSDF");
+    for (int frame = 5; frame < 25; ++frame) observe(f, dense_plane(2.04f), float(frame), view);
+    values = tsdf(f, positions);
+    expect(values[0].weight == 16 && near(values[0].distance_metres, .115f, .004f),
+           "Bounded TSDF weight converges under repeated independent measurements");
+    const auto stats = statistics(f);
+    expect(stats.tsdf_voxels > stats.occupied_points && stats.occupied_points <= f.volume.max_points(),
+           "TSDF samples and extracted surface points remain separate bounded layers");
+
+    f.reset();
+    f.config.voxel_size = .05f;
+    f.config.head_to_world[0] = f.config.head_to_world[10] = 0;
+    f.config.head_to_world[2] = -1; f.config.head_to_world[8] = 1;
+    f.config.head_to_world[12] = 3; f.config.head_to_world[14] = -.5f;
+    view = observation(f); view.width = view.height = 64;
+    view.view_from_world[0] = view.view_from_world[10] = 0;
+    view.view_from_world[2] = 1; view.view_from_world[8] = -1;
+    view.view_from_world[12] = -.5f; view.view_from_world[14] = -3;
+    observe(f, dense_plane(2), 0, view);
+    values = tsdf(f, {point(1.025f, .025f, -.525f), point(.975f, .025f, -.525f)});
+    expect(values[0].weight > 0 && values[1].weight > 0 &&
+               near(values[0].distance_metres, .025f, .001f) && near(values[1].distance_metres, -.025f, .001f),
+           "TSDF projection uses the capture pose across world rotation and translation");
+    for (const auto& p : metadata(f))
+        expect(near(p.x, 1, .0001f), "Rotated extracted surfaces remain in world coordinates");
+}
+void metadata_regrid_restore_and_budget() {
+    Fixture f(4096);
+    f.config.voxel_size = .02f;
+    std::vector<ceres::StereoPoint> points;
+    for (int region = 0; region < 4; ++region)
+        for (int y = 0; y < 8; ++y)
+            for (int x = 0; x < 8; ++x)
+                points.push_back(point(region * .64f + .003f + x * .02f,
+                                       .007f + y * .02f, -2.003f, .2f, .4f, .8f));
+    f.run(points, 7);
+    const auto initial = metadata(f);
+    expect(initial.size() == points.size() && near(initial.front().x, .003f) &&
+               near(initial.front().y, .007f) && near(initial.front().z, -2.003f) &&
+               initial.front().observed_us == 17000000 &&
+               initial.front().flags == ceres::spatial_map_intrinsic_rgb,
+           "Authoritative metadata retains acquired coordinates, source colour and observation time");
+    ceres::VoxelLodConfig lod;
+    lod.view_position[2] = 20;
+    (void)metadata(f, 10000000, &lod);
+    const auto unchanged = metadata(f);
+    expect(initial.size() == unchanged.size() &&
+               std::equal(initial.begin(), initial.end(), unchanged.begin(), [](const auto& a, const auto& b) {
+                   return a.x == b.x && a.y == b.y && a.z == b.z && a.observed_us == b.observed_us && a.weight == b.weight;
+               }), "Display snapshots cannot modify acquisition geometry or timestamps");
+    const size_t allocation = f.volume.scratch_bytes();
+    check(f.volume.set_max_points(32, f.stream));
+    auto coarse = metadata(f);
+    expect(coarse.size() <= 32 && f.volume.max_points() == 32 && f.volume.scratch_bytes() == allocation,
+           "Reducing the logical map budget coarsens immediately within the fixed allocation");
+    for (int region = 0; region < 4; ++region)
+        expect(std::any_of(coarse.begin(), coarse.end(), [&](const auto& p) {
+            return p.x >= region * .64f && p.x < region * .64f + .16f;
+        }), "Budget pressure preserves each acquired region by spatial merging");
+    check(f.volume.reconfigure(.08f, f.stream));
+    coarse = metadata(f);
+    for (const auto& p : coarse)
+        expect(near(p.z, -2.003f) && p.observed_us == 17000000 && p.cell_size >= .08f,
+               "Changing grid spacing retains the measured surface position and timestamp");
+    check(f.volume.reconfigure(.01f, f.stream));
+    const auto finer = metadata(f);
+    expect(!finer.empty(), "Finer future acquisition does not discard existing coarse geometry");
+    for (const auto& p : finer) expect(near(p.z, -2.003f), "Regridding does not snap geometry to a voxel centre");
+    ceres::SpatialMapPoint* device = nullptr;
+    check(cudaMalloc(&device, finer.size() * sizeof(*device)));
+    check(cudaMemcpyAsync(device, finer.data(), finer.size() * sizeof(*device), cudaMemcpyHostToDevice, f.stream));
+    check(f.volume.restore(device, finer.size(), .01f, 10000000, f.stream));
+    const auto restored = metadata(f);
+    check(cudaFree(device));
+    expect(restored.size() == finer.size(), "Restore replaces the authoritative surface cache");
+    for (const auto& p : restored)
+        expect(near(p.z, -2.003f) && p.observed_us == 17000000 &&
+                   p.flags == ceres::spatial_map_intrinsic_rgb,
+               "Restore preserves world geometry, colour provenance and last observation time");
+    expect(statistics(f).tsdf_voxels == 0, "Restored surfaces begin with an empty TSDF working layer");
+    expect(f.volume.set_max_points(0, f.stream) == cudaErrorInvalidValue &&
+               f.volume.set_max_points(f.volume.capacity() + 1, f.stream) == cudaErrorInvalidValue,
+           "Logical budgets cannot bypass the hard GPU allocation bound");
+}
+void observation_time_and_invalid_pressure() {
+    Fixture evidence(8192);
+    evidence.run({point(.01f, .01f, -2.01f)}, 0);
+    auto view = observation(evidence);
+    observe(evidence, depth_plane(4), 1, view);
+    const auto retained = metadata(evidence);
+    const auto old = std::find_if(retained.begin(), retained.end(), [](const auto& p) {
+        return near(p.x, .01f) && near(p.y, .01f) && near(p.z, -2.01f);
+    });
+    expect(old != retained.end() && old->confidence < 1 && old->observed_us == 10000000,
+           "Contradictory free space reduces confidence without refreshing the surface observation time");
+
+    Fixture crowded(256);
+    view = observation(crowded);
+    observe(crowded, depth_plane(2), 0, view);
+    const auto before = statistics(crowded);
+    expect(before.tsdf_voxels > 0, "Small working TSDF contains measured distance samples");
+    observe(crowded, depth_plane(4, false), 1, view);
+    const auto after = statistics(crowded);
+    expect(after.tsdf_voxels == before.tsdf_voxels,
+           "A wholly invalid capture cannot reclaim a saturated TSDF working layer");
+}
+void pressure_preserves_all_regions() {
+    auto support = [](const auto& points) {
+        unsigned long long total = 0;
+        for (const auto& p : points) total += p.weight;
+        return total;
+    };
+    auto covered = [](const auto& retained, const auto& input) {
+        for (const auto& source : input) {
+            bool found = false;
+            for (const auto& p : retained) {
+                const auto cell = [size = p.cell_size](float value) {
+                    return std::floor(double(value) / size);
+                };
+                if (cell(p.x) == cell(source.x) && cell(p.y) == cell(source.y) &&
+                    cell(p.z) == cell(source.z)) { found = true; break; }
+            }
+            if (!found) return false;
+        }
+        return true;
+    };
+    Fixture f(256);
+    f.config.voxel_size = .01f;
+    std::vector<ceres::StereoPoint> separated;
+    for (int i = 0; i < 33; ++i)
+        separated.push_back(point(i * 1.28f + .003f, .007f, -2.003f));
+    f.run(separated, 0);
+    check(f.volume.set_max_points(32, f.stream));
+    auto result = metadata(f);
+    expect(!result.empty() && result.size() <= 32 && support(result) == 33 && covered(result, separated),
+           "More than 32 distant regions merge beyond six levels without losing coverage or support");
+    expect(std::any_of(result.begin(), result.end(), [](const auto& p) { return p.cell_size > .64f; }),
+           "Retained coarsening extends past the former six-level ceiling");
+
+    std::vector<ceres::StereoPoint> incoming;
+    for (int i = 0; i < 600; ++i)
+        incoming.push_back(point(100 + i * 1.28f + .003f, .007f, -2.003f));
+    f.run(incoming, 1);
+    result = metadata(f);
+    expect(result.size() <= 32 && support(result) == 633 && covered(result, separated) && covered(result, incoming),
+           "An oversized observation preserves every old and new region within the logical budget");
+    f.reset();
+    check(f.volume.set_max_points(256, f.stream));
+    f.config.voxel_size = .01f;
+    f.run(incoming, 0);
+    result = metadata(f);
+    expect(result.size() <= 256 && support(result) == 600 && covered(result, incoming),
+           "The first oversized observation retries all samples instead of retaining an arbitrary prefix");
+    f.reset();
+    check(f.volume.set_max_points(1, f.stream));
+    f.config.voxel_size = .01f;
+    f.run({point(-100, -100, -100), point(100, 100, 100)}, 0);
+    result = metadata(f);
+    expect(result.size() == 1 && result[0].weight == 2 && near(result[0].cell_size, .01f * (1u << 21), .01f) &&
+               near(result[0].x, 0) && near(result[0].y, 0) && near(result[0].z, 0),
+           "The universal parent preserves both sides of every axis under a one-point budget");
+    check(f.volume.set_max_points(256, f.stream));
+
+    ceres::SpatialMapPoint large{};
+    large.x = .003f; large.y = .007f; large.z = -2.003f;
+    large.cell_size = 5.12f; large.confidence = 1; large.weight = 264000;
+    large.observed_us = 17000000;
+    ceres::SpatialMapPoint* device = nullptr;
+    check(cudaMalloc(&device, sizeof(large)));
+    check(cudaMemcpyAsync(device, &large, sizeof(large), cudaMemcpyHostToDevice, f.stream));
+    check(f.volume.restore(device, 1, .01f, 10000000, f.stream));
+    result = metadata(f);
+    expect(result.size() == 1 && near(result[0].cell_size, 5.12f) && result[0].weight == large.weight &&
+               near(result[0].x, large.x) && near(result[0].z, large.z),
+           "Import preserves large stored hierarchy cells, their representative and all retained support");
+    check(cudaFree(device));
+    expect(f.volume.scratch_bytes() == f.allocation_bytes,
+           "Full-hierarchy pressure and overflow retries use fixed allocations");
+}
+
+void adversarial_retained_hash_collisions() {
+    auto spread = [](unsigned value) {
+        unsigned long long bits = value & ((1u << 21) - 1);
+        bits = (bits | (bits << 32)) & 0x001f00000000ffffull;
+        bits = (bits | (bits << 16)) & 0x001f0000ff0000ffull;
+        bits = (bits | (bits << 8)) & 0x100f00f00f00f00full;
+        bits = (bits | (bits << 4)) & 0x10c30c30c30c30c3ull;
+        return (bits | (bits << 2)) & 0x1249249249249249ull;
+    };
+    auto hash = [](unsigned long long value) {
+        value ^= value >> 30; value *= 0xbf58476d1ce4e5b9ull;
+        value ^= value >> 27; value *= 0x94d049bb133111ebull;
+        value ^= value >> 31;
+        return unsigned(value);
+    };
+    Fixture f(256);
+    std::vector<ceres::SpatialMapPoint> source;
+    for (unsigned y = 0; y < 256 && source.size() < 130; ++y)
+        for (unsigned x = 0; x < 65536 && source.size() < 130; ++x) {
+            const auto key = ((spread(x + (1u << 20)) | (spread(y + (1u << 20)) << 1) |
+                              (spread((1u << 20) - 1) << 2)) << 1) | 1ull;
+            const auto h = hash(key);
+            if ((h & 255u) != 0 || (((h >> 16) | 1u) & 255u) != 1) continue;
+            ceres::SpatialMapPoint p{};
+            p.x = (x + .5f) * .03f; p.y = (y + .5f) * .03f; p.z = -.015f;
+            p.cell_size = .03f; p.confidence = 1; p.weight = 1; p.observed_us = 10000000;
+            source.push_back(p);
+        }
+    expect(source.size() == 130, "Adversarial hash fixture fills more than 128 identical probe paths");
+    ceres::SpatialMapPoint* device = nullptr;
+    check(cudaMalloc(&device, source.size() * sizeof(*device)));
+    check(cudaMemcpyAsync(device, source.data(), source.size() * sizeof(*device), cudaMemcpyHostToDevice, f.stream));
+    check(f.volume.restore(device, source.size(), .03f, 10000000, f.stream));
+    const auto restored = metadata(f);
+    expect(restored.size() == source.size(), "Retained rehashing preserves groups beyond 128 probes");
+    std::vector<ceres::StereoPoint> revisit;
+    for (const auto& p : source) revisit.push_back(point(p.x, p.y, p.z));
+    f.run(revisit, 1);
+    const auto refreshed = metadata(f);
+    expect(refreshed.size() == source.size() && std::all_of(refreshed.begin(), refreshed.end(), [](const auto& p) {
+        return p.weight == 2 && p.observed_us == 11000000;
+    }), "Lookup and insertion agree for retained cells beyond the old probe window");
+    check(cudaFree(device));
+}
 } // namespace
 
 int main(int argc, char**) {
@@ -882,6 +1194,11 @@ int main(int argc, char**) {
             sweep_reliability();
             return 0;
         }
+        tsdf_metric_fusion_and_zero_crossings();
+        metadata_regrid_restore_and_budget();
+        observation_time_and_invalid_pressure();
+        pressure_preserves_all_regions();
+        adversarial_retained_hash_collisions();
         geometry_and_colours();
         persistence_and_invalid_samples();
         collisions_and_reuse();

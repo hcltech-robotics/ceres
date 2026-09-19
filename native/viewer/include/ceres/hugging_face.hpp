@@ -8,11 +8,19 @@
 #include <string_view>
 
 namespace ceres {
+struct HuggingFaceFile {
+    std::string path, sha256, git_oid;
+    uint64_t bytes = 0;
+};
 struct HuggingFaceRecording {
     std::string repository, revision, path, sha256, git_oid;
     uint64_t bytes = 0;
     std::string episodes_sha256, episodes_git_oid;
     uint64_t episodes_bytes = 0;
+    // Dataset paths identify meta/info.json. Files retain repository-relative paths.
+    std::string dataset_root;
+    std::vector<HuggingFaceFile> files;
+    bool is_dataset() const { return !files.empty(); }
 };
 struct HuggingFaceStatus {
     bool running = false, authenticating = false;
@@ -38,7 +46,10 @@ struct Response {
 using Progress = std::function<void(uint64_t, uint64_t)>;
 using Transport = std::function<Response(const Request&, std::stop_token, const Progress&)>;
 using OpenBrowser = std::function<bool(const std::string&)>;
+using ImportReplay = std::function<void(const std::filesystem::path&, const std::filesystem::path&,
+                                        std::stop_token)>;
 std::string repository_id(std::string_view organisation, std::string_view repository);
+std::string repository_id(std::string_view source);
 std::string repository_path(std::string_view value);
 std::string url_encode(std::string_view value, bool keep_slashes = false);
 std::string sha256_file(const std::filesystem::path& path, std::stop_token cancel = {});
@@ -51,7 +62,8 @@ class HuggingFaceClient {
   public:
     explicit HuggingFaceClient(std::filesystem::path private_directory,
                               hf::Transport transport = hf::request,
-                              hf::OpenBrowser browser = hf::open_browser);
+                              hf::OpenBrowser browser = hf::open_browser,
+                              hf::ImportReplay importer = {});
     ~HuggingFaceClient();
     HuggingFaceClient(const HuggingFaceClient&) = delete;
     HuggingFaceClient& operator=(const HuggingFaceClient&) = delete;

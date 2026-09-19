@@ -160,7 +160,7 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           $tests = Join-Path $env:GITHUB_WORKSPACE 'release-tests'
           New-Item -ItemType Directory -Path $tests | Out-Null
-          foreach ($name in 'test_image', 'test_stereo_cuda', 'test_voxel_cuda', 'test_depth_cuda', 'test_nvdec') {
+          foreach ($name in 'test_image', 'test_stereo_cuda', 'test_voxel_cuda', 'test_depth_cuda', 'test_nvdec', 'test_spatial_map_render', 'test_spatial_map_lifecycle') {
             Copy-Item -LiteralPath "$env:RUNNER_TEMP/build-native/$name.exe" -Destination $tests
           }
           Get-ChildItem -LiteralPath "$output/$packageName" -Filter '*.dll' | Copy-Item -Destination $tests
@@ -258,7 +258,7 @@ jobs:
           cp "$RUNNER_TEMP/verified-$PACKAGE_PLATFORM/report.json" "$OUTPUT_DIRECTORY/$PACKAGE_NAME.verification.json"
           python "$RUNNER_TEMP/native-source/.github/scripts/native-viewer-inputs.py" --root "$RUNNER_TEMP/native-source" --build "$RUNNER_TEMP/build-native" --platform "$PACKAGE_PLATFORM" --runner '${{ matrix.runner }}' --image '${{ matrix.image }}' --cuda '${{ matrix.cuda }}' --ffmpeg "$FFMPEG_ROOT/bin/ffmpeg" --package-manifest "$OUTPUT_DIRECTORY/$PACKAGE_NAME.tar.gz.manifest.json" --output "$OUTPUT_DIRECTORY/workflow-inputs.json"
           mkdir release-tests
-          for name in test_image test_stereo_cuda test_voxel_cuda test_depth_cuda test_nvdec; do cp "$BUILD_DIRECTORY/$name" release-tests/; done
+          for name in test_image test_stereo_cuda test_voxel_cuda test_depth_cuda test_nvdec test_spatial_map_render test_spatial_map_lifecycle; do cp "$BUILD_DIRECTORY/$name" release-tests/; done
           cp -a "$OUTPUT_DIRECTORY/$PACKAGE_NAME/lib" release-tests/
           cp "$OUTPUT_DIRECTORY/workflow-inputs.json" release-tests/
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

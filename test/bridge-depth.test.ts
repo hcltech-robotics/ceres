@@ -30,7 +30,7 @@ function fixture(mode: "cpu-optimized" | "gpu-optimized" | null = "cpu-optimized
     getDepthInformation: () => { acquired++; return depthImage; } } as unknown as XRFrame;
   const packets: Uint8Array[] = [], statuses: any[] = [];
   const channel = { readyState: "open", bufferedAmount: 0, send: (bytes: Uint8Array) => packets.push(bytes) };
-  const peer = { epoch: 1, depth: channel, sendDepthStatus: (status: unknown) => { statuses.push(status); return true; } } as unknown as DepthPeer;
+  const peer = { epoch: 1, depthMetadataVersion: 2, depth: channel, sendDepthStatus: (status: unknown) => { statuses.push(status); return true; } } as unknown as DepthPeer;
   const space = {} as XRReferenceSpace;
   return { session, frame, channel, peer, packets, statuses, space,
     set image(next: DepthImage | null) { depthImage = next; }, get acquired() { return acquired; }, get resume() { return resume; } };
@@ -65,9 +65,12 @@ test("Depth uses source geometry when supplied and copies frame-owned matrices",
   const d = { ...image(), transform: { matrix: transform }, projectionMatrix: identity };
   const result = depthGeometry(d, view);
   assert.equal(result.world_from_view[12], .25);
+  assert.equal(result.geometry_source, "sensor");
   transform[12] = 4;
   assert.equal(result.world_from_view[12], .25);
   assert.equal(depthGeometry(image(), view).world_from_view[12], 0);
+  assert.equal(depthGeometry(image(), view).geometry_source, "view-fallback");
+  assert.equal(depthGeometry({ ...image(), view: d }, view).geometry_source, "view");
 });
 test("Depth preserves the source view-to-buffer mapping including reflection and crop", () => {
   // WebXR Depth Sensing 1.1 and 3.3 define N as the complete transform from
@@ -113,6 +116,68 @@ test("CED1 fragments have bounded complete lengths and exact little-endian ident
   assert.throws(() => encodeDepthFrame({ ...h, width: 257 }, values));
   assert.throws(() => validateDepthHeader({ ...h, projection: [...identity.slice(0, 15), Infinity] }));
   assert.throws(() => encodeDepthFrame(h, values.subarray(1)));
+});
+test("Meta GPU framebuffer normalisation composes the full output coordinate transform", () => {
+  const norm = [.1, .7, 0, .02, -.6, .2, 0, -.03, .04, -.08, 1, .01, .8, .1, 0, 1];
+  const expected = [.1, -.68, 0, .02, -.6, -.23, 0, -.03, .04, .09, 1, .01, .8, .9, 0, 1];
+  const d = { ...image(), depthNear: .1, depthFar: Infinity, normDepthBufferFromNormView: { matrix: norm } };
+  const actual = depthGeometry(d, view, "gpu-optimized", "unsigned-short").norm_depth_from_norm_view;
+  actual.forEach((value, index) => assert.ok(Math.abs(value - expected[index]) < 1e-12));
+  assert.deepEqual(depthGeometry(d, view, "cpu-optimized", "float32").norm_depth_from_norm_view, norm);
+  assert.deepEqual(depthGeometry({ ...d, depthNear: undefined }, view, "gpu-optimized", "float32").norm_depth_from_norm_view, norm);
+  assert.deepEqual(d.normDepthBufferFromNormView.matrix, norm, "original API matrix remains untouched");
+});
+test("Optional depth provenance and timings validate strictly while old CED1 remains valid", () => {
+  const old = header();
+  assert.doesNotThrow(() => validateDepthHeader(old));
+  for (const geometry_source of ["sensor", "view", "view-fallback"] as const) {
+    const next = { ...old, mapping_version: 2 as const, geometry_source, readback_us: 16000, target_lead_us: old.target_us - old.observed_us };
+    assert.doesNotThrow(() => validateDepthHeader(next));
+    const status = { type: "depth-status", version: 1, epoch: 1, status: "streaming", usage: old.usage,
+      source_format: old.source_format, mapping_version: 2, geometry_source, readback_us: 16000, target_lead_us: -5000 };
+    assert.equal(parseMetadata(JSON.stringify(status)).type, "depth-status");
+    for (const invalid of [{ mapping_version: 1 }, { mapping_version: "2" }, { mapping_version: null },
+      { geometry_source: "unknown" }, { geometry_source: null }, { readback_us: -1 },
+      { readback_us: .5 }, { readback_us: "16000" }, { readback_us: Number.MAX_SAFE_INTEGER + 1 },
+      { target_lead_us: .5 }, { target_lead_us: null }, { target_lead_us: Number.MAX_SAFE_INTEGER + 1 }]) {
+      assert.throws(() => validateDepthHeader({ ...next, ...invalid } as DepthHeader));
+      assert.throws(() => parseMetadata(JSON.stringify({ ...status, ...invalid })));
+    }
+    assert.throws(() => validateDepthHeader({ ...next, target_lead_us: 0 }));
+  }
+  assert.doesNotThrow(() => validateDepthHeader({ ...old, target_us: 100000, target_lead_us: 100000 - old.observed_us }));
+});
+test("Depth retains the 17-field envelope without a negotiated metadata version", () => {
+  for (const version of [undefined, 1, 3, "2"] as const) {
+    const f = fixture(), depth = new BridgeDepth();
+    (f.peer as any).depthMetadataVersion = version;
+    depth.start(f.session);
+    depth.publish(f.frame, f.space, 110, f.peer, 3, false, 100);
+    const h = decodeSingle(f.packets[0]).header;
+    assert.equal(Object.keys(h).length, 17);
+    assert.equal(h.mapping_version, undefined);
+    assert.equal(h.geometry_source, undefined);
+    assert.equal(h.readback_us, undefined);
+    assert.equal(h.target_lead_us, undefined);
+    assert.equal(f.statuses.at(-1).mapping_version, 2);
+    assert.equal(f.statuses.at(-1).geometry_source, "view-fallback");
+    depth.stop();
+  }
+});
+test("CPU depth reports measured copy time and pose target lead", t => {
+  const clock = [1, 1.25];
+  t.mock.method(performance, "now", () => clock.shift()!);
+  const f = fixture(), depth = new BridgeDepth();
+  depth.start(f.session);
+  depth.publish(f.frame, f.space, 110, f.peer, 3, false, 100);
+  const h = decodeSingle(f.packets[0]).header;
+  assert.equal(h.readback_us, 250);
+  assert.equal(h.target_lead_us, 10000);
+  assert.equal(h.geometry_source, "view-fallback");
+  assert.equal(f.statuses.at(-1).readback_us, h.readback_us);
+  assert.equal(f.statuses.at(-1).target_lead_us, h.target_lead_us);
+  assert.equal(f.statuses.at(-1).geometry_source, h.geometry_source);
+  depth.stop();
 });
 test("Depth CPU capture is 2 Hz with no catch-up bursts and sends original monotonic frame time", () => {
   const f = fixture(), depth = new BridgeDepth();
@@ -217,7 +282,9 @@ test("Depth GPU lease cancels on reset, reconnect, age, pause and stop", () => {
   assert.equal(decodeSingle(f.packets[0]).header.observed_us, 0);
   assert.equal(decodeSingle(f.packets[0]).header.target_us, 5000);
   assert.equal(decodeSingle(f.packets[0]).header.source_format, "unsigned-short");
-  assert.equal(Object.keys(decodeSingle(f.packets[0]).header).length, 17);
+  assert.equal(Object.keys(decodeSingle(f.packets[0]).header).length, 21);
+  assert.equal(decodeSingle(f.packets[0]).header.readback_us, 16000);
+  assert.equal(decodeSingle(f.packets[0]).header.target_lead_us, 5000);
   assert.equal(f.statuses.at(-1).source_encoding, "perspective");
   assert.equal(f.statuses.at(-1).raw_value_to_metres, 1);
   assert.equal(f.statuses.at(-1).depth_near, .1);
@@ -232,6 +299,47 @@ test("Depth GPU lease cancels on reset, reconnect, age, pause and stop", () => {
   assert.equal(decodeSingle(f.packets.at(-1)!).header.space_epoch, 1);
   publish(2020, 1); publish(2030, 1, true); assert.ok(!pending);
   depth.stop(); assert.equal(disposed, 1);
+});
+test("Delayed GPU depth preserves the capture pose, provenance and times while the camera moves", () => {
+  for (const source of ["sensor", "view", "view-fallback"] as const) {
+    const f = fixture("gpu-optimized");
+    let ready = false;
+    const gpu = { busy: false, capture: () => true, poll: () => ready ? new Uint16Array([1000, 2000, 3000, 4000]) : null,
+      cancel() {}, dispose() {} };
+    const captureWorld = [...identity]; captureWorld[12] = .25;
+    const captureProjection = [...identity]; captureProjection[0] = 2;
+    const captureNorm = [...identity]; captureNorm[5] = -.8;
+    const geometry = { transform: { matrix: [...captureWorld] }, projectionMatrix: [...captureProjection] };
+    const captureView = { eye: "left", ...geometry } as unknown as XRView;
+    let sourceImage: DepthImage = { ...image(), texture: {}, textureType: "texture",
+      normDepthBufferFromNormView: { matrix: [...captureNorm] },
+      ...(source === "sensor" ? geometry : source === "view" ? { view: geometry } : {}) };
+    const frame = { session: f.session, getViewerPose: () => ({ views: [captureView] }) } as unknown as XRFrame;
+    const depth = new BridgeDepth(() => gpu);
+    depth.start(f.session, { getContext: () => ({} as WebGL2RenderingContext), xr: {
+      getBinding: () => ({ getDepthInformation: () => sourceImage }) } });
+    depth.publish(frame, f.space, 111, f.peer, 1, false, 100);
+    geometry.transform.matrix[12] = 3;
+    geometry.projectionMatrix[0] = 4;
+    (sourceImage.normDepthBufferFromNormView.matrix as number[])[5] = .3;
+    sourceImage = { ...image(), texture: {}, textureType: "texture" };
+    depth.publish(frame, f.space, 127, f.peer, 1, false, 116);
+    assert.equal(f.packets.length, 0);
+    ready = true;
+    depth.publish(frame, f.space, 143, f.peer, 1, false, 132);
+    const h = decodeSingle(f.packets[0]).header;
+    assert.deepEqual(h.world_from_view, captureWorld);
+    assert.deepEqual(h.projection, captureProjection);
+    assert.deepEqual(h.norm_depth_from_norm_view, captureNorm);
+    assert.equal(h.geometry_source, source);
+    assert.equal(h.observed_us, 100000);
+    assert.equal(h.target_us, 111000);
+    assert.equal(h.readback_us, 32000);
+    assert.equal(h.target_lead_us, 11000);
+    assert.equal(f.statuses.at(-1).geometry_source, source);
+    assert.equal(f.statuses.at(-1).readback_us, 32000);
+    depth.stop();
+  }
 });
 test("GPU failures report bounded source diagnostics without emitting stale depth", () => {
   const f = fixture("gpu-optimized");
@@ -268,7 +376,7 @@ test("GPU failures report bounded source diagnostics without emitting stale dept
   assert.equal(f.packets.length, 1);
   assert.equal(f.statuses.at(-1).status, "streaming");
   assert.equal(f.statuses.at(-1).error, undefined);
-  assert.equal(Object.keys(decodeSingle(f.packets[0]).header).length, 17);
+  assert.equal(Object.keys(decodeSingle(f.packets[0]).header).length, 21);
   depth.stop();
 });
 test("Depth-only metadata is optional and malformed capability/status is rejected", () => {

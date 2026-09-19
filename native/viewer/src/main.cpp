@@ -34,6 +34,8 @@ int main(int argc, char** argv) {
             };
             if (a == "--fixture")
                 options.fixture = true;
+            else if (a == "--fixture-depth")
+                options.fixture_depth = true;
             else if (a == "--no-connect")
                 options.connect = false;
             else if (a == "--no-vsync")
@@ -54,6 +56,12 @@ int main(int argc, char** argv) {
                 options.metrics = value();
             else if (a == "--config-dir")
                 options.config = value();
+            else if (a == "--map-directory")
+                options.map_directory = value();
+            else if (a == "--load-map")
+                options.map_load = value();
+            else if (a == "--freeze-map-after")
+                options.freeze_map_after = std::stod(value());
             else if (a == "--task-spec")
                 options.task_specification = value();
             else if (a == "--export-helper")
@@ -77,16 +85,20 @@ int main(int argc, char** argv) {
             else if (a == "--help") {
                 std::cout
                     << "Ceres viewer\n  --origin URL --replay FILE --record FILE\n  --fixture "
-                       "[--fixture-video H264] --seconds N\n  --width N --height N --no-vsync "
+                       "[--fixture-depth] [--fixture-video H264] --seconds N\n  --width N --height N --no-vsync "
                        "--fps N --no-connect --borderless --hidden\n  --screenshot FILE.ppm --metrics "
                        "FILE.json --config-dir DIRECTORY\n  --task-spec FILE.json-or-URL\n"
+                       "  --map-directory DIRECTORY --load-map FILE.cmap --freeze-map-after SECONDS\n"
                        "  --export-helper FILE --ffmpeg FILE\n";
                 return 0;
             } else
                 throw std::runtime_error("Unknown argument: " + a);
         }
+        if (options.fixture_depth && !options.fixture)
+            throw std::runtime_error("--fixture-depth requires --fixture");
         if (options.width < 320 || options.height < 240 || !std::isfinite(options.seconds) ||
-            options.seconds < 0 || !(options.fps >= 1 && options.fps <= 1000))
+            options.seconds < 0 || !(options.fps >= 1 && options.fps <= 1000) ||
+            !std::isfinite(options.freeze_map_after) || options.freeze_map_after < -1)
             throw std::runtime_error("Invalid window dimensions, duration or frame rate");
         return ceres::run_app(options);
     } catch (const std::exception& e) {

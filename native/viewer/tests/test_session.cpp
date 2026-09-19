@@ -76,6 +76,33 @@ uint64_t read64(std::istream& input) {
         n |= uint64_t(b[i]) << (8 * i);
     return n;
 }
+void replay_task_specification_tests(const std::filesystem::path& directory) {
+    const auto path = directory / "task-setup.mcap";
+    SessionEvent setup;
+    setup.kind = EventKind::Asset;
+    setup.stream = "task-specification";
+    setup.time_us = setup.receive_us = 1000;
+    setup.attributes = {{"schema", "ceres-task-specification"}, {"version", 1},
+                        {"runTitle", "Wash dishes"},
+                        {"runDescription", "Clean the prepared set."},
+                        {"tasks", Json::array({{{"id", "wash"}, {"label", "Wash dishes"},
+                            {"instructions", "Wash and rinse.\nLeave no residue."}}})}};
+    Recorder recorder;
+    auto malformed = setup;
+    malformed.attributes["schema"] = 42;
+    recorder.start(path, {malformed, setup});
+    recorder.stop();
+    ReplaySource replay(path);
+    require(replay.task_specification() == setup.attributes,
+            "Replay task setup did not preserve recorded labels and instructions");
+    require(replay.episodes().empty(), "Task setup was mixed into repetition intervals");
+
+    const auto plain_path = directory / "no-task-setup.mcap";
+    recorder.start(plain_path, {video(0, 1000)});
+    recorder.stop();
+    require(ReplaySource(plain_path).task_specification().is_null(),
+            "A recording without task setup invented a specification");
+}
 void recorder_capture_window_tests(const std::filesystem::path& directory) {
     SessionEvent epoch;
     epoch.kind = EventKind::Epoch;
@@ -1326,6 +1353,7 @@ int main(int argc, char** argv) {
         process_failure_tests(directory);
 #endif
         replay_asset_tests(directory);
+        replay_task_specification_tests(directory);
         replay_space_tests(directory);
         replay_camera_tests(directory);
         recorder_capture_window_tests(directory);

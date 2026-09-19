@@ -1,0 +1,9 @@
+{
+  "repository": "https://github.com/NVlabs/curobo",
+  "revision": "78fd485fa82d9b9a063fb4985e371814587e666a",
+  "archive": "https://codeload.github.com/NVlabs/curobo/tar.gz/78fd485fa82d9b9a063fb4985e371814587e666a",
+  "archive_sha256": "704151d8ff81a532379d96ce9a036a704547b6bdf1404fa8795d87d80e555922",
+  "source_sha256": "77221d01983537b6de88dabccbc02443102c65d75a4b91a823a9fbfccbe0f626",
+  "source_hash_format": "Sorted POSIX paths under curobo with suffix .py/.cu/.cuh/.h, each UTF-8 path followed by one NUL byte then its exact file bytes",
+  "licence": "Apache-2.0"
+}

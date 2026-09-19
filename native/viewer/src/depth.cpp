@@ -92,14 +92,37 @@ DepthFrame decode_depth(std::span<const uint8_t> bytes) {
     const auto& h = frame.metadata;
     if (!h.is_object() || number(h, "version", 1) != 1)
         invalid("Unsupported depth frame version");
-    // The v1 observation envelope has no extension or identity fields.
-    if (h.size() != 17)
-        invalid("Unexpected depth metadata fields");
+    // Optional diagnostics describe the same capture as the matrices and pixels.
+    // Keep a positive field list so unrelated identity data cannot enter a recording.
+    static constexpr std::array fields{
+        "version", "epoch", "space_epoch", "sequence", "observed_us", "target_us",
+        "width", "height", "source_width", "source_height", "eye", "usage",
+        "source_format", "depth_format", "world_from_view", "projection",
+        "norm_depth_from_norm_view", "geometry_source", "readback_us", "target_lead_us",
+        "mapping_version"};
+    for (const auto& [key, value] : h.items()) {
+        (void)value;
+        if (std::find(fields.begin(), fields.end(), key) == fields.end())
+            invalid("Unexpected depth metadata fields");
+    }
     frame.epoch = uint32_t(number(h, "epoch", UINT32_MAX));
     frame.space_epoch = uint32_t(number(h, "space_epoch", UINT32_MAX));
     frame.sequence = uint32_t(number(h, "sequence", UINT32_MAX));
     frame.observed_us = int64_t(number(h, "observed_us", 9007199254740991ULL));
     frame.target_us = int64_t(number(h, "target_us", 9007199254740991ULL));
+    if (h.contains("geometry_source"))
+        choice(h, "geometry_source", {"sensor", "view", "view-fallback"});
+    if (h.contains("mapping_version") && number(h, "mapping_version", 2) != 2)
+        invalid("Unsupported depth coordinate mapping version");
+    if (h.contains("readback_us"))
+        number(h, "readback_us", 9007199254740991ULL);
+    if (h.contains("target_lead_us")) {
+        const auto& lead = h.at("target_lead_us");
+        if (!lead.is_number_integer() ||
+            (lead.is_number_unsigned() && lead.get<uint64_t>() > 9007199254740991ULL) ||
+            lead.get<int64_t>() != frame.target_us - frame.observed_us)
+            invalid("Depth target lead disagrees with its capture timestamps");
+    }
     frame.width = uint16_t(number(h, "width", 256));
     frame.height = uint16_t(number(h, "height", 256));
     frame.source_width = uint16_t(number(h, "source_width", 8192));

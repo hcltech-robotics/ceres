@@ -51,6 +51,17 @@ void codec_tests() {
     change("sequence", 4294967296ULL);
     change("observed_us", 9007199254740992ULL);
     change("target_us", 1.5);
+    change("geometry_source", "arrival");
+    change("geometry_source", nullptr);
+    change("mapping_version", 0);
+    change("mapping_version", 3);
+    change("mapping_version", true);
+    change("readback_us", -1);
+    change("readback_us", 1.5);
+    change("readback_us", 9007199254740992ULL);
+    change("target_lead_us", 1.5);
+    change("target_lead_us", 0);
+    change("target_lead_us", UINT64_MAX);
     change("width", 0);
     change("width", 257);
     change("source_width", 2);
@@ -84,6 +95,28 @@ void codec_tests() {
     check(fallback.time_us == fallback.receive_us && !fallback.attributes.at("clock_valid") &&
               fallback.attributes.at("mapped_target_us").is_null(),
           "Unmapped depth fabricated a sender mapping");
+    for (const auto* geometry : {"sensor", "view", "view-fallback"}) {
+        auto h = header;
+        h["geometry_source"] = geometry;
+        h["mapping_version"] = 2;
+        h["readback_us"] = 42000;
+        h["target_lead_us"] = 11111;
+        const auto delayed = make_depth_event(depth_fixture::encode(h), 5600000, mapping);
+        check(delayed.attributes.at("geometry_source") == geometry &&
+                  delayed.attributes.at("readback_us") == 42000 &&
+                  delayed.attributes.at("target_lead_us") == 11111 &&
+                  delayed.time_us == event.time_us &&
+                  decode_depth(delayed.payload).world_from_view == frame.world_from_view,
+              "Delayed depth changed its capture geometry or timestamp provenance");
+        const auto recorded = decode_session_event(encode_session_event(delayed, 5000000));
+        check(recorded.attributes == delayed.attributes && recorded.payload == delayed.payload,
+              "Recording changed depth capture diagnostics");
+    }
+    auto early = header;
+    early["target_us"] = 3999000;
+    early["target_lead_us"] = -1000;
+    check(decode_depth(depth_fixture::encode(early)).target_us == 3999000,
+          "Signed target lead was rejected");
     rejects([&] { make_depth_event(bytes, 1000, {0, 0, -1, true}); },
             "Negative clock rate accepted");
     const auto roundtrip = decode_session_event(encode_session_event(event, 5000000));
@@ -116,7 +149,7 @@ void typescript_fixture_tests() {
     std::ifstream file(path);
     check(bool(file), "Pinned TypeScript depth fixtures are missing");
     const auto fixtures = Json::parse(file);
-    check(fixtures.at("version") == 1 && fixtures.at("cases").size() == 2,
+    check(fixtures.at("version") == 1 && fixtures.at("cases").size() == 3,
           "Pinned TypeScript fixture identity changed");
     for (const auto& item : fixtures.at("cases")) {
         const auto bytes = base64(item.at("frame_base64").get<std::string>());
@@ -315,6 +348,9 @@ void session_tests() {
               restored[0].attributes.at("target_us") == 1020000 &&
               replay.snapshot().depth_frames == 1 && replay.snapshot().depth_status == "streaming",
           "Depth seek changed payload, timing or snapshot");
+    check(restored[0].attributes.at("replay_delivery_us").get<int64_t>() <= monotonic_us() &&
+              monotonic_us() - restored[0].attributes.at("replay_delivery_us").get<int64_t>() < 1000000,
+          "Replay did not preserve its actual local delivery time");
     restored = seek(35000, 0);
     check(restored.empty(), "Old-space depth survived a seek");
     restored = seek(40000, 1);

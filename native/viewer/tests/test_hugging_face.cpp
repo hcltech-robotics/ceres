@@ -78,6 +78,7 @@ struct Hub {
     struct File { std::string bytes; bool lfs = true; };
     std::map<std::string, File> files;
     std::map<std::string, std::string> large_files;
+    std::string repository = "tester/captures";
     std::string upload_oid, uploaded, auth_error, last_commit_auth, selected_revision;
     bool exists = true, created_private = false, multipart = false, bad_checksum = false,
          malicious_page = false, paginate = false, delayed_upload = false, mutate_upload = false,
@@ -120,7 +121,7 @@ struct Hub {
             check(!value.contains("organization"), "Personal repository incorrectly treated as organisation");
             exists = created_private = true; return json({{"url", "https://huggingface.co/datasets/tester/captures"}});
         }
-        if (request.url.ends_with("/api/datasets/tester/captures"))
+        if (request.url.ends_with("/api/datasets/" + repository))
             return exists ? json({{"sha", commits ? next_revision : revision}}) : json({{"error", "missing"}}, 404);
         if (request.url.find("/tree/") != request.url.npos) {
             ++pages;
@@ -296,6 +297,190 @@ void test_browse_download(const std::filesystem::path& root) {
     client.browse("tester/captures"); fails(client, "pagination");
 }
 
+void add_dataset(Hub& hub, const std::string& prefix, int episode) {
+    hub.files[prefix + "meta/info.json"] = {
+        Json{{"codebase_version", "v3.0"}, {"total_episodes", 1}, {"episode", episode}}.dump(), false};
+    hub.files[prefix + "meta/tasks.parquet"] = {"recorded task metadata", true};
+    hub.files[prefix + "data/chunk-000/file-000.parquet"] = {"recorded pose data " + std::to_string(episode), true};
+    hub.files[prefix + "videos/observation.images.passthrough/chunk-000/file-000.mp4"] = {
+        "recorded video data " + std::to_string(episode), true};
+    hub.files[prefix + "ceres/episode-metadata.json"] = {"{\"schema\":\"ceres-episode-export-metadata\"}", false};
+}
+
+void test_dataset_replay(const std::filesystem::path& root) {
+    Hub hub;
+    hub.repository = "chrisvoncsefalvay/ceres-demos";
+    for (int episode = 0; episode < 8; ++episode)
+        add_dataset(hub, "shards/episode-00000" + std::to_string(episode) + '/', episode);
+    hub.files["README.md"] = {"reference dataset", false};
+    hub.paginate = true;
+    std::atomic<int> imports{0};
+    std::atomic<bool> await_cancel{false}, importing{false};
+    std::filesystem::path dataset;
+    HuggingFaceClient client(root / "credentials", hub.transport(), hub.browser(),
+        [&](const auto& source, const auto& output, std::stop_token stop) {
+            ++imports;
+            dataset = source;
+            check(read(source / "data/chunk-000/file-000.parquet") == "recorded pose data 6",
+                  "Dataset importer received another shard's poses");
+            check(read(source / "videos/observation.images.passthrough/chunk-000/file-000.mp4") == "recorded video data 6",
+                  "Dataset importer received another shard's video");
+            check(read(source / "meta/info.json") == hub.files.at("shards/episode-000006/meta/info.json").bytes &&
+                      std::filesystem::is_regular_file(source / "ceres/episode-metadata.json"),
+                  "Dataset importer is missing metadata");
+            write(output, mcap);
+            if (await_cancel.load()) {
+                importing.store(true);
+                while (!stop.stop_requested()) std::this_thread::sleep_for(5ms);
+                throw std::runtime_error("Import cancelled");
+            }
+        });
+    check(client.browse("hf:chrisvoncsefalvay/ceres-demos"), "Reference repository browse did not start");
+    const auto listed = wait(client);
+    check(listed.repository == hub.repository && listed.recordings->size() == 8 && hub.pages == 2,
+          "Reference repository shards were not discovered");
+    const auto selected = listed.recordings->at(6);
+    check(selected.is_dataset() && selected.dataset_root == "shards/episode-000006" &&
+              selected.path == "shards/episode-000006/meta/info.json" && selected.files.size() == 5,
+          "Dataset selection has the wrong root or dependency closure");
+    client.download(selected, root / "cache"); wait(client);
+    const auto output = client.take_download();
+    check(read(output) == mcap && hub.selected_revision == revision && imports == 1 && hub.downloads == 5,
+          "Dataset replay was not imported from verified immutable files");
+    const auto requests = hub.downloads.load();
+    client.download(selected, root / "cache"); wait(client);
+    check(client.take_download() == output && imports == 1 && hub.downloads == requests,
+          "Verified dataset replay cache was not reused");
+    write(output, mcap + "corrupted replay");
+    client.download(selected, root / "cache"); wait(client);
+    check(client.take_download() == output && imports == 2 && hub.downloads == requests,
+          "Corrupted replay cache was not regenerated from verified sources");
+    const auto video = dataset / "videos/observation.images.passthrough/chunk-000/file-000.mp4";
+    write(video, "damaged source");
+    hub.bad_checksum = true;
+    client.download(selected, root / "cache"); fails(client, "checksum");
+    check(imports == 2 && !std::filesystem::exists(video.string() + ".partial") && client.take_download().empty(),
+          "Corrupt source bytes reached the importer or retained partial state");
+    hub.bad_checksum = false;
+    client.download(selected, root / "cache"); wait(client); client.take_download();
+    check(imports == 2, "Restored source forced an unnecessary replay conversion");
+
+    auto forged = selected;
+    forged.files.back().path = "other-shard/video.mp4";
+    const auto before = hub.downloads.load();
+    client.download(forged, root / "cache"); fails(client, "metadata");
+    check(hub.downloads == before, "A dataset file outside the selected root reached the network");
+    forged = selected;
+    forged.files.front().path = "shards/episode-000006/../outside.json";
+    client.download(forged, root / "cache"); fails(client, "component");
+    forged = selected; forged.files.front().sha256 = "wrong";
+    client.download(forged, root / "cache"); fails(client, "metadata");
+
+    write(output, mcap + "force conversion");
+    await_cancel.store(true);
+    client.download(selected, root / "cache");
+    const auto deadline = std::chrono::steady_clock::now() + 3s;
+    while (!importing.load() && std::chrono::steady_clock::now() < deadline)
+        std::this_thread::sleep_for(5ms);
+    check(importing.load(), "Cancellable dataset import did not start");
+    client.cancel();
+    check(wait(client).message == "Cancelled" && client.take_download().empty() &&
+              !std::filesystem::exists(output.string() + ".partial"),
+          "Cancelled import published a replay or retained temporary files");
+    await_cancel.store(false);
+    client.download(selected, root / "cache"); wait(client);
+    check(client.take_download() == output && read(output) == mcap,
+          "Dataset replay could not restart after cancellation");
+}
+
+void test_root_dataset(const std::filesystem::path& root) {
+    Hub hub;
+    add_dataset(hub, "", 0);
+    hub.files["recordings/original.mcap"] = {mcap, true};
+    HuggingFaceClient client(root, hub.transport(), hub.browser());
+    client.browse("https://huggingface.co/datasets/tester/captures/");
+    const auto listed = wait(client);
+    check(listed.recordings->size() == 2 && listed.recordings->front().is_dataset() &&
+              listed.recordings->front().dataset_root.empty() &&
+              listed.recordings->front().files.size() == 5 && !listed.recordings->back().is_dataset(),
+          "Root dataset and original MCAP were not both retained");
+}
+
+void test_dataset_cache_identity(const std::filesystem::path& root) {
+    Hub hub;
+    add_dataset(hub, "shards/episode-000000/", 0);
+    add_dataset(hub, "shards/episode-000001/", 1);
+    hub.files["shards/episode-000001/meta/info.json"] = hub.files.at("shards/episode-000000/meta/info.json");
+    HuggingFaceClient client(root / "credentials", hub.transport(), hub.browser(),
+        [&](const auto& source, const auto& output, std::stop_token) {
+            write(output, mcap + read(source / "data/chunk-000/file-000.parquet"));
+        });
+    client.browse(hub.repository);
+    const auto listed = wait(client);
+    check(listed.recordings->size() == 2 &&
+              listed.recordings->at(0).git_oid == listed.recordings->at(1).git_oid,
+          "Identical-metadata dataset fixture is invalid");
+    client.download(listed.recordings->at(0), root / "cache"); wait(client);
+    const auto first = client.take_download();
+    const auto original = read(first);
+    client.download(listed.recordings->at(1), root / "cache"); wait(client);
+    const auto second = client.take_download();
+    check(first != second && read(first) == original && read(first) != read(second),
+          "Loading a shard with identical metadata overwrote another replay");
+    auto forged = listed.recordings->at(0); forged.files.clear();
+    client.download(listed.recordings->at(1), root / "cache"); wait(client);
+    client.download(forged, root / "cache"); fails(client, "Choose an MCAP");
+    check(client.take_download().empty(), "A failed load returned a previous unconsumed replay");
+    client.browse("not-a-repository"); fails(client, "owner/name");
+    check(client.status().recordings->empty(), "A failed browse retained another repository's recordings");
+}
+
+void test_dataset_cache_upgrade(const std::filesystem::path& root) {
+    Hub hub;
+    add_dataset(hub, "shards/episode-000000/", 0);
+    std::atomic<int> imports{0};
+    HuggingFaceClient client(root / "credentials", hub.transport(), hub.browser(),
+        [&](const auto& source, const auto& output, std::stop_token) {
+            ++imports;
+            check(read(source / "data/chunk-000/file-000.parquet") == "recorded pose data 0",
+                  "Replay cache upgrade lost its verified source files");
+            write(output, mcap + "with task metadata");
+        });
+    client.browse(hub.repository);
+    const auto selected = wait(client).recordings->front();
+    client.download(selected, root / "cache"); wait(client);
+    const auto current = client.take_download();
+    auto current_receipt = current; current_receipt.replace_extension(".json");
+    const auto receipt = Json::parse(read(current_receipt));
+    check(receipt.at("replay_contract") == Json{{"schema", "ceres-lerobot-replay-cache"}, {"version", 2},
+                                                {"task_schema", "ceres-replay-task"}, {"task_version", 1}},
+          "Replay cache receipt does not identify its task metadata contract");
+
+    const auto legacy = current.parent_path() / "replay.mcap";
+    const auto legacy_receipt = current.parent_path() / "replay.json";
+    const auto legacy_bytes = mcap + "without task metadata";
+    write(legacy, legacy_bytes);
+    write(legacy_receipt, Json{{"source", receipt.at("source")}, {"sha256", hash(legacy_bytes)}}.dump());
+    std::filesystem::remove(current);
+    std::filesystem::remove(current_receipt);
+    const auto downloads = hub.downloads.load();
+    client.download(selected, root / "cache"); wait(client);
+    check(client.take_download() == current && current != legacy && imports == 2 &&
+              hub.downloads == downloads && read(current) == mcap + "with task metadata" &&
+              read(legacy) == legacy_bytes,
+          "Legacy replay was reused or its verified sources were downloaded again");
+
+    auto stale = Json::parse(read(current_receipt));
+    stale["replay_contract"]["task_version"] = 0;
+    write(current_receipt, stale.dump());
+    client.download(selected, root / "cache"); wait(client);
+    check(client.take_download() == current && imports == 3 && hub.downloads == downloads,
+          "A mismatched task metadata contract did not regenerate the replay");
+    client.download(selected, root / "cache"); wait(client);
+    check(client.take_download() == current && imports == 3 && hub.downloads == downloads,
+          "Current replay contract did not reuse its verified cache");
+}
+
 void test_upload(const std::filesystem::path& root, bool multipart) {
     Hub hub; hub.exists = false; hub.multipart = multipart; hub.foreign_verify = multipart;
     hub.expires_in = multipart ? 3600 : 61; hub.delayed_upload = !multipart;
@@ -333,6 +518,10 @@ int main() {
         ("ceres-hugging-face-test-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     try {
         check(hf::repository_id("tester", "captures") == "tester/captures", "Repository validation failed");
+        check(hf::repository_id("  hf:chrisvoncsefalvay/ceres-demos\n") == "chrisvoncsefalvay/ceres-demos",
+              "Hugging Face replay shorthand was rejected");
+        rejects([] { hf::repository_id("hf:owner/repo/extra"); });
+        rejects([] { hf::repository_id("https://external.invalid/datasets/owner/repo"); });
         rejects([] { hf::repository_id("../tester", "captures"); });
         rejects([] { hf::repository_path("folder/../escape"); });
         rejects([] { hf::repository_path("folder/CON.mcap"); });
@@ -340,6 +529,10 @@ int main() {
         check(hf::url_encode("a b/c", true) == "a%20b/c", "Repository URL encoding changed");
         test_auth(root / "auth");
         test_browse_download(root / "browse");
+        test_dataset_replay(root / "datasets");
+        test_root_dataset(root / "root-dataset");
+        test_dataset_cache_identity(root / "dataset-cache");
+        test_dataset_cache_upgrade(root / "cache-upgrade");
         test_upload(root / "basic", false);
         test_upload(root / "multipart", true);
         std::filesystem::remove_all(root);
