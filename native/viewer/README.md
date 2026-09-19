@@ -4,6 +4,8 @@ Ceres viewer receives Ceres Bridge camera video and tracking in a native 3D scen
 
 Separate release packages support Windows 11 x64, Ubuntu 22.04 or newer on x64 NVIDIA systems and Ubuntu 24.04 or newer on NVIDIA GB10 ARM64 systems. Each includes the native exporter, FFmpeg and runtime libraries. Install the NVIDIA display driver, then extract the archive and launch the viewer. CUDA and OpenGL must use the same GPU. The renderer uses OpenGL 4.5, CUDA image conversion and NVDEC H.264 decoding.
 
+Hugging Face sign-in uses your web browser. On Linux, install `xdg-utils` in the desktop session to open the authorisation window.
+
 ## Run
 
 Launch `ceres-viewer` from its distribution directory. **Connection** shows a QR code and access code. Open Ceres Bridge on the headset and enter that code. The receiver identity is retained between launches. **Disconnect** closes the active connection and **Pair again** creates a new pairing identity.

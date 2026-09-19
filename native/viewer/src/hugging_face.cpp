@@ -848,7 +848,7 @@ bool HuggingFaceClient::upload(std::string repository, std::filesystem::path rec
                         successful(result); return result;
                     };
                     if (headers.contains("chunk_size")) {
-                        const auto chunk = std::stoull(headers.at("chunk_size").get<std::string>());
+                        const uint64_t chunk = std::stoull(headers.at("chunk_size").get<std::string>());
                         require(chunk > 0 && chunk <= maximum_recording, "Hugging Face returned an invalid upload chunk size");
                         std::map<uint64_t, std::string> part_urls;
                         for (const auto& [key, value] : headers.items()) {

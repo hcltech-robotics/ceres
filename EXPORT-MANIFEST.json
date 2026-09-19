@@ -2,7 +2,7 @@
   "version": 2,
   "packageVersion": "1.1.1",
   "generator": "ceres-public-core/2",
-  "treeDigest": "07742ae90353eeb7d8da776e6f6734bfb29f206c5e860a3576ff1426ae646bb6",
+  "treeDigest": "e44e2f02935a7fc2b0c50221f0566b83b44ed6748ac3d3f7e6dda72787cb9ed4",
   "files": {
     ".dockerignore": {
       "sha256": "f4f0799e0c8f318b0d36a430909ba9dcb3eeca1d1b0ae8b3b7907b44cc2bedca",
@@ -240,8 +240,8 @@
       "mode": "100644"
     },
     "native/viewer/README.md": {
-      "sha256": "537635e07a2bb852ae6146245d8ca548738a9bf0801f0cb5f709bbfe0df7bf90",
-      "bytes": 18965,
+      "sha256": "1ce43953ea26ad59d24e5aefca5511b70913be3ed8ae15b0167c4a5b639d0172",
+      "bytes": 19097,
       "mode": "100644"
     },
     "native/viewer/assets/README.md": {
@@ -685,8 +685,8 @@
       "mode": "100644"
     },
     "native/viewer/src/hugging_face.cpp": {
-      "sha256": "518112559bc972db9b4ec39f4ee792a8e547f28c220500d3c8e612cf9e830eba",
-      "bytes": 54422,
+      "sha256": "70e505c13f9eb86c81767263cc290b3c7dffab6b753e58f9e3d6030ed6408f22",
+      "bytes": 54426,
       "mode": "100644"
     },
     "native/viewer/src/image.cu": {
