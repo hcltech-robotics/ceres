@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "packageVersion": "1.1.1",
+  "packageVersion": "1.1.2",
   "generator": "ceres-public-core/2",
-  "treeDigest": "b9c4abbf3e4c23b63763aed0007fc403e1af8716ad35e62025fd9e63cbc58e81",
+  "treeDigest": "213f97a2082e7c641d6188659b160105acc1f0332d42a058439ab8fadf151039",
   "files": {
     ".dockerignore": {
       "sha256": "f4f0799e0c8f318b0d36a430909ba9dcb3eeca1d1b0ae8b3b7907b44cc2bedca",
@@ -40,8 +40,8 @@
       "mode": "100644"
     },
     ".github/workflows/native-viewer.yml": {
-      "sha256": "efe0beccb7e5ce30dccfc38b6eb2d05f647eebcaabd21c99ab0a769ca2cbb60e",
-      "bytes": 16931,
+      "sha256": "19965721c7fb53dd1c7a87dcc86e71c239fa5fb4dc4b1c82cf9af7bf5bcf0976",
+      "bytes": 17039,
       "mode": "100644"
     },
     ".github/workflows/release.yml": {
@@ -55,12 +55,12 @@
       "mode": "100644"
     },
     ".zenodo.json": {
-      "sha256": "b63a8d0ba1fde0caced0bea458c336add57a95fb7786a601675aa48e0a84c103",
+      "sha256": "0e64c235d63ec07d2c976f7f1b7e43aa36387bef80e9495cbff0b7dc41212368",
       "bytes": 993,
       "mode": "100644"
     },
     "CITATION.cff": {
-      "sha256": "e821972b8abbe4fbdb533b7e9c896617f0fe73db6db64f3a96333495b9a19ee8",
+      "sha256": "aab815b2682fc3e53251568f5501565a537730537afdf1c35937d8f3025d400e",
       "bytes": 501,
       "mode": "100644"
     },
@@ -75,13 +75,13 @@
       "mode": "100644"
     },
     "README.md": {
-      "sha256": "7dd06740c1d8837d96ceb6f4e4e277e1396f4d69144e6ce06fab16906b25f447",
-      "bytes": 14885,
+      "sha256": "a00d837357da840f56e5fdfcd9219a0aa55dfcc6cd1e3afbf2ad0c5e7fba3a98",
+      "bytes": 15250,
       "mode": "100644"
     },
     "RELEASE.md": {
-      "sha256": "c9a3fd80868c7e193aee59049163ca85d791c66238889240bbf319ebc5739b73",
-      "bytes": 3042,
+      "sha256": "bf02133f86a328af51b73dd2108917321792f1cc04a1882724661995f7fa53b7",
+      "bytes": 4474,
       "mode": "100644"
     },
     "bridge/index.html": {
@@ -90,7 +90,7 @@
       "mode": "100644"
     },
     "citation.bib": {
-      "sha256": "1892e6df8e9efdc0601f166b80edad92913f446260696d7384172c9a5dd14d9b",
+      "sha256": "f070c6845775aed33d637c27f0cdf067fdaca91baabcd31938531522da4fb6c1",
       "bytes": 354,
       "mode": "100644"
     },
@@ -140,13 +140,13 @@
       "mode": "100644"
     },
     "native/lerobot-exporter/Cargo.lock": {
-      "sha256": "5980f010f3439a60187704a5b7d6b5c5e6aff982eb4b9968a6cffba533973ab6",
-      "bytes": 28394,
+      "sha256": "a707ae37706abf0a20ca1df02b066f9e9ba0649fab9cfe0680c7852c4763e81b",
+      "bytes": 28403,
       "mode": "100644"
     },
     "native/lerobot-exporter/Cargo.toml": {
-      "sha256": "9de0c589125eaaf692f6d2603c35aada8b08dc5d0b1acb529be88e8d831be9c4",
-      "bytes": 690,
+      "sha256": "4def4e7de138f7bfc996b8364aeef00130cf408e260923f91d4baac4ad8d4924",
+      "bytes": 698,
       "mode": "100644"
     },
     "native/lerobot-exporter/README.md": {
@@ -170,13 +170,23 @@
       "mode": "100644"
     },
     "native/lerobot-exporter/src/lib.rs": {
-      "sha256": "3faec14342b3811f670ab61866d467972ac30fbd591d3713e579c4573eb973c5",
-      "bytes": 7822,
+      "sha256": "6e24016224389416cc06c9cd2dcca061ed9c0a4ea76dfea0d2ecfb712d6a9829",
+      "bytes": 7838,
       "mode": "100644"
     },
     "native/lerobot-exporter/src/main.rs": {
-      "sha256": "eb5ea4da21de724b38952464e157993d8ce3af83918cd1995df6e81e20268256",
-      "bytes": 1378,
+      "sha256": "ffa7206018bb8101e610f59922603968d2922aa6238dbaaaf2a4309baabbd188",
+      "bytes": 1624,
+      "mode": "100644"
+    },
+    "native/lerobot-exporter/src/replay.rs": {
+      "sha256": "9d512b06e090e13ce123bfbb0b4bfadfc6d2d50dc957f09c819d4fec26a792f9",
+      "bytes": 29184,
+      "mode": "100644"
+    },
+    "native/lerobot-exporter/src/replay_tasks.rs": {
+      "sha256": "1415ba8b57121e3f202771827c06b1132f79b0bd3fc3185d2cc858562e034b2b",
+      "bytes": 15343,
       "mode": "100644"
     },
     "native/lerobot-exporter/src/session.rs": {
@@ -192,6 +202,11 @@
     "native/lerobot-exporter/tests/release_version.rs": {
       "sha256": "f748c52c7c58c01248e30fade4fbbc457d92773c88c1d985474bf0cc0cbad92a",
       "bytes": 655,
+      "mode": "100644"
+    },
+    "native/lerobot-exporter/tests/replay_import.rs": {
+      "sha256": "acb9cd3bef9e7dbb00667fc494d64309c4206c949940b6c238271ae8e98f8226",
+      "bytes": 23839,
       "mode": "100644"
     },
     "native/lerobot-exporter/tests/session_export.rs": {
@@ -225,13 +240,13 @@
       "mode": "100644"
     },
     "native/viewer/.gitignore": {
-      "sha256": "43c56f14404fc55b71a9aa08d0bbd06ddcc491f50c7300f125117c6d5ac84ae9",
-      "bytes": 124,
+      "sha256": "2092ccbe12b736c21405de93d1a89346b1e8751de5a967c11bfeed1b4cf72525",
+      "bytes": 146,
       "mode": "100644"
     },
     "native/viewer/CMakeLists.txt": {
-      "sha256": "3c9b820f62698e4e3c9c98012b8eadb66ed432077e4b9809d4c597b2dce25cf1",
-      "bytes": 10721,
+      "sha256": "ff140e29ff1ac1b050f72532c51a080d219237550cc9c81b098f7ba45061801d",
+      "bytes": 12599,
       "mode": "100644"
     },
     "native/viewer/LICENCE.md": {
@@ -240,8 +255,8 @@
       "mode": "100644"
     },
     "native/viewer/README.md": {
-      "sha256": "1ce43953ea26ad59d24e5aefca5511b70913be3ed8ae15b0167c4a5b639d0172",
-      "bytes": 19097,
+      "sha256": "77fd1ae69ecfd9628319fe9491abd36d9407b6f40d5a2929c1f081dbc2aa6304",
+      "bytes": 20960,
       "mode": "100644"
     },
     "native/viewer/assets/README.md": {
@@ -360,8 +375,8 @@
       "mode": "100644"
     },
     "native/viewer/docs/environment-depth.md": {
-      "sha256": "2805191d6199b66daf58a341fc87d8dc9de64db46c2f610f38134c7c38a840dd",
-      "bytes": 9304,
+      "sha256": "ba908a586bc4b31eacfbc17b9ef2af02adf0689d1b8ad1bf082d49a719b8d843",
+      "bytes": 14881,
       "mode": "100644"
     },
     "native/viewer/docs/export-compatibility.md": {
@@ -395,8 +410,8 @@
       "mode": "100644"
     },
     "native/viewer/include/ceres/app.hpp": {
-      "sha256": "2cb44cd0adbf3dc596346b78e1f1624a84d23b01c99abd4b5aeb6a94902cc83d",
-      "bytes": 511,
+      "sha256": "df13f6f3a67c250033d32983d3b2cb53bdc34c0d8740efdf9df6b514f60f0808",
+      "bytes": 559,
       "mode": "100644"
     },
     "native/viewer/include/ceres/bridge.hpp": {
@@ -432,6 +447,11 @@
     "native/viewer/include/ceres/detail/recording_bar.hpp": {
       "sha256": "a02bf743496d50ab7f30363099906eed9f634fca1d585eba20f3021d372beb72",
       "bytes": 6426,
+      "mode": "100644"
+    },
+    "native/viewer/include/ceres/detail/spatial_map_render.hpp": {
+      "sha256": "79a19025cb3bfe8a269f6c24618e8f271bf3ca643a978632a918fcca0b55add1",
+      "bytes": 25393,
       "mode": "100644"
     },
     "native/viewer/include/ceres/detail/stereo_cadence.hpp": {
@@ -475,13 +495,18 @@
       "mode": "100644"
     },
     "native/viewer/include/ceres/hugging_face.hpp": {
-      "sha256": "2e0d5abee9cd8bea37bc557e219d068062377e9121c16dacc44e4694118bd089",
-      "bytes": 2938,
+      "sha256": "8166c1704caa32e33e236d97299afa5caf2c8f3808e9fb8b49f422a177c2a052",
+      "bytes": 3513,
       "mode": "100644"
     },
     "native/viewer/include/ceres/image_kernel.hpp": {
       "sha256": "5474501018e4b97d81f96c3d4d5b2250115c550296cb6433beda13232f350d10",
       "bytes": 360,
+      "mode": "100644"
+    },
+    "native/viewer/include/ceres/lerobot_import.hpp": {
+      "sha256": "8beabe62eb2bb925c77c46f8ddad667e0148227f04fb49e6c689956574a37bdf",
+      "bytes": 440,
       "mode": "100644"
     },
     "native/viewer/include/ceres/mesh.hpp": {
@@ -495,8 +520,13 @@
       "mode": "100644"
     },
     "native/viewer/include/ceres/renderer.hpp": {
-      "sha256": "a433bba9ec58494456db7c573149ef2d2981eefee2166e51ca78fc53530a9601",
-      "bytes": 3535,
+      "sha256": "f7507f5afec63777fefde9bcb4fc7053450251d8fe53b662660fda2e3c6ddc4f",
+      "bytes": 5429,
+      "mode": "100644"
+    },
+    "native/viewer/include/ceres/replay_task.hpp": {
+      "sha256": "af3e5be6dd7cc7d49f007d18b40b17455a91dd2720ae64f3a9f4ec65d8796eaa",
+      "bytes": 1106,
       "mode": "100644"
     },
     "native/viewer/include/ceres/rtcp_clock.hpp": {
@@ -505,8 +535,23 @@
       "mode": "100644"
     },
     "native/viewer/include/ceres/session.hpp": {
-      "sha256": "e255c418fb5033fd6e5e12b4b27b47f0a5fce3aa190e8bc11dd2959f58baa111",
-      "bytes": 3124,
+      "sha256": "0bda8cae5356cbcba4844f5238e2a29c0c9b4eebbc2527e5c15307e10e8cf538",
+      "bytes": 3240,
+      "mode": "100644"
+    },
+    "native/viewer/include/ceres/spatial_map.hpp": {
+      "sha256": "6dbec1849148b2a6d57b9a3a64e76f1d1874227c8cefc89d5be5302dc5a08c98",
+      "bytes": 3456,
+      "mode": "100644"
+    },
+    "native/viewer/include/ceres/spatial_map_display.hpp": {
+      "sha256": "48b62498b284d784d7d25678eb52235b11a6d499aad16562e96b3bd1a6480fa9",
+      "bytes": 171,
+      "mode": "100644"
+    },
+    "native/viewer/include/ceres/spatial_map_point.hpp": {
+      "sha256": "bb14e03a59d78868a68b929bd07db73b27c13f135502443808d348f84789bceb",
+      "bytes": 701,
       "mode": "100644"
     },
     "native/viewer/include/ceres/spatial_observation.hpp": {
@@ -555,13 +600,13 @@
       "mode": "100644"
     },
     "native/viewer/include/ceres/voxel_config.hpp": {
-      "sha256": "5f8f1c04d94fb819ccefdc55730a29abd0eff0986eebf5587a13df5e6efddf2c",
-      "bytes": 899,
+      "sha256": "58eec8ed4396d5aca65dadaddde110e32dbc02242b1081dc1dbd72a62a8f9c62",
+      "bytes": 1258,
       "mode": "100644"
     },
     "native/viewer/include/ceres/voxel_kernel.hpp": {
-      "sha256": "e5d25690692c34316cd027ad71fdec92f1da214ecd890faadebe2b0a5de290b5",
-      "bytes": 3817,
+      "sha256": "5087b3c06eae450cabcbab8787986e26fdc7786afb55bc17b9839cbff220436a",
+      "bytes": 5608,
       "mode": "100644"
     },
     "native/viewer/qualification/linux-arm64.json": {
@@ -630,8 +675,8 @@
       "mode": "100644"
     },
     "native/viewer/scripts/qualification.py": {
-      "sha256": "c249c9dff1452cbed51804f6cee317fa472bf8c92d65bb162ae7bef37a289f00",
-      "bytes": 12753,
+      "sha256": "9456b411a76ed6fad5bd65f23b2a14f64d41a98bbce0ccdf15bdf89a4f2cbf0a",
+      "bytes": 12855,
       "mode": "100644"
     },
     "native/viewer/scripts/qualify-session.py": {
@@ -640,8 +685,8 @@
       "mode": "100644"
     },
     "native/viewer/scripts/qualify_hardware.py": {
-      "sha256": "d9ead19bcc07a6c066db9c7a1e032d08e2b25202011d4dfe83300eea61d2203b",
-      "bytes": 14101,
+      "sha256": "2d82478841e4e269e0031aab550741121ee606f5a5107822c6488f9764e36a59",
+      "bytes": 16627,
       "mode": "100644"
     },
     "native/viewer/scripts/verify-dataset.py": {
@@ -660,13 +705,13 @@
       "mode": "100644"
     },
     "native/viewer/src/app.cpp": {
-      "sha256": "864593ddc8406ab40ca2385c63c7f2087c80d5dec8bb27ffe5e0f2bfd6b77cca",
-      "bytes": 185192,
+      "sha256": "c0a22ab559849afe77853f4c03e25b50c5a30e7bdd87f83888d280185e6ae29f",
+      "bytes": 220533,
       "mode": "100644"
     },
     "native/viewer/src/bridge.cpp": {
-      "sha256": "a5329168f662861cb17cf75e327b7d7b55c18084d69e266649c89393a1c1ba91",
-      "bytes": 68344,
+      "sha256": "b4fb8342e8ae3767ce97af2f32fc5626ff191f07456291b3464ed611ccc79b10",
+      "bytes": 68396,
       "mode": "100644"
     },
     "native/viewer/src/calibration.cpp": {
@@ -675,18 +720,18 @@
       "mode": "100644"
     },
     "native/viewer/src/depth.cpp": {
-      "sha256": "75ba8c507f831ecdaade9853b74d8a19cf6e96e50f3ff1b04ff14dee784f5abd",
-      "bytes": 11029,
+      "sha256": "02a3487649f3fa74e6be93b85ccf983179f83847e4284fad0d2d682539651b28",
+      "bytes": 12373,
       "mode": "100644"
     },
     "native/viewer/src/depth.cu": {
-      "sha256": "e3bd5dfe78dd685a7ef46c1898d3dd7b9e05ef55418d3c2af973386495963ea5",
-      "bytes": 3293,
+      "sha256": "c383e554e18d11b20be7d48de668760e9f0bacb491d969a3cc87e679532b79f0",
+      "bytes": 3240,
       "mode": "100644"
     },
     "native/viewer/src/export_job.cpp": {
-      "sha256": "44ae4a271792deaa62fe3ea1c4b9013ae7fc73961440f5e98c415f1cf3ec250c",
-      "bytes": 24222,
+      "sha256": "2c728ce321b3589de58c3e8cb3cb1404126810081c3433f0cd739687826d101a",
+      "bytes": 29677,
       "mode": "100644"
     },
     "native/viewer/src/hand_mask.cpp": {
@@ -700,8 +745,8 @@
       "mode": "100644"
     },
     "native/viewer/src/hugging_face.cpp": {
-      "sha256": "70e505c13f9eb86c81767263cc290b3c7dffab6b753e58f9e3d6030ed6408f22",
-      "bytes": 54426,
+      "sha256": "036dab5eea288cc3d7c93c1ae3ee8364590527875e04ea7e1a02b5af046edb7e",
+      "bytes": 65135,
       "mode": "100644"
     },
     "native/viewer/src/image.cu": {
@@ -710,8 +755,8 @@
       "mode": "100644"
     },
     "native/viewer/src/main.cpp": {
-      "sha256": "7c28d63d82a5b48b5fc45026fc150d2c7d4ece1f357dab3786598224e5e51f47",
-      "bytes": 3912,
+      "sha256": "1d86343d61f094582deb1544765f6c956510b320cbc17d2fb8f8aca997decff0",
+      "bytes": 4393,
       "mode": "100644"
     },
     "native/viewer/src/mano.cpp": {
@@ -735,13 +780,23 @@
       "mode": "100644"
     },
     "native/viewer/src/renderer.cpp": {
-      "sha256": "a8007ca2aa92700415b85e117656d2730d9121d37bff1118f32b69c1ed54e72d",
-      "bytes": 86227,
+      "sha256": "617d78d280b2eed6236d4f07579e329ec7cd6e07db5b3364a84fcf40748782b6",
+      "bytes": 106794,
+      "mode": "100644"
+    },
+    "native/viewer/src/replay_task.cpp": {
+      "sha256": "acc827904cf75549f0c6cc27d700361e9b4deb5dd45b88dc3e6068415bda3b7f",
+      "bytes": 8796,
       "mode": "100644"
     },
     "native/viewer/src/session.cpp": {
-      "sha256": "9814cb8e010dcc3d9d3b6a9d935e52ddfd1e0d5b5bbf8c4ff88f1586cd0ff808",
-      "bytes": 47626,
+      "sha256": "54ffdce840a1246128dc78932e420964f2611cb9087d8f30c97761f9ed9fe859",
+      "bytes": 48189,
+      "mode": "100644"
+    },
+    "native/viewer/src/spatial_map.cpp": {
+      "sha256": "edc24b10b4cbc87ed80392dbe5d5ba5220fa209e582a37708741b3739b185895",
+      "bytes": 33620,
       "mode": "100644"
     },
     "native/viewer/src/static_model.cpp": {
@@ -775,8 +830,8 @@
       "mode": "100644"
     },
     "native/viewer/src/voxel.cu": {
-      "sha256": "9abe7b7d5d626a42d7717171a0cc9e25d8223c4dd26322181b7580b2e348c13e",
-      "bytes": 37695,
+      "sha256": "8b65b7f37480b417ca6488063171271c756a7b1fa9e713f57dff8bae3e99a9c0",
+      "bytes": 74887,
       "mode": "100644"
     },
     "native/viewer/tests/depth_fixture.hpp": {
@@ -795,8 +850,8 @@
       "mode": "100644"
     },
     "native/viewer/tests/fixtures/bridge-depth-v1.json": {
-      "sha256": "b1c60e975cfb726c04c32cbf72f264d966fa9abb08efb88c647a0958c78a0f8e",
-      "bytes": 242770,
+      "sha256": "18695745e47e67215d7dd6ad6890f0b285bdead44edea36074d5da7e5f988e27",
+      "bytes": 246004,
       "mode": "100644"
     },
     "native/viewer/tests/fixtures/bridge-poses.json": {
@@ -855,18 +910,18 @@
       "mode": "100644"
     },
     "native/viewer/tests/test_depth.cpp": {
-      "sha256": "95808a66ab486336dd9ef39ebb9257568aad4db64a16a781b441199295fe8cf5",
-      "bytes": 15643,
+      "sha256": "8b8ced194faec4c25324f7997d8b58148e52446d3499110d1e2d1dfb60a0c94b",
+      "bytes": 17561,
       "mode": "100644"
     },
     "native/viewer/tests/test_depth_cuda.cu": {
-      "sha256": "c5350f3da3e69f9b922c920447c154746477a226921b908b939a2d5007d0904f",
-      "bytes": 8792,
+      "sha256": "610efd02bc46e1c9883f2089f4651306ae6b2091423409d56a72474522782b54",
+      "bytes": 13355,
       "mode": "100644"
     },
     "native/viewer/tests/test_export_job.cpp": {
-      "sha256": "d2c17f848facaa254dda2382018a2ac4579511e7e9690d1c30ff83e8ec19a2ce",
-      "bytes": 9969,
+      "sha256": "c021708fae2b8d2c744e2b5c2415ab088dc585636a0ecc60c6c17d102274f48a",
+      "bytes": 14047,
       "mode": "100644"
     },
     "native/viewer/tests/test_geometry.cpp": {
@@ -885,8 +940,8 @@
       "mode": "100644"
     },
     "native/viewer/tests/test_hugging_face.cpp": {
-      "sha256": "4ae744f0d59f6d2536d972e32cf529b8eca90353babbc1cedd8c57ab78a4dbd3",
-      "bytes": 20233,
+      "sha256": "0fc73f4d0d5e5feca67b6af340715c9af7818f85538edc35219c10311b5f3582",
+      "bytes": 31739,
       "mode": "100644"
     },
     "native/viewer/tests/test_image.cu": {
@@ -919,14 +974,39 @@
       "bytes": 16924,
       "mode": "100644"
     },
+    "native/viewer/tests/test_quest_mapper.py": {
+      "sha256": "64a94bfa1f2fb2681b575ace83c6f0a6461b78292c44b5447a9a796e139215fc",
+      "bytes": 8652,
+      "mode": "100644"
+    },
     "native/viewer/tests/test_recording_bar.cpp": {
       "sha256": "79c5fcf105d1873a3185d604c436f38904e18ae3d54813e0ab448f81487bec18",
       "bytes": 10138,
       "mode": "100644"
     },
+    "native/viewer/tests/test_replay_task.cpp": {
+      "sha256": "630c45b28a145239c3667999e366c1e771709c1ebd5f6f66c98ed4567b36bd95",
+      "bytes": 9907,
+      "mode": "100644"
+    },
     "native/viewer/tests/test_session.cpp": {
-      "sha256": "5bb310b640828b54b1c13ffdde65ab5d0580bc5f151aafed55bb52b3f434c1c2",
-      "bytes": 78238,
+      "sha256": "f05a0224372e1bebf4ec558898f63a61ed55acf8212e42ad0b52300918a36477",
+      "bytes": 79652,
+      "mode": "100644"
+    },
+    "native/viewer/tests/test_spatial_map.cpp": {
+      "sha256": "bae78cd14de005a67876dd84205555ef255c4884dacd1ac7554a8227c5357ed1",
+      "bytes": 31531,
+      "mode": "100644"
+    },
+    "native/viewer/tests/test_spatial_map_lifecycle.cpp": {
+      "sha256": "1889798e972280573217e5d5174b8458877c2de95e7a9314cf10f6b66823145c",
+      "bytes": 29246,
+      "mode": "100644"
+    },
+    "native/viewer/tests/test_spatial_map_render.cpp": {
+      "sha256": "3e66d20aa687ce595746888e217775efb5bf0bab3b030be01b9fbf954c479de0",
+      "bytes": 28785,
       "mode": "100644"
     },
     "native/viewer/tests/test_static_model.cpp": {
@@ -975,17 +1055,42 @@
       "mode": "100644"
     },
     "native/viewer/tests/test_voxel_cuda.cu": {
-      "sha256": "a372b0902c2656220dcb5d9ee04401a9c82b9289cfadd1b5efbba3bffed964e7",
-      "bytes": 42951,
+      "sha256": "a9cd9500a737537bf121b8cd31ee35499123ec0ad20d371c6cf6e345ecc5b29a",
+      "bytes": 60694,
+      "mode": "100644"
+    },
+    "native/viewer/tools/quest-mapper-requirements.txt": {
+      "sha256": "516f5a6102125f0705b95f95ee6d116092cdf52a4ca6152a7adc04b01127a2e3",
+      "bytes": 962,
+      "mode": "100644"
+    },
+    "native/viewer/tools/quest-mapper-source.json": {
+      "sha256": "4a69dde21ae48118da4dc82d46967825d4d81b16cb5f445c2abee8b9ae46027b",
+      "bytes": 576,
+      "mode": "100644"
+    },
+    "native/viewer/tools/quest-mapper.md": {
+      "sha256": "e5276fa3628f8cb51bc0276bbefc0eb6cc0cd554b284b935977b2712cd973931",
+      "bytes": 5927,
+      "mode": "100644"
+    },
+    "native/viewer/tools/quest_mapper.py": {
+      "sha256": "4eae0fb576356c01bb6bd06a600659d611b0083f85415bb038001c9d578f098a",
+      "bytes": 25561,
+      "mode": "100644"
+    },
+    "native/viewer/tools/quest_mapper_fixture.py": {
+      "sha256": "ff9b8ac0d5587d1e21608d99f53dbf8392ff09b2c32adef5b4173e36a74483ec",
+      "bytes": 5192,
       "mode": "100644"
     },
     "package-lock.json": {
-      "sha256": "ff934cfe7199f8c896a5bd89d2691475a83a6286fd30dff59314494a5851da0c",
+      "sha256": "a5aea983ac13b2cece7c283dba4fbbc8a7a2aeb860e4cf85a017736be1365cb8",
       "bytes": 173490,
       "mode": "100644"
     },
     "package.json": {
-      "sha256": "2138160f85c506bdfd12d28700abd0286bfb57ac3344ff19f4cc31b98a9648c0",
+      "sha256": "3e39b78a09e899723a538f63210c15d48d3a19bcfea7e01dc257f4382e257838",
       "bytes": 3276,
       "mode": "100644"
     },
@@ -1570,8 +1675,8 @@
       "mode": "100644"
     },
     "scripts/check-public-boundary.mjs": {
-      "sha256": "dc01d2a59f4908711070ca07f197d18a1f8e8adb9adac733e57c1eab50b91a06",
-      "bytes": 5820,
+      "sha256": "c36c8fa78bd02042e7e090fa2a5cf46edaffaeadc7c1329ed69214951faf57d0",
+      "bytes": 5839,
       "mode": "100644"
     },
     "scripts/check-release-sboms.mjs": {
@@ -1690,8 +1795,8 @@
       "mode": "100644"
     },
     "shared/bridge-depth.ts": {
-      "sha256": "acec168f4e5625fafce633fbe33553e46a1a05a3c0bd0ee403b30655246f921a",
-      "bytes": 6012,
+      "sha256": "2adb39f498586dc6799e29fad39ab59eed01db81fb6bd309f78ade58eeff8ea1",
+      "bytes": 7080,
       "mode": "100644"
     },
     "shared/bridge-protocol.ts": {
@@ -1785,7 +1890,7 @@
       "mode": "100644"
     },
     "shared/software-citation.ts": {
-      "sha256": "81a71e9aee7ab637487da6f4dc5ff149e3dba7f7f6ae03da33825366aea04d2e",
+      "sha256": "97f914fd8b4074e7dc4b6432c8fe43a183fc5abf9e0e1a0cdf85c46334059f01",
       "bytes": 1053,
       "mode": "100644"
     },
@@ -1835,8 +1940,8 @@
       "mode": "100644"
     },
     "src/bridge/depth.ts": {
-      "sha256": "b32d1abb41e85f88a365d7dbc248e73b0ae0a6b0a7df418b101d461d3838f9a0",
-      "bytes": 12186,
+      "sha256": "102167aa06cae2af712d2bb52344f16c365e526f28062d4867e06c7fc605cfa0",
+      "bytes": 13960,
       "mode": "100644"
     },
     "src/bridge/display.css": {
@@ -1855,8 +1960,8 @@
       "mode": "100644"
     },
     "src/bridge/peer.ts": {
-      "sha256": "1065fc192ff69de4926458283da93bb7250bc2ec9467bd629ba4b948b222161e",
-      "bytes": 11554,
+      "sha256": "380798413a16c93ea764a6fa7c5edc824e6bcd059c56628f1702b014bad0a654",
+      "bytes": 11775,
       "mode": "100644"
     },
     "src/bridge/qr.ts": {
@@ -2640,13 +2745,13 @@
       "mode": "100644"
     },
     "test/bridge-depth.test.ts": {
-      "sha256": "18c6139967767d3dd207b9406a402fa2bc1e4b8bbc496d56246bada6dd4add97",
-      "bytes": 16549,
+      "sha256": "1f99dbe5c9cb8ace1c779febb81964dc9c652268ce2c8403a50f6f9edf497524",
+      "bytes": 23254,
       "mode": "100644"
     },
     "test/bridge-peer.test.ts": {
-      "sha256": "0eff088118394f08dabe9673b4dee5f2a76653cddb1b9aea7922ff564d2b2075",
-      "bytes": 8397,
+      "sha256": "fa81d2bc1cafd64b4693214b17b81e434b04c2e4cf6b6a2330755735324b79fc",
+      "bytes": 9483,
       "mode": "100644"
     },
     "test/bridge-protocol.test.ts": {
@@ -2725,8 +2830,8 @@
       "mode": "100644"
     },
     "test/fixtures/bridge-depth-v1.json": {
-      "sha256": "b1c60e975cfb726c04c32cbf72f264d966fa9abb08efb88c647a0958c78a0f8e",
-      "bytes": 242770,
+      "sha256": "18695745e47e67215d7dd6ad6890f0b285bdead44edea36074d5da7e5f988e27",
+      "bytes": 246004,
       "mode": "100644"
     },
     "test/lerobot-export-segments.test.ts": {
@@ -2805,8 +2910,8 @@
       "mode": "100644"
     },
     "test/public-boundary.test.ts": {
-      "sha256": "5c68937dadf099afbfa14063bd59e8c9a782f83c8d8a2541a91723bb9cb94f7a",
-      "bytes": 6748,
+      "sha256": "0799311bccc51e7418d9a2fb4365ab19be1ba75a2a90358cfdf164ed02ea5ba1",
+      "bytes": 6814,
       "mode": "100644"
     },
     "test/quest-camera.test.ts": {

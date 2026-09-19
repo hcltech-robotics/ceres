@@ -77,6 +77,8 @@ class ReplaySource final : public SessionSource {
     int64_t position_us() const;
     const std::filesystem::path& path() const;
     std::vector<SessionEvent> episodes() const;
+    // Read recorded task setup on the inspection worker, not the render loop.
+    Json task_specification() const;
     // Inclusive sample-time interval. Call from the inspection worker, not the render loop.
     std::vector<SessionEvent> pose_history(int64_t start_us, int64_t end_us) const;
 

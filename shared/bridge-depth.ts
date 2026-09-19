@@ -8,7 +8,17 @@ export const DEPTH_FRAGMENT_HEADER_BYTES = 24;
 export const DEPTH_FRAGMENT_PAYLOAD_BYTES = DEPTH_FRAGMENT_BYTES - DEPTH_FRAGMENT_HEADER_BYTES;
 export type DepthUsage = "cpu-optimized" | "gpu-optimized";
 export type DepthSourceFormat = "luminance-alpha" | "float32" | "unsigned-short";
-export interface DepthHeader {
+export type DepthGeometrySource = "sensor" | "view" | "view-fallback";
+export interface DepthCaptureDiagnostics {
+  /** Sender-normalised matrix, applied once to this packet's stored pixels. */
+  mapping_version?: 2;
+  geometry_source?: DepthGeometrySource;
+  /** Copy/readback elapsed time, including asynchronous fence polling. */
+  readback_us?: number;
+  /** Requested pose target minus observation time, without a latency correction. */
+  target_lead_us?: number;
+}
+export interface DepthHeader extends DepthCaptureDiagnostics {
   version: 1;
   epoch: number;
   space_epoch: number;
@@ -37,7 +47,7 @@ export interface DepthFeature {
 export const DEPTH_FEATURE: DepthFeature = {
   version: 1, channel: DEPTH_CHANNEL, format: "uint16-mm", max_width: 256, max_height: 256,
 };
-export interface DepthSourceDiagnostics {
+export interface DepthSourceDiagnostics extends DepthCaptureDiagnostics {
   source_encoding?: "linear" | "perspective";
   raw_value_to_metres?: number | null;
   depth_near?: number | null;
@@ -61,6 +71,11 @@ const dimension = (n: unknown, max: number): n is number => typeof n === "number
 const matrix = (n: unknown): n is number[] => Array.isArray(n) && n.length === 16 && n.every(v => typeof v === "number" && Number.isFinite(v));
 export const isDepthUsage = (v: unknown): v is DepthUsage => v === "cpu-optimized" || v === "gpu-optimized";
 export const isDepthFormat = (v: unknown): v is DepthSourceFormat => v === "luminance-alpha" || v === "float32" || v === "unsigned-short";
+const validCaptureDiagnostics = (v: DepthCaptureDiagnostics) =>
+  (v.mapping_version === undefined || v.mapping_version === 2)
+  && (v.geometry_source === undefined || ["sensor", "view", "view-fallback"].includes(v.geometry_source))
+  && (v.readback_us === undefined || time(v.readback_us))
+  && (v.target_lead_us === undefined || Number.isSafeInteger(v.target_lead_us));
 export function validDepthFeature(value: unknown): value is DepthFeature {
   if (!value || typeof value !== "object") return false;
   const v = value as DepthFeature;
@@ -72,7 +87,8 @@ export function validDepthStatus(value: unknown): value is DepthStatus {
   const v = value as DepthStatus;
   return v.type === "depth-status" && v.version === 1 && uint32(v.epoch)
     && ["unsupported", "waiting", "streaming", "paused", "error"].includes(v.status)
-    && (v.usage === null || isDepthUsage(v.usage)) && (v.source_format === null || isDepthFormat(v.source_format));
+    && (v.usage === null || isDepthUsage(v.usage)) && (v.source_format === null || isDepthFormat(v.source_format))
+    && validCaptureDiagnostics(v);
 }
 export function validateDepthHeader(h: DepthHeader): void {
   if (h.version !== 1 || ![h.epoch, h.space_epoch, h.sequence].every(uint32)
@@ -82,7 +98,9 @@ export function validateDepthHeader(h: DepthHeader): void {
     || h.width > h.source_width || h.height > h.source_height
     || !["left", "right", "none"].includes(h.eye) || !isDepthUsage(h.usage)
     || !isDepthFormat(h.source_format) || h.depth_format !== "uint16-mm"
-    || ![h.world_from_view, h.projection, h.norm_depth_from_norm_view].every(matrix)) {
+    || ![h.world_from_view, h.projection, h.norm_depth_from_norm_view].every(matrix)
+    || !validCaptureDiagnostics(h)
+    || (h.target_lead_us !== undefined && h.target_lead_us !== h.target_us - h.observed_us)) {
     throw new Error("Invalid Bridge depth header");
   }
 }

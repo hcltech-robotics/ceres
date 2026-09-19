@@ -1,5 +1,6 @@
 mod compatibility;
 mod dataset;
+pub mod replay;
 mod session;
 mod video;
 

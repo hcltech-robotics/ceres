@@ -10,6 +10,7 @@
 #include "ceres/depth_kernel.hpp"
 #include "ceres/depth_display.hpp"
 #include "ceres/detail/tracking_visibility.hpp"
+#include "ceres/detail/spatial_map_render.hpp"
 #include <glad/gl.h>
 #include <GLFW/glfw3.h>
 #include <algorithm>
@@ -17,10 +18,13 @@
 #include <cstring>
 #include <cuda_gl_interop.h>
 #include <fstream>
+#include <limits>
+#include <glm/gtc/constants.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtx/quaternion.hpp>
 #include <stdexcept>
+#include <utility>
 namespace ceres {
 namespace {
 void cuda_check(cudaError_t r, const char* what) {
@@ -39,6 +43,36 @@ bool fresh_pose(const ReceiverSnapshot& snapshot, const PoseSample& pose, double
            (static_cast<double>(now) - static_cast<double>(pose.received_us)) * time_scale <= 50000 &&
            (now - observed) * time_scale + clock.uncertainty_us <= 50000;
 }
+bool finite_position(const glm::vec3& point) {
+    return std::isfinite(point.x) && std::isfinite(point.y) && std::isfinite(point.z);
+}
+bool finite_pose(const float* values) {
+    for (int i = 0; i < 7; ++i)
+        if (!std::isfinite(values[i]))
+            return false;
+    const glm::quat rotation(values[6], values[3], values[4], values[5]);
+    const float length = glm::length(rotation);
+    return std::isfinite(length) && length > .5f;
+}
+struct SceneBounds {
+    glm::vec3 minimum{}, maximum{};
+    bool valid = false;
+    void include(const glm::vec3& point) {
+        if (!finite_position(point))
+            return;
+        minimum = valid ? glm::min(minimum, point) : point;
+        maximum = valid ? glm::max(maximum, point) : point;
+        valid = true;
+    }
+    void include(const SceneBounds& other) {
+        if (other.valid) {
+            include(other.minimum);
+            include(other.maximum);
+        }
+    }
+    glm::vec3 centre() const { return minimum * .5f + maximum * .5f; }
+    float radius() const { return std::max(.15f, glm::length(maximum - minimum) * .5f); }
+};
 GLuint program() {
     const char* vertex = R"GLSL(#version 450 core
 layout(location=0) in vec3 position;
@@ -53,17 +87,11 @@ layout(location=8) in vec4 weights1;
 layout(location=9) in vec4 weights2;
 layout(location=10) in vec4 weights3;
 layout(location=11) in vec4 trail_colour;
-layout(location=12) in float point_valid;
 uniform mat4 vp,model,bones[25];
 uniform float joint_valid[25];
 uniform vec3 joint_colour[25];
-uniform int skinned,trail,point_cloud;
-uniform float point_size,point_limit,voxel_size,voxel_focal,voxel_opacity;
-uniform vec3 headset_origin,depth_palette[8];
-uniform int headset_origin_valid;
-uniform vec2 depth_range;
+uniform int skinned,trail;
 out vec3 N; out vec3 P; out vec2 UV; out float validity;
-out float point_confidence;
 out vec4 path_colour;
 out vec3 visual_colour;
 mat4 skin(ivec4 j,vec4 w) {
@@ -77,24 +105,6 @@ vec3 skin_colour(ivec4 j,vec4 w) {
 }
 void main() {
     visual_colour=vec3(1);
-    point_confidence=0;
-    if(point_cloud!=0) {
-        N=vec3(0,0,1); P=position; UV=vec2(0); validity=point_valid;
-        point_confidence=clamp(trail_colour.a,0,1);
-        float alpha=voxel_opacity*point_confidence;
-        vec4 clip=vp*vec4(position,1);
-        float footprint=voxel_size*point_valid*voxel_focal/max(.01,clip.w);
-        float distance_fraction=clamp((length(position-headset_origin)-depth_range.x)/
-                                      max(.0001,depth_range.y-depth_range.x),0,1);
-        float palette_position=distance_fraction*7;
-        int palette_index=min(int(palette_position),6);
-        vec3 depth_colour=mix(depth_palette[palette_index],depth_palette[palette_index+1],
-                              palette_position-float(palette_index));
-        path_colour=vec4(headset_origin_valid!=0 ? depth_colour : vec3(.72),alpha);
-        gl_PointSize=clamp(max(point_size,footprint),1,point_limit);
-        gl_Position=point_valid>0 && alpha>.001 && clip.w>0 ? clip : vec4(2,2,2,1);
-        return;
-    }
     if(trail!=0) {
         N=vec3(0,0,1); P=position; UV=vec2(0); validity=1;
         path_colour=trail_colour; gl_Position=vp*vec4(position,1); return;
@@ -114,24 +124,16 @@ void main() {
 })GLSL";
     const char* fragment = R"GLSL(#version 450 core
 in vec3 N; in vec3 P; in vec2 UV; in float validity;
-in float point_confidence;
 in vec4 path_colour;
 in vec3 visual_colour;
 out vec4 colour;
 uniform vec4 tint;
 uniform sampler2D camera,normal_map,orm_map;
-uniform int textured,lit,material_mask,trail,point_cloud;
-uniform int point_pass;
+uniform int textured,lit,material_mask,trail;
 uniform int hand_colouring;
 uniform float material_metallic,material_roughness;
 uniform vec3 eye;
 void main() {
-    if(point_cloud!=0) {
-        if(validity<=0 || path_colour.a<=.001 || dot(gl_PointCoord-.5,gl_PointCoord-.5)>.25) discard;
-        bool supported=point_confidence>=.999;
-        if((point_pass<2 && !supported) || (point_pass==2 && supported)) discard;
-        colour=path_colour; return;
-    }
     if(trail!=0) { colour=path_colour; return; }
     if(textured==1) { colour=vec4(texture(camera,UV).rgb,tint.a); return; }
     vec3 c=tint.rgb;
@@ -415,6 +417,7 @@ struct StereoBuffers {
         uint64_t generation = 0, serial = 0;
         std::array<VideoFrameLease, 2> leases;
         uint16_t* depth_upload = nullptr;
+        int64_t depth_submitted_us = 0;
         SessionEvent frame;
     };
     std::array<Slot, 3> slots{};
@@ -426,6 +429,7 @@ struct StereoBuffers {
     int width = 0, height = 0, current = -1;
     uint64_t generation = 1, serial = 0, displayed = 0;
     double milliseconds = 0;
+    DepthPipelineTiming depth_timing;
     std::optional<StereoCalibration> calibration;
     float min_depth = 0, max_depth = 0, voxel_size = 0;
     std::array<SessionEvent, 2> submitted;
@@ -436,10 +440,159 @@ struct StereoBuffers {
     VoxelLodConfig lod_view{}, published_lod_view{};
     bool adaptive_lod = true, published_adaptive_lod = true, have_lod_snapshot = false;
     int64_t last_lod_refresh_us = 0;
+    bool frozen = false;
+    size_t maximum_points = stereo_voxel_capacity, occupied_points = 0;
+    SceneBounds scene_bounds;
+    uint64_t content_generation = 1;
+    std::optional<glm::vec3> colour_origin;
+    int64_t display_time_us = 0, display_wall_us = 0;
+    struct Readback {
+        SpatialMapPoint* device = nullptr;
+        SpatialMapPoint* host = nullptr;
+        cudaEvent_t ready = nullptr;
+        std::shared_ptr<SpatialMapSnapshot> result;
+        bool pending = false;
+        uint64_t geometry_generation = 0;
+    } readback;
+    struct ImportUpload {
+        SpatialMapPoint* device = nullptr;
+        SpatialMapPoint* host = nullptr;
+        cudaEvent_t ready = nullptr;
+        bool pending = false;
+    } import_upload;
 
-    cudaError_t snapshot(StereoPoint* output) {
-        const auto result = adaptive_lod ? volume->snapshot_lod(output, lod_view, stream)
-                                         : volume->snapshot(output, stream);
+    void configure(bool freeze, float spacing, size_t budget) {
+        frozen = freeze;
+        const bool resolution_changed = voxel_size != spacing;
+        const bool budget_changed = maximum_points != budget;
+        if (!resolution_changed && !budget_changed)
+            return;
+        if (volume) {
+            if (resolution_changed && !reset_volume)
+                cuda_check(volume->reconfigure(spacing, stream), "Change spatial map spacing");
+            if (budget_changed)
+                cuda_check(volume->set_max_points(budget, stream), "Change spatial map budget");
+        }
+        voxel_size = spacing;
+        maximum_points = budget;
+        have_lod_snapshot = false;
+        last_lod_refresh_us = 0;
+        ++content_generation;
+    }
+    bool request_snapshot(std::shared_ptr<SpatialMapSnapshot> result) {
+        if (readback.result)
+            return false;
+        result->time_origin_us = time_origin_us.value_or(0);
+        result->generation = content_generation;
+        result->base_voxel_size = voxel_size > 0 ? voxel_size : .03f;
+        readback.geometry_generation = generation;
+        if (!volume || reset_volume) {
+            readback.result = std::move(result);
+            return true;
+        }
+        const auto bytes = volume->capacity() * sizeof(SpatialMapPoint);
+        if (!readback.device)
+            cuda_check(cudaMalloc(&readback.device, bytes), "Allocate spatial map readback");
+        if (!readback.host)
+            cuda_check(cudaHostAlloc(&readback.host, bytes, cudaHostAllocDefault),
+                       "Allocate spatial map host readback");
+        if (!readback.ready)
+            cuda_check(cudaEventCreateWithFlags(&readback.ready, cudaEventDisableTiming),
+                       "Create spatial map readback event");
+        try {
+            cuda_check(volume->snapshot_metadata(readback.device, result->time_origin_us, stream),
+                       "Read spatial map geometry");
+            cuda_check(cudaMemcpyAsync(readback.host, readback.device, bytes, cudaMemcpyDeviceToHost,
+                                       stream), "Read spatial map metadata");
+            cuda_check(cudaEventRecord(readback.ready, stream), "Complete spatial map readback");
+        } catch (...) {
+            // An enqueue can fail after earlier work has retained these buffers.
+            // Retire that work before an error recovery can reuse either buffer.
+            cudaStreamSynchronize(stream);
+            throw;
+        }
+        readback.result = std::move(result);
+        readback.pending = true;
+        return true;
+    }
+    std::shared_ptr<SpatialMapSnapshot> take_snapshot() {
+        if (!readback.result)
+            return {};
+        if (readback.pending) {
+            const auto ready = cudaEventQuery(readback.ready);
+            if (ready == cudaErrorNotReady)
+                return {};
+            cuda_check(ready, "Complete spatial map readback");
+            auto& points = readback.result->points;
+            points.reserve(volume->capacity());
+            for (size_t i = 0; i < volume->capacity(); ++i)
+                if (readback.host[i].weight)
+                    points.push_back(readback.host[i]);
+            readback.pending = false;
+        }
+        if (readback.geometry_generation == generation) {
+            occupied_points = readback.result->points.size();
+            scene_bounds = {};
+            for (const auto& point : readback.result->points)
+                scene_bounds.include(glm::vec3(point.x, point.y, point.z));
+        }
+        return std::exchange(readback.result, {});
+    }
+    bool restore_snapshot(const SpatialMapSnapshot& source) {
+        if (import_upload.pending) {
+            const auto ready = cudaEventQuery(import_upload.ready);
+            if (ready == cudaErrorNotReady)
+                return false;
+            cuda_check(ready, "Complete spatial map import");
+            import_upload.pending = false;
+        }
+        initialise_volume();
+        const auto bytes = volume->capacity() * sizeof(SpatialMapPoint);
+        if (!import_upload.device)
+            cuda_check(cudaMalloc(&import_upload.device, bytes), "Allocate spatial map import");
+        if (!import_upload.host)
+            cuda_check(cudaHostAlloc(&import_upload.host, bytes, cudaHostAllocDefault),
+                       "Allocate spatial map host import");
+        if (!import_upload.ready)
+            cuda_check(cudaEventCreateWithFlags(&import_upload.ready, cudaEventDisableTiming),
+                       "Create spatial map import event");
+        std::copy(source.points.begin(), source.points.end(), import_upload.host);
+        try {
+            if (!source.points.empty())
+                cuda_check(cudaMemcpyAsync(import_upload.device, import_upload.host,
+                                           source.points.size() * sizeof(SpatialMapPoint),
+                                           cudaMemcpyHostToDevice, stream), "Upload saved spatial map");
+            cuda_check(volume->restore(import_upload.device, source.points.size(), source.base_voxel_size,
+                                        source.time_origin_us, stream), "Restore saved spatial map");
+            cuda_check(cudaEventRecord(import_upload.ready, stream), "Complete spatial map import");
+        } catch (...) {
+            cudaStreamSynchronize(stream);
+            throw;
+        }
+        import_upload.pending = true;
+        clear(true);
+        reset_volume = false;
+        time_origin_us = source.time_origin_us;
+        voxel_size = source.base_voxel_size;
+        submitted[0] = {};
+        submitted[0].epoch = source.epoch;
+        submitted[0].space_epoch = source.space_epoch;
+        have_submission = true;
+        occupied_points = source.points.size();
+        last_observation_us = source.time_origin_us;
+        for (const auto& point : source.points) {
+            last_observation_us = std::max(last_observation_us, point.observed_us);
+            scene_bounds.include(glm::vec3(point.x, point.y, point.z));
+        }
+        display_time_us = last_observation_us;
+        display_wall_us = monotonic_us();
+        return true;
+    }
+
+    cudaError_t snapshot(SpatialMapPoint* output) {
+        const auto origin = time_origin_us.value_or(0);
+        const auto result = adaptive_lod ? volume->snapshot_metadata_lod(output, lod_view, origin, stream)
+                                         : volume->snapshot_metadata(output, origin, stream);
         if (result == cudaSuccess) {
             published_lod_view = lod_view;
             published_adaptive_lod = adaptive_lod;
@@ -480,12 +633,12 @@ struct StereoBuffers {
             try {
                 cuda_check(cudaGraphicsMapResources(1, &slot.resource, stream), "Map detail buffer");
                 mapped = true;
-                StereoPoint* output = nullptr;
+                SpatialMapPoint* output = nullptr;
                 size_t bytes = 0;
                 cuda_check(cudaGraphicsResourceGetMappedPointer(reinterpret_cast<void**>(&output),
                                                                 &bytes, slot.resource),
                            "Access detail buffer");
-                if (bytes < volume->capacity() * sizeof(StereoPoint))
+                if (bytes < volume->capacity() * sizeof(SpatialMapPoint))
                     throw std::runtime_error("Detail buffer is too small");
                 cuda_check(cudaEventRecord(slot.started, stream), "Start detail update");
                 cuda_check(snapshot(output), "Update world detail");
@@ -506,8 +659,11 @@ struct StereoBuffers {
         }
     }
 
-    void clear() {
+    void clear(bool force = false) {
+        if (frozen && !force)
+            return;
         ++generation;
+        ++content_generation;
         current = -1;
         displayed = 0;
         have_submission = false;
@@ -516,6 +672,11 @@ struct StereoBuffers {
         last_observation_us = 0;
         have_lod_snapshot = false;
         last_lod_refresh_us = 0;
+        occupied_points = 0;
+        scene_bounds = {};
+        colour_origin.reset();
+        display_time_us = display_wall_us = 0;
+        depth_timing = {};
     }
     void poll() {
         for (size_t i = 0; i < slots.size(); ++i) {
@@ -534,6 +695,31 @@ struct StereoBuffers {
                            "Measure stereo reconstruction");
                 if (slot.reconstruction)
                     milliseconds = elapsed;
+                if (slot.reconstruction && slot.frame.kind == EventKind::Depth &&
+                    slot.depth_submitted_us > 0) {
+                    const auto& attributes = slot.frame.attributes;
+                    depth_timing = {};
+                    depth_timing.valid = true;
+                    depth_timing.replay = attributes.contains("replay_generation");
+                    depth_timing.sequence = slot.frame.sequence;
+                    depth_timing.geometry_source = attributes.value("geometry_source", std::string{});
+                    if (attributes.contains("readback_us"))
+                        depth_timing.readback_ms = attributes.at("readback_us").get<double>() / 1000.;
+                    if (attributes.contains("target_lead_us"))
+                        depth_timing.target_lead_ms = attributes.at("target_lead_us").get<double>() / 1000.;
+                    if (attributes.value("clock_valid", false) &&
+                        attributes.contains("mapped_observed_us") &&
+                        attributes.at("mapped_observed_us").is_number()) {
+                        const auto arrival = attributes.value("recorded_receive_us", slot.frame.receive_us);
+                        depth_timing.callback_to_arrival_ms =
+                            (double(arrival) - attributes.at("mapped_observed_us").get<double>()) / 1000.;
+                    }
+                    depth_timing.arrival_to_submit_ms =
+                        double(slot.depth_submitted_us -
+                               attributes.value("replay_delivery_us", slot.frame.receive_us)) / 1000.;
+                    depth_timing.submit_to_ready_ms = double(monotonic_us() - slot.depth_submitted_us) / 1000.;
+                    depth_timing.gpu_ms = elapsed;
+                }
                 current = int(i);
                 displayed = slot.serial;
             }
@@ -543,6 +729,16 @@ struct StereoBuffers {
         // Resource changes and teardown may wait. Normal frame submission never does.
         if (stream)
             cudaStreamSynchronize(stream);
+        cudaFree(readback.device);
+        cudaFreeHost(readback.host);
+        if (readback.ready)
+            cudaEventDestroy(readback.ready);
+        readback = {};
+        cudaFree(import_upload.device);
+        cudaFreeHost(import_upload.host);
+        if (import_upload.ready)
+            cudaEventDestroy(import_upload.ready);
+        import_upload = {};
         for (auto& slot : slots) {
             if (slot.fence) {
                 glClientWaitSync(slot.fence, GL_SYNC_FLUSH_COMMANDS_BIT, 1000000000);
@@ -568,7 +764,7 @@ struct StereoBuffers {
         cudaFree(depth_samples);
         depth_samples = nullptr;
         width = height = 0;
-        clear();
+        clear(true);
     }
     void resize(int w, int h) {
         try {
@@ -598,23 +794,33 @@ struct StereoBuffers {
     void initialise_volume() {
         if (volume)
             return;
+        if (!stream)
+            cuda_check(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking),
+                       "Create spatial map stream");
         volume = std::make_unique<StereoVoxelVolume>();
+        cuda_check(volume->set_max_points(maximum_points, stream), "Set spatial map budget");
         reset_volume = true;
         for (auto& slot : slots) {
             glGenVertexArrays(1, &slot.vao);
             glGenBuffers(1, &slot.vbo);
             glBindVertexArray(slot.vao);
             glBindBuffer(GL_ARRAY_BUFFER, slot.vbo);
-            glBufferData(GL_ARRAY_BUFFER, volume->capacity() * sizeof(StereoPoint), nullptr,
+            glBufferData(GL_ARRAY_BUFFER, volume->capacity() * sizeof(SpatialMapPoint), nullptr,
                          GL_DYNAMIC_DRAW);
             glEnableVertexAttribArray(0);
             glEnableVertexAttribArray(11);
             glEnableVertexAttribArray(12);
-            glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(StereoPoint), nullptr);
-            glVertexAttribPointer(11, 4, GL_FLOAT, GL_FALSE, sizeof(StereoPoint),
-                                  reinterpret_cast<void*>(offsetof(StereoPoint, r)));
-            glVertexAttribPointer(12, 1, GL_FLOAT, GL_FALSE, sizeof(StereoPoint),
-                                  reinterpret_cast<void*>(offsetof(StereoPoint, valid)));
+            glEnableVertexAttribArray(13);
+            glEnableVertexAttribArray(14);
+            glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(SpatialMapPoint), nullptr);
+            glVertexAttribPointer(11, 4, GL_FLOAT, GL_FALSE, sizeof(SpatialMapPoint),
+                                  reinterpret_cast<void*>(offsetof(SpatialMapPoint, r)));
+            glVertexAttribPointer(12, 1, GL_FLOAT, GL_FALSE, sizeof(SpatialMapPoint),
+                                  reinterpret_cast<void*>(offsetof(SpatialMapPoint, cell_size)));
+            glVertexAttribIPointer(13, 2, GL_UNSIGNED_INT, sizeof(SpatialMapPoint),
+                                   reinterpret_cast<void*>(offsetof(SpatialMapPoint, observed_us)));
+            glVertexAttribIPointer(14, 2, GL_UNSIGNED_INT, sizeof(SpatialMapPoint),
+                                   reinterpret_cast<void*>(offsetof(SpatialMapPoint, weight)));
             cuda_check(cudaGraphicsGLRegisterBuffer(&slot.resource, slot.vbo,
                                                     cudaGraphicsRegisterFlagsWriteDiscard),
                        "Register stereo point buffer");
@@ -654,6 +860,7 @@ struct StereoBuffers {
 struct Renderer::Impl {
     GLFWwindow* window;
     GLuint shader = 0;
+    std::unique_ptr<detail::SpatialMapProgram> map_shader;
     GLuint offscreen_framebuffer = 0, offscreen_colour = 0, offscreen_depth = 0;
     int offscreen_width = 0, offscreen_height = 0;
     bool offscreen = false;
@@ -668,10 +875,14 @@ struct Renderer::Impl {
     std::array<std::optional<PoseSample>, 2> mesh_held;
     std::array<detail::TrackingVisibility, 2> mesh_visibility;
     glm::vec3 target{0, 1.5f, -.45f}, eye{};
+    SceneReference scene_reference = SceneReference::world;
+    SceneView scene_view = SceneView::orbit;
+    std::array<SceneBounds, 4> reference_bounds;
+    glm::vec3 reference_offset{0, 1.5f, -.45f};
+    std::optional<glm::mat4> headset_camera;
     std::optional<glm::vec3> headset_origin;
     uint32_t headset_epoch = 0, headset_space_epoch = 0;
     float yaw = .48f, pitch = .23f, distance = 1.85f;
-    float point_size_limit = 1;
     float scene_width_fraction = 1;
     float scene_top_fraction = 0;
     float scene_bottom_fraction = 0;
@@ -725,9 +936,7 @@ struct Renderer::Impl {
         cuda_check(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking),
                    "Create image stream");
         shader = program();
-        GLfloat point_sizes[2]{};
-        glGetFloatv(GL_POINT_SIZE_RANGE, point_sizes);
-        point_size_limit = std::max(1.f, point_sizes[1]);
+        map_shader = std::make_unique<detail::SpatialMapProgram>();
         trail_mesh.initialise();
         hand_assets = std::filesystem::exists(assets / "local" / "mano" / "mano-left.json")
                           ? load_mano_assets(assets / "local" / "mano")
@@ -881,6 +1090,11 @@ struct Renderer::Impl {
         fresh = {};
         mesh_held = {};
         mesh_visibility = {};
+        headset_camera.reset();
+        reference_bounds[static_cast<size_t>(SceneReference::hands)] = {};
+        reference_bounds[static_cast<size_t>(SceneReference::camera)] = {};
+        if (scene_view == SceneView::hmd)
+            scene_view = SceneView::orbit;
     }
     void model(const glm::mat4& m, glm::vec4 tint, bool lighting = true) {
         glUniformMatrix4fv(glGetUniformLocation(shader, "model"), 1, GL_FALSE, glm::value_ptr(m));
@@ -893,6 +1107,64 @@ struct Renderer::Impl {
     glm::vec3 direction() const {
         return glm::vec3(std::cos(pitch) * std::sin(yaw), std::sin(pitch),
                          std::cos(pitch) * std::cos(yaw));
+    }
+    glm::vec3 view_up() const {
+        if (scene_view == SceneView::hmd && headset_camera)
+            return glm::vec3((*headset_camera)[1]);
+        return std::abs(direction().y) > .999f ? glm::vec3(0, 0, -1) : glm::vec3(0, 1, 0);
+    }
+    void orbit_from_headset() {
+        if (scene_view == SceneView::hmd && headset_camera) {
+            const auto backward = glm::vec3((*headset_camera)[2]);
+            yaw = std::atan2(backward.x, backward.z);
+            pitch = std::asin(std::clamp(backward.y, -1.f, 1.f));
+            distance = std::max(distance, .5f);
+            target = glm::vec3((*headset_camera)[3]) - backward * distance;
+            const auto& bounds = reference_bounds[static_cast<size_t>(scene_reference)];
+            reference_offset = target - (bounds.valid ? bounds.centre() : glm::vec3(0));
+        }
+        scene_view = SceneView::orbit;
+    }
+    void update_scene_references(const ViewOptions& options) {
+        reference_bounds = {};
+        reference_bounds[static_cast<size_t>(SceneReference::world)].include(glm::vec3(0));
+        auto& model = reference_bounds[static_cast<size_t>(SceneReference::model)];
+        auto& hands = reference_bounds[static_cast<size_t>(SceneReference::hands)];
+        if (options.depth)
+            model.include((options.environment_depth ? environment : stereo).scene_bounds);
+        if (held[0] && finite_pose(held[0]->values.data())) {
+            headset_camera = pose_transform(held[0]->values.data());
+            const auto position = glm::vec3((*headset_camera)[3]);
+            reference_bounds[static_cast<size_t>(SceneReference::camera)].include(position);
+            if (options.headset)
+                model.include(position);
+        } else
+            headset_camera.reset();
+        if (options.hands) {
+            for (int side = 1; side < 3; ++side) {
+                const bool mesh = options.hand_level == HandLevel::mesh;
+                const auto& displayed = mesh ? mesh_held[side - 1] : held[side];
+                const auto alpha = mesh ? std::min(tracking_visibility[side].alpha(),
+                                                   mesh_visibility[side - 1].alpha())
+                                        : tracking_visibility[side].alpha();
+                if (!displayed || alpha <= .001f)
+                    continue;
+                const auto& pose = *displayed;
+                for (int joint = 0; joint < 25; ++joint) {
+                    if (!(pose.joint_mask & (1u << joint)))
+                        continue;
+                    const auto* values = pose.values.data() + joint * 8;
+                    if (finite_pose(values))
+                        hands.include(glm::vec3(values[0], values[1], values[2]));
+                }
+            }
+        }
+        model.include(hands);
+        const auto& bounds = reference_bounds[static_cast<size_t>(scene_reference)];
+        if (bounds.valid && scene_view != SceneView::hmd)
+            target = bounds.centre() + reference_offset;
+        if (scene_view == SceneView::hmd && !headset_camera)
+            scene_view = SceneView::orbit;
     }
     bool cursor_in_scene(double x, double y) const {
         int w, h;
@@ -933,6 +1205,9 @@ void Renderer::reset_view() {
     impl_->yaw = .48f;
     impl_->pitch = .23f;
     impl_->distance = 1.85f;
+    impl_->scene_reference = SceneReference::world;
+    impl_->scene_view = SceneView::orbit;
+    impl_->reference_offset = impl_->target;
 }
 void Renderer::set_scene_top_fraction(float fraction) {
     auto& p = *impl_;
@@ -951,30 +1226,75 @@ void Renderer::set_scene_bottom_fraction(float fraction) {
     }
 }
 void Renderer::frame_hands(const ReceiverSnapshot& s) {
-    glm::vec3 t{};
-    int n = 0;
-    for (int i = 1; i < 3; ++i)
-        if (s.poses[i] && s.poses[i]->valid) {
-            auto& v = s.poses[i]->values;
-            t += glm::vec3(v[0], v[1], v[2]);
-            ++n;
-        }
-    if (n) {
-        impl_->target = t / float(n);
+    if (s.epoch == impl_->epoch && s.space_epoch == impl_->space_epoch &&
+        select_scene_reference(SceneReference::hands)) {
         impl_->distance = .75f;
     }
 }
 void Renderer::headset_view(const ReceiverSnapshot& s) {
+    if (s.epoch == impl_->epoch && s.space_epoch == impl_->space_epoch)
+        select_scene_view(SceneView::hmd);
+}
+bool Renderer::scene_reference_available(SceneReference reference) const {
+    const auto index = static_cast<size_t>(reference);
+    return reference == SceneReference::world ||
+           (index < impl_->reference_bounds.size() && impl_->reference_bounds[index].valid);
+}
+bool Renderer::select_scene_reference(SceneReference reference) {
+    if (!scene_reference_available(reference))
+        return false;
+    auto& p = *impl_;
+    p.orbit_from_headset();
+    p.scene_reference = reference;
+    p.reference_offset = {};
+    p.target = reference == SceneReference::world ? glm::vec3(0)
+        : p.reference_bounds[static_cast<size_t>(reference)].centre();
+    p.scene_drag = {};
+    return true;
+}
+bool Renderer::scene_view_available(SceneView view) const {
+    return view == SceneView::hmd ? bool(impl_->headset_camera)
+        : (view == SceneView::orbit || view == SceneView::top ||
+           view == SceneView::side || view == SceneView::iso) &&
+              scene_reference_available(impl_->scene_reference);
+}
+bool Renderer::select_scene_view(SceneView view) {
+    if (!scene_view_available(view))
+        return false;
+    auto& p = *impl_;
+    p.scene_drag = {};
+    if (view == SceneView::orbit) {
+        p.orbit_from_headset();
+        return true;
+    }
+    p.scene_view = view;
+    if (view == SceneView::hmd)
+        return true;
+    p.reference_offset = {};
+    const auto& bounds = p.reference_bounds[static_cast<size_t>(p.scene_reference)];
+    p.target = p.scene_reference == SceneReference::world ? glm::vec3(0) : bounds.centre();
+    p.yaw = view == SceneView::side ? glm::half_pi<float>()
+           : view == SceneView::iso ? glm::quarter_pi<float>() : 0.f;
+    p.pitch = view == SceneView::top ? glm::half_pi<float>()
+             : view == SceneView::iso ? std::asin(1.f / std::sqrt(3.f)) : 0.f;
+    int width = 1, height = 1;
+    glfwGetFramebufferSize(p.window, &width, &height);
+    const float aspect = std::max(.1f, width * p.scene_width_fraction /
+        std::max(1.f, height * (1.f - p.scene_top_fraction - p.scene_bottom_fraction)));
+    const float half_fov = std::atan(std::tan(glm::radians(24.f)) * std::min(1.f, aspect));
+    const float radius = p.scene_reference == SceneReference::world ? 1.5f : bounds.radius();
+    p.distance = std::clamp(radius * 1.15f / std::sin(half_fov), .2f, 30.f);
+    return true;
+}
+SceneCameraState Renderer::scene_camera() const {
     const auto& p = *impl_;
-    if (s.epoch != p.epoch || s.space_epoch != p.space_epoch || !p.held[0])
-        return;
-    const auto& v = p.held[0]->values;
-    auto m = pose_transform(v.data());
-    auto d = glm::vec3(m * glm::vec4(0, 0, 1, 0));
-    impl_->yaw = std::atan2(d.x, d.z);
-    impl_->pitch = std::asin(std::clamp(d.y, -1.f, 1.f));
-    impl_->distance = .02f;
-    impl_->target = glm::vec3(m[3]) - d * .02f;
+    if (p.scene_view == SceneView::hmd && p.headset_camera) {
+        const auto position = glm::vec3((*p.headset_camera)[3]);
+        return {p.scene_reference, p.scene_view, position,
+                position - glm::vec3((*p.headset_camera)[2]), p.view_up()};
+    }
+    return {p.scene_reference, p.scene_view, p.target + p.direction() * p.distance,
+            p.target, p.view_up()};
 }
 void Renderer::process_input(double dt, bool mouse, bool keyboard) {
     auto& p = *impl_;
@@ -998,13 +1318,22 @@ void Renderer::process_input(double dt, bool mouse, bool keyboard) {
         p.mouse_down[i] = down;
     }
     bool right = p.scene_drag[GLFW_MOUSE_BUTTON_RIGHT];
+    const bool moving_mouse = (dx != 0 || dy != 0) &&
+        (p.scene_drag[GLFW_MOUSE_BUTTON_LEFT] || p.scene_drag[GLFW_MOUSE_BUTTON_MIDDLE] || right);
+    const bool flying = !keyboard && right &&
+        (glfwGetKey(p.window, GLFW_KEY_W) == GLFW_PRESS || glfwGetKey(p.window, GLFW_KEY_S) == GLFW_PRESS ||
+         glfwGetKey(p.window, GLFW_KEY_A) == GLFW_PRESS || glfwGetKey(p.window, GLFW_KEY_D) == GLFW_PRESS ||
+         glfwGetKey(p.window, GLFW_KEY_Q) == GLFW_PRESS || glfwGetKey(p.window, GLFW_KEY_E) == GLFW_PRESS);
+    if (scene_mouse && (moving_mouse || flying))
+        p.orbit_from_headset();
+    const auto previous_target = p.target;
     if (scene_mouse) {
-        if (p.scene_drag[GLFW_MOUSE_BUTTON_LEFT] || right) {
+        if ((p.scene_drag[GLFW_MOUSE_BUTTON_LEFT] || right) && (dx != 0 || dy != 0)) {
             p.yaw -= dx * .004f;
             p.pitch = std::clamp(p.pitch + dy * .004f, -1.5f, 1.5f);
         }
         if (p.scene_drag[GLFW_MOUSE_BUTTON_MIDDLE]) {
-            auto r = glm::normalize(glm::cross(glm::vec3(0, 1, 0), p.direction()));
+            auto r = glm::normalize(glm::cross(p.view_up(), p.direction()));
             auto u = glm::cross(p.direction(), r);
             p.target += (-dx * r + dy * u) * p.distance * .0012f;
         }
@@ -1013,7 +1342,7 @@ void Renderer::process_input(double dt, bool mouse, bool keyboard) {
         float speed = float(dt) *
                       (.8f * (glfwGetKey(p.window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS ? 3.f : 1.f));
         auto forward = -p.direction(),
-             side = glm::normalize(glm::cross(forward, glm::vec3(0, 1, 0)));
+             side = glm::normalize(glm::cross(forward, p.view_up()));
         if (glfwGetKey(p.window, GLFW_KEY_W) == GLFW_PRESS)
             p.target += forward * speed;
         if (glfwGetKey(p.window, GLFW_KEY_S) == GLFW_PRESS)
@@ -1027,25 +1356,28 @@ void Renderer::process_input(double dt, bool mouse, bool keyboard) {
         if (glfwGetKey(p.window, GLFW_KEY_Q) == GLFW_PRESS)
             p.target.y -= speed;
     }
+    p.reference_offset += p.target - previous_target;
 }
 void Renderer::zoom(float delta) {
     double x, y;
     glfwGetCursorPos(impl_->window, &x, &y);
     if (!impl_->cursor_in_scene(x, y))
         return;
+    impl_->orbit_from_headset();
     impl_->distance = std::clamp(impl_->distance * std::exp(-delta * .12f), .02f, 30.f);
 }
 void Renderer::invalidate_poses() {
     impl_->clear_pose_state();
 }
-void Renderer::update_headset_position(const ReceiverSnapshot& snapshot, double time_scale) {
+void Renderer::update_headset_position(const ReceiverSnapshot& snapshot, double) {
     auto& p = *impl_;
     if (p.headset_epoch != snapshot.epoch || p.headset_space_epoch != snapshot.space_epoch) {
         p.headset_origin.reset();
         p.headset_epoch = snapshot.epoch;
         p.headset_space_epoch = snapshot.space_epoch;
     }
-    if (!snapshot.poses[0] || !fresh_pose(snapshot, *snapshot.poses[0], time_scale))
+    if (!snapshot.poses[0] || !snapshot.poses[0]->valid ||
+        snapshot.poses[0]->epoch != snapshot.epoch || snapshot.poses[0]->space_epoch != snapshot.space_epoch)
         return;
     const auto& head = *snapshot.poses[0];
     if (std::isfinite(head.values[0]) && std::isfinite(head.values[1]) &&
@@ -1117,7 +1449,6 @@ Json Renderer::scene_assets() const {
 void Renderer::invalidate_video() {
     auto& p = *impl_;
     p.headset_origin.reset();
-    p.environment.clear();
     p.hand_trails.clear();
     cuda_check(cudaStreamSynchronize(p.stream), "Finish pending image conversion");
     for (auto& camera : p.cameras) {
@@ -1135,7 +1466,6 @@ void Renderer::invalidate_video() {
         camera.presented = {};
     }
     p.clear_pose_state();
-    clear_stereo();
 }
 void Renderer::update_video(VideoFrameLease lease, const Calibration& c, bool undistort,
                             size_t camera_index) {
@@ -1229,6 +1559,8 @@ bool Renderer::update_stereo(VideoFrameLease left, VideoFrameLease right,
     auto& p = *impl_;
     auto& stereo = p.stereo;
     stereo.poll();
+    if (stereo.frozen)
+        return false;
     if (!left || !right || !std::isfinite(min_depth) || !std::isfinite(max_depth) ||
         min_depth <= 0 || max_depth <= min_depth || !std::isfinite(voxel_size) ||
         voxel_size < .01f || voxel_size > .1f || observation_time_us < 0)
@@ -1259,19 +1591,21 @@ bool Renderer::update_stereo(VideoFrameLease left, VideoFrameLease right,
     auto config = make_stereo_gpu_config(calibration, 320, a.width, a.height, b.width, b.height);
     config.min_depth = min_depth;
     config.max_depth = max_depth;
-    if (!stereo.calibration || stereo.calibration->left != calibration.left ||
-        stereo.calibration->right != calibration.right || stereo.voxel_size != voxel_size ||
-        (stereo.have_submission &&
+    if (stereo.have_submission &&
          (stereo.submitted[0].epoch != a.event.epoch ||
           stereo.submitted[0].space_epoch != a.event.space_epoch ||
           stereo.submitted[0].attributes.value("replay_generation", uint64_t(0)) !=
-              a.event.attributes.value("replay_generation", uint64_t(0))))) {
+              a.event.attributes.value("replay_generation", uint64_t(0)))) {
         stereo.clear();
         stereo.calibration = calibration;
         stereo.min_depth = min_depth;
         stereo.max_depth = max_depth;
         stereo.voxel_size = voxel_size;
     }
+    stereo.configure(stereo.frozen, voxel_size, stereo.maximum_points);
+    stereo.calibration = calibration;
+    stereo.min_depth = min_depth;
+    stereo.max_depth = max_depth;
     if (stereo.width != config.width || stereo.height != config.height)
         stereo.resize(config.width, config.height);
     auto same_frame = [](const SessionEvent& x, const SessionEvent& y) {
@@ -1309,12 +1643,12 @@ bool Renderer::update_stereo(VideoFrameLease left, VideoFrameLease right,
         cuda_check(cudaGraphicsMapResources(1, &slot.resource, stereo.stream),
                    "Map stereo point buffer");
         mapped = true;
-        StereoPoint* output = nullptr;
+        SpatialMapPoint* output = nullptr;
         size_t bytes = 0;
         cuda_check(cudaGraphicsResourceGetMappedPointer(reinterpret_cast<void**>(&output), &bytes,
                                                         slot.resource),
                    "Access stereo point buffer");
-        if (bytes < stereo.volume->capacity() * sizeof(StereoPoint))
+        if (bytes < stereo.volume->capacity() * sizeof(SpatialMapPoint))
             throw std::runtime_error("Stereo point buffer is too small");
         const auto input = [](const GpuImage& image) {
             return StereoNv12{reinterpret_cast<const unsigned char*>(image.data),
@@ -1393,10 +1727,11 @@ bool Renderer::update_stereo(VideoFrameLease left, VideoFrameLease right,
     stereo.last_observation_us = observation_time_us;
     stereo.submitted = {a.event, b.event};
     stereo.have_submission = true;
+    ++stereo.content_generation;
     return true;
 }
-void Renderer::clear_stereo() {
-    impl_->stereo.clear();
+void Renderer::clear_stereo(bool force) {
+    impl_->stereo.clear(force);
 }
 double Renderer::stereo_ms() const {
     return impl_->stereo.milliseconds;
@@ -1404,23 +1739,23 @@ double Renderer::stereo_ms() const {
 bool Renderer::update_environment_depth(const SessionEvent& event, float min_depth, float max_depth,
                                         float voxel_size, int64_t observation_time_us,
                                         const HandMaskSet& hands) {
-    if (event.kind != EventKind::Depth || observation_time_us < 0 || !std::isfinite(voxel_size) ||
+    if (impl_->environment.frozen || event.kind != EventKind::Depth || observation_time_us < 0 || !std::isfinite(voxel_size) ||
         voxel_size < .01f || voxel_size > .1f)
         return false;
     const auto frame = decode_depth(event.payload);
     auto& volume = impl_->environment;
     volume.poll();
-    if (volume.voxel_size != voxel_size ||
-        (volume.have_submission &&
+    if (volume.have_submission &&
          (volume.submitted[0].epoch != event.epoch ||
           volume.submitted[0].space_epoch != event.space_epoch ||
           volume.submitted[0].attributes.value("replay_generation", uint64_t(0)) !=
-              event.attributes.value("replay_generation", uint64_t(0))))) {
+              event.attributes.value("replay_generation", uint64_t(0)))) {
         volume.clear();
         volume.min_depth = min_depth;
         volume.max_depth = max_depth;
         volume.voxel_size = voxel_size;
     }
+    volume.configure(volume.frozen, voxel_size, volume.maximum_points);
     if (volume.have_submission && volume.submitted[0].sequence == event.sequence)
         return false;
     if (volume.time_origin_us && observation_time_us < volume.last_observation_us)
@@ -1455,17 +1790,18 @@ bool Renderer::update_environment_depth(const SessionEvent& event, float min_dep
     std::copy_n(glm::value_ptr(projection), 16, config.inverse_projection);
     std::copy_n(glm::value_ptr(depth_transform), 16, config.norm_view_from_norm_depth);
     std::copy(frame.millimetres.begin(), frame.millimetres.end(), slot.depth_upload);
+    slot.depth_submitted_us = monotonic_us();
     bool mapped = false;
     try {
         cuda_check(cudaGraphicsMapResources(1, &slot.resource, volume.stream),
                    "Map environment volume");
         mapped = true;
-        StereoPoint* output = nullptr;
+        SpatialMapPoint* output = nullptr;
         size_t bytes = 0;
         cuda_check(cudaGraphicsResourceGetMappedPointer(reinterpret_cast<void**>(&output), &bytes,
                                                         slot.resource),
                    "Access environment volume");
-        if (bytes < volume.volume->capacity() * sizeof(StereoPoint))
+        if (bytes < volume.volume->capacity() * sizeof(SpatialMapPoint))
             throw std::runtime_error("Environment point buffer is too small");
         cuda_check(cudaEventRecord(slot.started, volume.stream), "Start environment update");
         if (volume.reset_volume) {
@@ -1482,6 +1818,7 @@ bool Renderer::update_environment_depth(const SessionEvent& event, float min_dep
                    "Unproject environment depth");
         VoxelGpuConfig fusion;
         fusion.voxel_size = voxel_size;
+        fusion.intrinsic_colour = false;
         fusion.sample_time_seconds = fusion.now_seconds =
             float(double(observation_time_us - *volume.time_origin_us) / 1000000.0);
         std::copy(frame.world_from_view.begin(), frame.world_from_view.end(), fusion.head_to_world);
@@ -1518,19 +1855,82 @@ bool Renderer::update_environment_depth(const SessionEvent& event, float min_dep
     volume.last_observation_us = observation_time_us;
     volume.submitted[0] = event;
     volume.have_submission = true;
+    ++volume.content_generation;
     return true;
 }
-void Renderer::clear_environment_depth() {
-    impl_->environment.clear();
+void Renderer::clear_environment_depth(bool force) {
+    impl_->environment.clear(force);
 }
 double Renderer::environment_depth_ms() const {
     return impl_->environment.milliseconds;
 }
+const DepthPipelineTiming& Renderer::environment_depth_timing() const {
+    return impl_->environment.depth_timing;
+}
 size_t Renderer::depth_map_bytes(bool environment) const {
     const auto& map = environment ? impl_->environment : impl_->stereo;
     return map.volume ? map.volume->scratch_bytes() +
-                            map.slots.size() * map.volume->capacity() * sizeof(StereoPoint)
+                            map.slots.size() * map.volume->capacity() * sizeof(SpatialMapPoint)
                       : 0;
+}
+void Renderer::configure_spatial_map(bool frozen, float spacing, size_t max_points) {
+    if (!std::isfinite(spacing) || spacing < .01f || spacing > .1f || max_points == 0 ||
+        max_points > stereo_voxel_capacity)
+        throw std::invalid_argument("Invalid spatial map spacing or point budget");
+    impl_->environment.configure(frozen, spacing, max_points);
+    impl_->stereo.configure(frozen, spacing, max_points);
+}
+bool Renderer::request_map_snapshot(bool environment, std::string world_id,
+                                    uint32_t epoch, uint32_t space_epoch) {
+    if (world_id.empty() || world_id.size() > 64 ||
+        std::any_of(world_id.begin(), world_id.end(), [](unsigned char c) {
+            return c < 32 || c > 126;
+        }))
+        throw std::invalid_argument("Invalid spatial map world identity");
+    auto result = std::make_shared<SpatialMapSnapshot>();
+    result->world_id = std::move(world_id);
+    result->source = environment ? SpatialMapSource::environment_depth : SpatialMapSource::stereo;
+    result->epoch = epoch;
+    result->space_epoch = space_epoch;
+    return (environment ? impl_->environment : impl_->stereo).request_snapshot(std::move(result));
+}
+std::shared_ptr<SpatialMapSnapshot> Renderer::take_map_snapshot(bool environment) {
+    return (environment ? impl_->environment : impl_->stereo).take_snapshot();
+}
+void Renderer::finish_map_snapshot(bool environment) {
+    auto& map = environment ? impl_->environment : impl_->stereo;
+    if (map.readback.pending)
+        cuda_check(cudaEventSynchronize(map.readback.ready), "Finish spatial map readback");
+}
+void Renderer::validate_spatial_map_import(const SpatialMapSnapshot& snapshot) {
+    if ((snapshot.source != SpatialMapSource::environment_depth && snapshot.source != SpatialMapSource::stereo) ||
+        snapshot.points.size() > stereo_voxel_capacity || snapshot.time_origin_us < 0 ||
+        !std::isfinite(snapshot.base_voxel_size) || snapshot.base_voxel_size < .01f ||
+        snapshot.base_voxel_size > .1f || snapshot.world_id.empty() || snapshot.world_id.size() > 64 ||
+        std::any_of(snapshot.world_id.begin(), snapshot.world_id.end(), [](unsigned char c) {
+            return c < 32 || c > 126;
+        }))
+        throw std::invalid_argument("Invalid spatial map import");
+    for (const auto& point : snapshot.points) {
+        if (!std::isfinite(point.x) || !std::isfinite(point.y) || !std::isfinite(point.z) ||
+            !std::isfinite(point.cell_size) || point.cell_size <= 0 || !point.weight ||
+            !std::isfinite(point.r) || !std::isfinite(point.g) || !std::isfinite(point.b) ||
+            point.r < 0 || point.r > 1 || point.g < 0 || point.g > 1 || point.b < 0 || point.b > 1 ||
+            !std::isfinite(point.confidence) || point.confidence <= 0 || point.confidence > 1 ||
+            point.observed_us < snapshot.time_origin_us || (point.flags & ~spatial_map_intrinsic_rgb))
+            throw std::invalid_argument("Invalid spatial map point");
+    }
+}
+bool Renderer::import_spatial_map(const SpatialMapSnapshot& snapshot) {
+    validate_spatial_map_import(snapshot);
+    return (snapshot.source == SpatialMapSource::environment_depth ? impl_->environment : impl_->stereo)
+        .restore_snapshot(snapshot);
+}
+uint64_t Renderer::map_generation(bool environment) const {
+    return (environment ? impl_->environment : impl_->stereo).content_generation;
+}
+size_t Renderer::map_point_count(bool environment) const {
+    return (environment ? impl_->environment : impl_->stereo).occupied_points;
 }
 void Renderer::draw(const ReceiverSnapshot& s, const Calibration& c, const ViewOptions& o,
                     int64_t trail_time_us, double trail_time_scale, int64_t scene_time_us) {
@@ -1580,11 +1980,6 @@ void Renderer::draw(const ReceiverSnapshot& s, const Calibration& c, const ViewO
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glUseProgram(p.shader);
-    p.eye = p.target + p.direction() * p.distance;
-    auto vp = glm::perspective(glm::radians(48.f), float(scene_width) / scene_height, .01f, 100.f) *
-              glm::lookAt(p.eye, p.target, glm::vec3(0, 1, 0));
-    glUniformMatrix4fv(glGetUniformLocation(p.shader, "vp"), 1, GL_FALSE, glm::value_ptr(vp));
-    glUniform3fv(glGetUniformLocation(p.shader, "eye"), 1, glm::value_ptr(p.eye));
     int64_t now = s.now_us ? s.now_us : monotonic_us();
     const int64_t appearance_now = scene_time_us >= 0 ? scene_time_us : now;
     p.hand_trails.update(s, true, o.trail_seconds, trail_time_us >= 0 ? trail_time_us : now,
@@ -1593,7 +1988,7 @@ void Renderer::draw(const ReceiverSnapshot& s, const Calibration& c, const ViewO
         p.fresh[i] = false;
         if (s.poses[i]) {
             auto& a = *s.poses[i];
-            if (fresh_pose(s, a, trail_time_scale)) {
+            if (fresh_pose(s, a, trail_time_scale) && (i != 0 || finite_pose(a.values.data()))) {
                 p.held[i] = a;
                 p.fresh[i] = true;
             }
@@ -1614,6 +2009,13 @@ void Renderer::draw(const ReceiverSnapshot& s, const Calibration& c, const ViewO
         if (!p.mesh_visibility[side].retained())
             p.mesh_held[side].reset();
     }
+    p.update_scene_references(o);
+    const auto camera_state = scene_camera();
+    p.eye = camera_state.eye;
+    auto vp = glm::perspective(glm::radians(48.f), float(scene_width) / scene_height, .01f, 100.f) *
+              glm::lookAt(p.eye, camera_state.target, camera_state.up);
+    glUniformMatrix4fv(glGetUniformLocation(p.shader, "vp"), 1, GL_FALSE, glm::value_ptr(vp));
+    glUniform3fv(glGetUniformLocation(p.shader, "eye"), 1, glm::value_ptr(p.eye));
     if (o.grid) {
         p.model(glm::mat4(1), {.18f, .21f, .25f, .65f}, false);
         p.grid.draw();
@@ -1668,6 +2070,13 @@ void Renderer::draw(const ReceiverSnapshot& s, const Calibration& c, const ViewO
         }
     }
     glDepthMask(GL_TRUE);
+    struct ImagePlane {
+        glm::mat4 transform;
+        GLuint texture;
+        float distance_squared;
+    };
+    std::array<ImagePlane, 2> image_planes{};
+    size_t image_plane_count = 0;
     for (size_t camera_index = 0; camera_index < p.cameras.size(); ++camera_index) {
         const auto& image = p.cameras[camera_index];
         if (camera_index != 0 && !image.have_conversion)
@@ -1705,13 +2114,10 @@ void Renderer::draw(const ReceiverSnapshot& s, const Calibration& c, const ViewO
                            glm::vec3(float(calibration.width / calibration.fx * d),
                                      float(-calibration.height / calibration.fy * d), 1));
             if (o.projection && image_in_space && image_has_head) {
-                p.model(plane_transform, {1, 1, 1, o.plane_opacity}, false);
-                p.set("textured", 1);
-                glActiveTexture(GL_TEXTURE0);
-                glBindTexture(GL_TEXTURE_2D, image.textures[image.current].id);
-                p.set("camera", 0);
-                p.plane.draw();
-                p.set("textured", 0);
+                const auto centre = glm::vec3(plane_transform * glm::vec4(.5f, .5f, 0, 1));
+                const auto offset = centre - p.eye;
+                image_planes[image_plane_count++] = {
+                    plane_transform, image.textures[image.current].id, glm::dot(offset, offset)};
             }
             if (o.projection && o.frusta) {
                 auto origin = glm::vec3(camera[3]);
@@ -1798,53 +2204,28 @@ void Renderer::draw(const ReceiverSnapshot& s, const Calibration& c, const ViewO
         depth_volume.refresh_lod(p.eye, voxel_focal, o.depth_lod);
     if (o.depth && depth_volume.current >= 0) {
         auto& slot = depth_volume.slots[depth_volume.current];
-        const bool current = slot.frame.epoch == s.epoch && slot.frame.space_epoch == s.space_epoch;
+        const bool current = depth_volume.frozen ||
+                             (slot.frame.epoch == s.epoch && slot.frame.space_epoch == s.space_epoch);
         if (current) {
-            p.model(glm::mat4(1), {1, 1, 1, 1}, false);
-            p.set("point_cloud", 1);
-            glUniform1f(glGetUniformLocation(p.shader, "point_size"),
-                        std::clamp(o.point_size, 1.f, 8.f));
-            glUniform1f(glGetUniformLocation(p.shader, "point_limit"), p.point_size_limit);
-            glUniform1f(glGetUniformLocation(p.shader, "voxel_size"), depth_volume.voxel_size);
-            glUniform1f(glGetUniformLocation(p.shader, "voxel_focal"), voxel_focal);
-            glUniform1f(glGetUniformLocation(p.shader, "voxel_opacity"),
-                        std::clamp(o.depth_opacity, 0.f, 1.f));
-            glUniform2f(glGetUniformLocation(p.shader, "depth_range"), o.depth_min, o.depth_max);
-            p.set("headset_origin_valid", p.headset_origin.has_value() ? 1 : 0);
-            const auto origin = p.headset_origin.value_or(glm::vec3(0));
-            glUniform3fv(glGetUniformLocation(p.shader, "headset_origin"), 1, glm::value_ptr(origin));
-            static const auto depth_palette = [] {
-                std::array<float, 24> palette{};
-                for (int i = 0; i < 8; ++i) {
-                    const auto colour = spectral_depth_colour(float(i) / 7.f);
-                    palette[size_t(i) * 3] = colour.r;
-                    palette[size_t(i) * 3 + 1] = colour.g;
-                    palette[size_t(i) * 3 + 2] = colour.b;
-                }
-                return palette;
-            }();
-            glUniform3fv(glGetUniformLocation(p.shader, "depth_palette"), 8, depth_palette.data());
-            glEnable(GL_PROGRAM_POINT_SIZE);
-            glBindVertexArray(slot.vao);
-            // Resolve confident surfaces before blending. Hash-table order must
-            // not let farther points overpaint a retained nearer surface.
-            p.set("point_pass", 0);
-            glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
-            glDepthMask(GL_TRUE);
-            glDrawArrays(GL_POINTS, 0, GLsizei(depth_volume.volume->capacity()));
-            glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
-            glDepthMask(GL_FALSE);
-            glDepthFunc(GL_LEQUAL);
-            p.set("point_pass", 1);
-            glDrawArrays(GL_POINTS, 0, GLsizei(depth_volume.volume->capacity()));
-            // Contradicted foreground geometry can fade over the confirmed
-            // replacement behind it without obscuring that replacement's depth.
-            p.set("point_pass", 2);
-            glDrawArrays(GL_POINTS, 0, GLsizei(depth_volume.volume->capacity()));
-            glDepthFunc(GL_LESS);
-            glDepthMask(GL_TRUE);
-            glDisable(GL_PROGRAM_POINT_SIZE);
-            p.set("point_cloud", 0);
+            const auto display_wall = monotonic_us();
+            if (o.map_headset_world_matches && slot.frame.epoch == s.epoch && slot.frame.space_epoch == s.space_epoch) {
+                if (p.headset_origin)
+                    depth_volume.colour_origin = p.headset_origin;
+                depth_volume.display_time_us = appearance_now;
+                depth_volume.display_wall_us = display_wall;
+            } else if (!depth_volume.display_wall_us) {
+                depth_volume.display_time_us = depth_volume.last_observation_us;
+                depth_volume.display_wall_us = display_wall;
+            }
+            const auto elapsed = std::max<int64_t>(0, display_wall - depth_volume.display_wall_us);
+            const auto map_time = depth_volume.display_time_us > std::numeric_limits<int64_t>::max() - elapsed
+                                      ? std::numeric_limits<int64_t>::max()
+                                      : depth_volume.display_time_us + elapsed;
+            p.map_shader->draw(slot.vao, GLsizei(depth_volume.volume->capacity()), vp,
+                               o.point_size, o.depth_opacity, depth_volume.colour_origin,
+                               o.depth_min, o.depth_max, o.map_shader, map_time,
+                               o.map_density, o.map_recency_seconds, o.map_style,
+                               o.map_relief_strength);
             if (slot.fence)
                 glDeleteSync(slot.fence);
             slot.fence = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
@@ -1854,6 +2235,25 @@ void Renderer::draw(const ReceiverSnapshot& s, const Calibration& c, const ViewO
         p.set("trail", 1);
         p.trail_mesh.draw(p.hand_trails, o.trail_mode, o.trail_colour);
         p.set("trail", 0);
+    }
+    // Composite camera images after geometry so partial opacity reveals hands
+    // and map surfaces behind the plane while retaining foreground occlusion.
+    const float plane_alpha = std::clamp(o.plane_opacity, 0.f, 1.f);
+    if (plane_alpha > 0 && image_plane_count) {
+        std::sort(image_planes.begin(), image_planes.begin() + image_plane_count,
+                  [](const auto& a, const auto& b) { return a.distance_squared > b.distance_squared; });
+        glDepthMask(plane_alpha >= 1.f ? GL_TRUE : GL_FALSE);
+        glActiveTexture(GL_TEXTURE0);
+        p.set("camera", 0);
+        for (size_t i = 0; i < image_plane_count; ++i) {
+            const auto& plane = image_planes[i];
+            p.model(plane.transform, {1, 1, 1, plane_alpha}, false);
+            p.set("textured", 1);
+            glBindTexture(GL_TEXTURE_2D, plane.texture);
+            p.plane.draw();
+        }
+        p.set("textured", 0);
+        glDepthMask(GL_TRUE);
     }
     glBindVertexArray(0);
     glUseProgram(0);

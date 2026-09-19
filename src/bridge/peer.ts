@@ -15,6 +15,7 @@ export class BridgePeer {
   pose: RTCDataChannel | null = null;
   depth: RTCDataChannel | null = null;
   epoch = 0;
+  depthMetadataVersion: 1 | 2 = 1;
   private paused = false;
   private videoSender: RTCRtpSender | null = null;
   private audioSender: RTCRtpSender | null = null;
@@ -95,7 +96,11 @@ export class BridgePeer {
         if (typeof event.data !== "string") throw new Error("Invalid Bridge metadata");
         const message = parseMetadata(event.data);
         if (message.epoch !== this.epoch) return;
-        if (message.type === "ack") { acknowledged = true; finish(); }
+        if (message.type === "ack") {
+          this.depthMetadataVersion = "depth_metadata_version" in message && message.depth_metadata_version === 2 ? 2 : 1;
+          acknowledged = true;
+          finish();
+        }
         else if (message.type === "ping" && meta.bufferedAmount < 4096) {
           meta.send(JSON.stringify({ ...message, type: "pong", t1, t2: nowUs() }));
         } else if (message.type !== "ping") throw new Error("Unexpected receiver message");
@@ -217,6 +222,7 @@ export class BridgePeer {
   }
 
   private cleanup() {
+    this.depthMetadataVersion = 1;
     this.videoSender = null;
     this.audioSender = null;
     if (this.timer) clearTimeout(this.timer);

@@ -14,12 +14,16 @@
 #include "ceres/protocol.hpp"
 #include "ceres/renderer.hpp"
 #include "ceres/session.hpp"
+#include "ceres/spatial_map.hpp"
+#include "ceres/voxel_config.hpp"
 #include "ceres/task_specification.hpp"
+#include "ceres/replay_task.hpp"
 #include "ceres/ui.hpp"
 #include <GLFW/glfw3.h>
 #include <algorithm>
 #include <atomic>
 #include <bit>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -102,7 +106,8 @@ std::filesystem::path application_directory() {
 #endif
     return std::filesystem::current_path();
 }
-enum class PaneSection { none = -1, connection, hands, depth, task, recording, replay, publish, telemetry, calibration };
+enum class PaneSection { none = -1, connection, hands, depth, task, recording, replay, publish, telemetry, calibration, scene };
+enum class ReplayLocation { hugging_face, local_file };
 struct Preferences {
     Calibration calibration = Calibration::quest(640, 480, "right");
     ViewOptions view;
@@ -113,8 +118,12 @@ struct Preferences {
     std::string profile_path;
     std::filesystem::path data_path = data_directory();
     std::filesystem::path recording_destination = data_path / "sessions";
+    std::filesystem::path map_directory, last_map;
+    std::uint64_t map_max_bytes = spatial_map_default_max_bytes;
     std::string task_description, task_specification_path;
     std::string hf_organisation, hf_repository, hf_folder;
+    ReplayLocation replay_location = ReplayLocation::hugging_face;
+    std::string replay_repository = "hf:chrisvoncsefalvay/ceres-demos";
     std::optional<TaskSpecification> task_specification;
     Json to_json() const {
         return {
@@ -122,8 +131,12 @@ struct Preferences {
             {"version", 1},
             {"data_directory", data_path.string()},
             {"recording_destination", recording_destination.string()},
+            {"spatial_map", {{"directory", map_directory.string()}, {"last_file", last_map.string()},
+                              {"max_bytes", map_max_bytes}}},
             {"hugging_face", {{"organisation", hf_organisation}, {"repository", hf_repository},
                               {"folder", hf_folder}}},
+            {"replay", {{"source", replay_location == ReplayLocation::hugging_face ? "hugging_face" : "local_file"},
+                         {"repository", replay_repository}}},
             {"task",
              {{"description", task_description},
               {"path", task_specification_path},
@@ -133,6 +146,7 @@ struct Preferences {
              {{"connection", section == PaneSection::connection},
                {"hands", section == PaneSection::hands},
                {"depth", section == PaneSection::depth},
+               {"scene", section == PaneSection::scene},
               {"task", section == PaneSection::task},
                {"recording", section == PaneSection::recording},
                {"replay", section == PaneSection::replay},
@@ -160,7 +174,13 @@ struct Preferences {
                {"depth_opacity", view.depth_opacity},
               {"depth_min", view.depth_min},
               {"depth_max", view.depth_max},
-              {"point_size", view.point_size},
+               {"point_size", view.point_size},
+               {"map_shader", static_cast<int>(view.map_shader)},
+               {"map_style", static_cast<int>(view.map_style)},
+               {"map_relief_strength", view.map_relief_strength},
+               {"map_density", view.map_density},
+               {"map_recency_seconds", view.map_recency_seconds},
+               {"map_frozen", view.map_frozen},
               {"trail_seconds", view.trail_seconds},
               {"grid", view.grid},
               {"frusta", view.frusta},
@@ -194,6 +214,16 @@ Preferences load_preferences(const std::filesystem::path& path) {
     result.data_path = data;
     result.recording_destination =
         json.value("recording_destination", (result.data_path / "sessions").string());
+    if (json.contains("spatial_map")) {
+        const auto& map = json.at("spatial_map");
+        result.map_directory = map.value("directory", std::string{});
+        result.last_map = map.value("last_file", std::string{});
+        result.map_max_bytes = std::clamp<std::uint64_t>(
+            map.value("max_bytes", spatial_map_default_max_bytes), 1024ull * 1024,
+            spatial_map_hard_max_bytes);
+        if (result.map_directory.string().size() > 2047 || result.last_map.string().size() > 2047)
+            throw std::runtime_error("Invalid spatial map path");
+    }
     if (json.contains("hugging_face")) {
         const auto& hf = json.at("hugging_face");
         result.hf_organisation = hf.value("organisation", std::string{});
@@ -202,6 +232,16 @@ Preferences load_preferences(const std::filesystem::path& path) {
         if (result.hf_organisation.size() > 127 || result.hf_repository.size() > 127 ||
             result.hf_folder.size() > 511)
             throw std::runtime_error("Invalid Hugging Face destination settings");
+    }
+    if (json.contains("replay")) {
+        const auto& replay = json.at("replay");
+        result.replay_location = replay.value("source", std::string{}) == "local_file"
+                                     ? ReplayLocation::local_file : ReplayLocation::hugging_face;
+        result.replay_repository = replay.value("repository", result.replay_repository);
+        if (result.replay_repository.size() > 1023)
+            throw std::runtime_error("Invalid replay repository");
+    } else if (!result.hf_organisation.empty() && !result.hf_repository.empty()) {
+        result.replay_repository = result.hf_organisation + "/" + result.hf_repository;
     }
     if (result.recording_destination.empty() || result.recording_destination.string().size() > 2047)
         throw std::runtime_error("Invalid recording destination");
@@ -248,10 +288,17 @@ Preferences load_preferences(const std::filesystem::path& path) {
     v.depth_min = view.value("depth_min", .2f);
     v.depth_max = view.value("depth_max", 5.f);
     v.point_size = view.value("point_size", 2.f);
+    v.map_shader = static_cast<SpatialMapShader>(std::clamp(view.value("map_shader", 0), 0, 3));
+    v.map_style = static_cast<SpatialMapStyle>(std::clamp(view.value("map_style", 1), 0, 1));
+    v.map_relief_strength = view.value("map_relief_strength", 1.f);
+    v.map_density = view.value("map_density", 1.f);
+    v.map_recency_seconds = view.value("map_recency_seconds", 30.f);
+    v.map_frozen = view.value("map_frozen", false);
     if (!std::isfinite(v.stereo_skew_ms) || !std::isfinite(v.depth_min) ||
         !std::isfinite(v.depth_max) || !std::isfinite(v.point_size) ||
         !std::isfinite(v.stereo_update_hz) || !std::isfinite(v.voxel_size) ||
-        !std::isfinite(v.depth_opacity))
+        !std::isfinite(v.depth_opacity) || !std::isfinite(v.map_density) ||
+        !std::isfinite(v.map_recency_seconds) || !std::isfinite(v.map_relief_strength))
         throw std::runtime_error("Invalid stereo settings");
     v.stereo_skew_ms = std::clamp(v.stereo_skew_ms, 1.f, 20.f);
     v.stereo_update_hz = std::clamp(v.stereo_update_hz, .2f, 5.f);
@@ -260,6 +307,9 @@ Preferences load_preferences(const std::filesystem::path& path) {
     v.depth_min = std::clamp(v.depth_min, .1f, 2.f);
     v.depth_max = std::clamp(v.depth_max, v.depth_min + .1f, 10.f);
     v.point_size = std::clamp(v.point_size, 1.f, 5.f);
+    v.map_density = std::clamp(v.map_density, .01f, 1.f);
+    v.map_recency_seconds = std::clamp(v.map_recency_seconds, 1.f, 600.f);
+    v.map_relief_strength = std::clamp(v.map_relief_strength, 0.f, 3.f);
     v.trail_seconds = view.value("trail_seconds", v.trail_seconds);
     v.grid = view.value("grid", v.grid);
     v.frusta = view.value("frusta", v.frusta);
@@ -285,6 +335,7 @@ Preferences load_preferences(const std::filesystem::path& path) {
                          : sections.value("hands", !sections.contains("depth") &&
                                                        sections.value("view", false)) ? PaneSection::hands
                          : sections.value("depth", false)       ? PaneSection::depth
+                         : sections.value("scene", false)       ? PaneSection::scene
                          : sections.value("task", false)        ? PaneSection::task
                          : sections.value("recording", false)   ? PaneSection::recording
                          : sections.value("replay", false)      ? PaneSection::replay
@@ -406,6 +457,63 @@ GLFWmonitor* window_monitor(GLFWwindow* window) {
         }
     }
     return selected;
+}
+bool scene_navigation(Renderer& renderer, float top, float dpi) {
+    ImGui::SetNextWindowPos({12.f * dpi, top + 12.f * dpi});
+    ImGui::SetNextWindowBgAlpha(.9f);
+    const auto flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_AlwaysAutoResize |
+        ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing;
+    const bool visible = ImGui::Begin("Scene navigation", nullptr, flags);
+    if (visible) {
+        const float width = std::max(ImGui::CalcTextSize("HMD").x, ImGui::CalcTextSize("Side").x) +
+                            ImGui::GetStyle().FramePadding.x * 2.f;
+        const auto button = [&](const char* label, bool selected, bool available,
+                                const char* explanation, const char* unavailable) {
+            ImGui::BeginDisabled(!available);
+            ImGui::PushStyleColor(ImGuiCol_Button, selected ? ui::colour::overlay : ui::colour::surface);
+            ImGui::PushStyleColor(ImGuiCol_Text, selected ? ui::colour::amber : ui::colour::text);
+            const bool pressed = ImGui::Button(label, {width, 0});
+            ImGui::PopStyleColor(2);
+            ImGui::EndDisabled();
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip("%s", available ? explanation : unavailable);
+            return pressed;
+        };
+        const char* references[] = {"W", "M", "H", "C"};
+        const char* meanings[] = {"Orbit around the world origin", "Orbit around the displayed model",
+                                  "Orbit around the visible hands", "Orbit around the headset camera"};
+        const char* missing[] = {"", "No displayed model is available", "No visible tracked hands",
+                                "No headset pose is available"};
+        const auto state = renderer.scene_camera();
+        ImGui::PushID("Reference");
+        for (int index = 0; index < 4; ++index) {
+            if (index)
+                ImGui::SameLine();
+            const auto reference = static_cast<SceneReference>(index);
+            if (button(references[index], state.reference == reference,
+                       renderer.scene_reference_available(reference), meanings[index], missing[index]))
+                renderer.select_scene_reference(reference);
+        }
+        ImGui::PopID();
+        const char* views[] = {"HMD", "Top", "Side", "Iso"};
+        const char* view_help[] = {"View from the headset, including its tilt", "View from above",
+                                  "View from the right", "Isometric view"};
+        ImGui::PushID("View");
+        for (int index = 0; index < 4; ++index) {
+            if (index)
+                ImGui::SameLine();
+            const auto view = static_cast<SceneView>(index + 1);
+            if (button(views[index], state.view == view, renderer.scene_view_available(view),
+                       view_help[index], index == 0 ? "No headset pose is available"
+                                                  : "The selected reference is unavailable"))
+                renderer.select_scene_view(view);
+        }
+        ImGui::PopID();
+    }
+    const bool captures_mouse = ImGui::IsWindowHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
+    ImGui::End();
+    return captures_mouse;
 }
 void same_line_if_room(const char* label, bool checkbox = false) {
     const auto& style = ImGui::GetStyle();
@@ -633,6 +741,7 @@ std::filesystem::path episode_sidecar(const std::filesystem::path& session) {
 }
 struct EpisodeSelection {
     std::vector<Episode> episodes;
+    ReplayTaskTimeline tasks;
     std::string error;
 };
 struct TimedPose {
@@ -646,14 +755,21 @@ struct PoseHistory {
 };
 EpisodeSelection load_episodes(const ReplaySource& replay) {
     EpisodeSelection result;
-    for (const auto& event : replay.episodes()) {
+    const auto recorded_episodes = replay.episodes();
+    result.tasks = ReplayTaskTimeline::from_events(recorded_episodes, replay.task_specification());
+    for (const auto& event : recorded_episodes) {
         const auto& a = event.attributes;
-        if (a.value("action", std::string{}) == "stop" && a.contains("start_us") &&
-            a.contains("end_us")) {
-            Episode episode{a.at("start_us").get<int64_t>(), a.at("end_us").get<int64_t>(),
-                            a.value("name", std::string{}), a};
-            if (episode.start_us >= 0 && episode.end_us > episode.start_us)
-                result.episodes.push_back(std::move(episode));
+        try {
+            if (a.is_object() && a.value("action", Json{}) == "stop" &&
+                a.contains("start_us") && a.at("start_us").is_number_integer() &&
+                a.contains("end_us") && a.at("end_us").is_number_integer()) {
+                Episode episode{a.at("start_us").get<int64_t>(), a.at("end_us").get<int64_t>(),
+                                a.value("name", Json{}).is_string() ? a.at("name").get<std::string>() : "", a};
+                if (episode.start_us >= 0 && episode.end_us > episode.start_us)
+                    result.episodes.push_back(std::move(episode));
+            }
+        } catch (const Json::exception&) {
+            // Optional annotations must not discard valid intervals from the recording.
         }
     }
     try {
@@ -680,6 +796,47 @@ EpisodeSelection load_episodes(const ReplaySource& replay) {
         result.error = error.what();
     }
     return result;
+}
+std::string replay_timestamp(int64_t time_us) {
+    const auto milliseconds = std::max<int64_t>(0, time_us) / 1000;
+    char text[64];
+    std::snprintf(text, sizeof(text), "%02lld:%02lld.%03lld",
+                  static_cast<long long>(milliseconds / 60000),
+                  static_cast<long long>((milliseconds / 1000) % 60),
+                  static_cast<long long>(milliseconds % 1000));
+    return text;
+}
+std::string replay_task_counters(const ReplayTask* task) {
+    if (!task) return "C-- T-- R--";
+    const auto counter = [](const char* prefix, const std::optional<uint64_t>& value,
+                            const std::optional<uint64_t>& total) {
+        return std::string(prefix) + (value ? std::to_string(*value) : "--") +
+               (total ? "/" + std::to_string(*total) : "");
+    };
+    return counter("C", task->cycle, task->cycle_count) + " " +
+           counter("T", task->task_number, task->task_count) + " " +
+           counter("R", task->repetition, task->repeat_count);
+}
+void replay_task_details(const ReplayTaskTimeline& timeline, int64_t position_us, bool loading) {
+    ui::muted("Current task");
+    const auto* task = timeline.at(position_us);
+    if (!task) {
+        ui::muted(loading ? "Loading task details..."
+                         : timeline.tasks().empty() ? "No recorded task details"
+                         : position_us >= timeline.tasks().back().end_us ? "Recorded tasks complete"
+                                                    : "Between recorded tasks");
+        return;
+    }
+    ImGui::TextWrapped("%s", task->title.c_str());
+    if (!task->description.empty())
+        ImGui::TextWrapped("%s", task->description.c_str());
+    ImGui::TextUnformatted(replay_task_counters(task).c_str());
+    if (task->take)
+        ImGui::Text("Take %llu", static_cast<unsigned long long>(*task->take));
+    ImGui::Text("%s to %s", replay_timestamp(task->start_us).c_str(),
+                replay_timestamp(task->end_us).c_str());
+    ImGui::Text("%s elapsed", replay_timestamp(position_us - task->start_us).c_str());
+    ImGui::Text("%s remaining", replay_timestamp(task->end_us - position_us).c_str());
 }
 void save_episodes(const std::filesystem::path& session, const std::vector<Episode>& episodes) {
     Json ranges = Json::array();
@@ -902,6 +1059,130 @@ int run_app(const AppOptions& options) {
     custom_calibration = preferences.custom_calibration;
     stereo_profile = preferences.stereo;
     view = preferences.view;
+    // Freezing is a live acquisition action. Opening a saved map freezes it explicitly.
+    view.map_frozen = false;
+    if (!options.map_directory.empty())
+        preferences.map_directory = std::filesystem::absolute(options.map_directory);
+    else if (preferences.map_directory.empty())
+        preferences.map_directory = (options.config.empty() ? preferences.data_path : config) / "maps";
+    const auto map_run_id = std::to_string(std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count());
+    uint64_t map_world_serial = 0, map_connection_serial = 0;
+    std::string map_world_id = map_run_id + "-" + std::to_string(++map_world_serial);
+    std::tuple<uint64_t, uint32_t, uint32_t> map_binding{};
+    uint32_t map_epoch = 0, map_space_epoch = 0;
+    bool map_detached = false, previous_map_frozen = false, frozen_environment = true;
+    bool automatic_map_freeze = false;
+    std::array<uint64_t, 2> requested_map_generation{};
+    std::array<std::filesystem::path, 2> current_map_files;
+    std::map<std::filesystem::path, std::unique_ptr<SpatialMapStore>> map_stores;
+    std::unique_ptr<SpatialMapStore> map_loader;
+    std::string map_error, last_storage_error;
+    double map_snapshot_due = 0;
+    uint64_t frozen_environment_updates = 0, frozen_stereo_pairs = 0;
+    char map_directory_text[2048]{}, map_open_path[2048]{};
+    text_buffer(map_directory_text, preferences.map_directory.string());
+    text_buffer(map_open_path, preferences.last_map.string());
+    auto map_point_budget = [&] {
+        return std::min(stereo_voxel_capacity,
+                        size_t((preferences.map_max_bytes - spatial_map_header_bytes) / spatial_map_record_bytes));
+    };
+    auto request_map_snapshots = [&] {
+        for (size_t i = 0; i < 2; ++i) {
+            const bool environment = i == 0;
+            const auto generation = renderer->map_generation(environment);
+            if (generation && generation != requested_map_generation[i] &&
+                renderer->request_map_snapshot(environment, map_world_id, map_epoch, map_space_epoch))
+                requested_map_generation[i] = generation;
+        }
+    };
+    auto collect_map_snapshots = [&] {
+        for (size_t i = 0; i < 2; ++i) {
+            if (auto map = renderer->take_map_snapshot(i == 0)) {
+                const auto filename = map->world_id + (i == 0 ? "-quest.cmap" : "-stereo.cmap");
+                const auto path = preferences.map_directory / filename;
+                if (map->points.empty() && !map_stores.contains(path))
+                    continue;
+                auto& store = map_stores[path];
+                if (!store)
+                    store = std::make_unique<SpatialMapStore>(path, preferences.map_max_bytes, 3);
+                if (!store->submit(map))
+                    map_error = "The map could not be queued for saving";
+                if (map->world_id == map_world_id) {
+                    current_map_files[i] = path;
+                    if ((i == 0) == view.environment_depth) {
+                        const auto previous_file = preferences.last_map.string();
+                        preferences.last_map = path;
+                        if (!map_open_path[0] || previous_file == map_open_path)
+                            text_buffer(map_open_path, path.string());
+                    }
+                }
+            }
+        }
+        std::string storage_error;
+        for (auto it = map_stores.begin(); it != map_stores.end();) {
+            const auto status = it->second->status();
+            if (!status.error.empty()) {
+                storage_error = status.error;
+                if (!status.busy)
+                    for (size_t i = 0; i < current_map_files.size(); ++i)
+                        if (it->first == current_map_files[i])
+                            requested_map_generation[i] = 0;
+            }
+            const bool current = it->first == current_map_files[0] || it->first == current_map_files[1];
+            if (!current && !status.busy && status.saved_generation >= status.submitted_generation)
+                it = map_stores.erase(it);
+            else
+                ++it;
+        }
+        if (!storage_error.empty())
+            map_error = storage_error;
+        else if (!last_storage_error.empty() && map_error == last_storage_error)
+            map_error.clear();
+        last_storage_error = std::move(storage_error);
+    };
+    auto capture_final_maps = [&] {
+        // Source changes are explicit save barriers. Drain an older readback
+        // before requesting the final generation, then release the old GPU map.
+        renderer->finish_map_snapshot(true);
+        renderer->finish_map_snapshot(false);
+        collect_map_snapshots();
+        request_map_snapshots();
+        renderer->finish_map_snapshot(true);
+        renderer->finish_map_snapshot(false);
+        collect_map_snapshots();
+    };
+    auto begin_map_world = [&](uint32_t epoch, uint32_t space_epoch) {
+        capture_final_maps();
+        renderer->clear_stereo(true);
+        renderer->clear_environment_depth(true);
+        map_world_id = map_run_id + "-" + std::to_string(++map_world_serial);
+        map_epoch = epoch;
+        map_space_epoch = space_epoch;
+        map_binding = {map_connection_serial, epoch, space_epoch};
+        map_detached = false;
+        requested_map_generation = {};
+        current_map_files = {};
+        reset_stereo_acquisition();
+        environment_seen.reset();
+    };
+    auto open_map = [&](const std::filesystem::path& path) {
+        if (path.empty())
+            return;
+        if (map_loader && map_loader->status().busy)
+            return;
+        map_loader = std::make_unique<SpatialMapStore>(path, spatial_map_hard_max_bytes);
+        map_loader->request_load(map_point_budget());
+        view.map_frozen = true;
+        frozen_environment = view.environment_depth;
+        renderer->configure_spatial_map(true, view.voxel_size, map_point_budget());
+        map_error.clear();
+    };
+    renderer->configure_spatial_map(false, view.voxel_size, map_point_budget());
+    if (!options.map_load.empty()) {
+        text_buffer(map_open_path, options.map_load.string());
+        open_map(options.map_load);
+    }
     std::atomic<bool> accepting{true};
     std::atomic<uint64_t> accepted_head_frames{0};
     detail::HoldPress record_press;
@@ -984,6 +1265,8 @@ int run_app(const AppOptions& options) {
         repeat_keyboard_gesture = false;
         decoder->cancel_replay();
         secondary_decoder->cancel_replay();
+        capture_final_maps();
+        ++map_connection_serial;
         reset_stereo_acquisition();
         reset_environment();
         renderer->invalidate_video();
@@ -1053,6 +1336,10 @@ int run_app(const AppOptions& options) {
     char task[512]{}, session_path[2048]{}, export_path[2048]{}, profile_path[2048]{},
         data_path[2048]{}, recording_destination[2048]{}, task_specification_path[2048]{};
     char hf_organisation[128]{}, hf_repository[128]{}, hf_folder[512]{}, hf_filter[256]{};
+    char replay_repository[1024]{};
+    text_buffer(replay_repository, preferences.replay_repository);
+    if (!options.replay.empty())
+        preferences.replay_location = ReplayLocation::local_file;
     text_buffer(hf_organisation, preferences.hf_organisation);
     text_buffer(hf_repository, preferences.hf_repository);
     text_buffer(hf_folder, preferences.hf_folder);
@@ -1094,6 +1381,7 @@ int run_app(const AppOptions& options) {
     int64_t closed_duration = 0;
     StreamDescription closed_camera;
     std::shared_ptr<ReplaySource> episode_replay, episode_loading_replay;
+    ReplayTaskTimeline replay_tasks;
     std::future<EpisodeSelection> episode_load;
     auto calibration_event = [&](uint32_t epoch = 0, uint32_t space_epoch = 0) {
         SessionEvent e;
@@ -1297,7 +1585,7 @@ int run_app(const AppOptions& options) {
     bool panels = preferences.panels, preview = preferences.preview, fullscreen = false,
          last_tab = false, last_f11 = false, restore_maximised = false;
     detail::AccordionMotion accordion;
-    std::array<float, 9> section_heights{}, section_scroll{};
+    std::array<float, 10> section_heights{}, section_scroll{};
     float section_width = 0.f;
     int previous_section = -1;
     int restore_x = 80, restore_y = 60, restore_w = options.width, restore_h = options.height;
@@ -1334,6 +1622,7 @@ int run_app(const AppOptions& options) {
         preferences.hf_organisation = hf_organisation;
         preferences.hf_repository = hf_repository;
         preferences.hf_folder = hf_folder;
+        preferences.replay_repository = replay_repository;
         auto json = preferences.to_json();
         if (json != saved_preferences) {
             save_preferences(config / "preferences.json", json);
@@ -1357,6 +1646,60 @@ int run_app(const AppOptions& options) {
         double now = glfwGetTime(), elapsed_frame = now - previous,
                dt = std::min(.1, elapsed_frame);
         previous = now;
+        try {
+            collect_map_snapshots();
+            if (map_loader) {
+                const auto status = map_loader->status();
+                if (!status.busy) {
+                    auto loaded = map_loader->take_loaded();
+                    map_loader.reset();
+                    if (!status.error.empty())
+                        throw std::runtime_error(status.error);
+                    if (!loaded)
+                        throw std::runtime_error("The saved map did not contain a completed snapshot");
+                    Renderer::validate_spatial_map_import(*loaded);
+                    capture_final_maps();
+                    if (!renderer->import_spatial_map(*loaded))
+                        throw std::runtime_error("The saved map could not be loaded");
+                    if (loaded->source == SpatialMapSource::environment_depth)
+                        renderer->clear_stereo(true);
+                    else
+                        renderer->clear_environment_depth(true);
+                    map_world_id = map_run_id + "-" + std::to_string(++map_world_serial);
+                    map_epoch = loaded->epoch;
+                    map_space_epoch = loaded->space_epoch;
+                    map_detached = true;
+                    requested_map_generation = {};
+                    current_map_files = {};
+                    view.voxel_size = loaded->base_voxel_size;
+                    view.depth = true;
+                    view.map_frozen = true;
+                    frozen_environment = loaded->source == SpatialMapSource::environment_depth;
+                    view.depth_source = frozen_environment ? 1 : 2;
+                    view.environment_depth = frozen_environment;
+                }
+            }
+            if (!automatic_map_freeze && options.freeze_map_after >= 0 &&
+                now - first >= options.freeze_map_after) {
+                view.map_frozen = true;
+                automatic_map_freeze = true;
+            }
+            if (view.map_frozen && !previous_map_frozen) {
+                frozen_environment = view.environment_depth;
+                frozen_environment_updates = environment_updates;
+                frozen_stereo_pairs = stereo_pair_count;
+                request_map_snapshots();
+                reset_stereo_acquisition();
+            }
+            previous_map_frozen = view.map_frozen;
+            renderer->configure_spatial_map(view.map_frozen, view.voxel_size, map_point_budget());
+            if (now >= map_snapshot_due) {
+                request_map_snapshots();
+                map_snapshot_due = now + 2;
+            }
+        } catch (const std::exception& error) {
+            map_error = error.what();
+        }
         if (task_load.valid() &&
             task_load.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
             try {
@@ -1464,6 +1807,18 @@ int run_app(const AppOptions& options) {
         auto snapshot_finished = std::chrono::steady_clock::now();
         auto replay = std::dynamic_pointer_cast<ReplaySource>(source);
         auto bridge = std::dynamic_pointer_cast<BridgeClient>(source);
+        if (!view.map_frozen && (map_detached ||
+            map_binding != std::tuple{map_connection_serial, snap.epoch, snap.space_epoch})) {
+            try {
+                begin_map_world(snap.epoch, snap.space_epoch);
+            } catch (const std::exception& error) {
+                map_error = error.what();
+                view.map_frozen = true;
+                renderer->configure_spatial_map(true, view.voxel_size, map_point_budget());
+            }
+        }
+        view.map_headset_world_matches = !map_detached &&
+            map_binding == std::tuple{map_connection_serial, snap.epoch, snap.space_epoch};
         if (!replay)
             view.pose_time_offset_ms = std::max(0.f, view.pose_time_offset_ms);
         if (replay != episode_replay) {
@@ -1473,6 +1828,7 @@ int run_app(const AppOptions& options) {
                 ui_error = error.what();
             }
             episodes.clear();
+            replay_tasks = {};
             episodes_dirty = false;
             episode_open = false;
             episode_session = replay ? replay->path() : std::filesystem::path{};
@@ -1490,11 +1846,13 @@ int run_app(const AppOptions& options) {
                 auto selected = episode_load.get();
                 if (episode_loading_replay == replay) {
                     episodes = std::move(selected.episodes);
+                    replay_tasks = std::move(selected.tasks);
                     if (!selected.error.empty())
                         ui_error = selected.error;
                 }
             } catch (const std::exception& error) {
-                ui_error = error.what();
+                if (episode_loading_replay == replay)
+                    ui_error = error.what();
             }
             if (!replay)
                 episode_loading_replay.reset();
@@ -1584,7 +1942,6 @@ int run_app(const AppOptions& options) {
             preferences.calibration = calibration;
             preferences.custom_calibration = custom_calibration;
             reset_stereo_acquisition();
-            renderer->clear_stereo();
             recorder.push(calibration_event(snap.epoch, snap.space_epoch));
         };
         if (!options.record.empty() && !auto_record_requested && !task_load.valid() &&
@@ -1618,8 +1975,9 @@ int run_app(const AppOptions& options) {
                                     StereoCalibration::from_json(e.attributes.at("stereo_profile"));
                         }
                         reset_stereo_acquisition();
-                        renderer->clear_stereo();
                     } else if (e.kind == EventKind::Epoch && !recording_marker(e)) {
+                        if (!view.map_frozen)
+                            begin_map_world(snap.epoch, snap.space_epoch);
                         reset_environment();
                         if (replay && e.attributes.value("reason", std::string{}) == "seek")
                             stereo_profile.reset();
@@ -1654,8 +2012,6 @@ int run_app(const AppOptions& options) {
         if (mapped_voxel_size != view.voxel_size) {
             mapped_voxel_size = view.voxel_size;
             reset_stereo_acquisition();
-            renderer->clear_stereo();
-            renderer->clear_environment_depth();
             environment_seen.reset();
         }
         if (previous_depth_source != view.depth_source) {
@@ -1677,9 +2033,9 @@ int run_app(const AppOptions& options) {
             environment_available = true;
             environment_usage = environment_event->attributes.value("usage", std::string{});
         }
-        view.environment_depth =
-            view.depth_source == 1 || (view.depth_source == 0 && environment_available);
-        if (view.environment_depth && environment_event && !source_job.valid() &&
+        view.environment_depth = view.map_frozen ? frozen_environment :
+            (view.depth_source == 1 || (view.depth_source == 0 && environment_available));
+        if (!view.map_frozen && view.environment_depth && environment_event && !source_job.valid() &&
             environment_seen != stereo_frame_identity(*environment_event)) {
             try {
                 const auto& event = *environment_event;
@@ -1735,13 +2091,12 @@ int run_app(const AppOptions& options) {
             stereo_profile = quest_stereo();
             preferences.stereo = stereo_profile;
             reset_stereo_acquisition();
-            renderer->clear_stereo();
             recorder.push(calibration_event(snap.epoch, snap.space_epoch));
         }
         const auto stereo_now_us = monotonic_us();
         const auto acquisition =
             stereo_cadence.update(stereo_now_us, view.stereo_update_hz,
-                                  !view.environment_depth && dual_camera &&
+                                  !view.map_frozen && !view.environment_depth && dual_camera &&
                                       stereo_profile.has_value() && !source_job.valid());
         if (!acquisition.acquire || acquisition.opened)
             stereo_pairs.clear();
@@ -1774,8 +2129,9 @@ int run_app(const AppOptions& options) {
                     stereo_pairs.push(frame, event);
             }
         }
-        if (!dual_camera || !stereo_profile || view.environment_depth) {
-            stereo_state = !dual_camera    ? "Two cameras required"
+        if (view.map_frozen || !dual_camera || !stereo_profile || view.environment_depth) {
+            stereo_state = view.map_frozen ? "Map frozen"
+                           : !dual_camera    ? "Two cameras required"
                            : !stereo_profile ? "Load stereo calibration"
                                              : "Off";
         } else if (acquisition.acquire) {
@@ -1872,7 +2228,8 @@ int run_app(const AppOptions& options) {
         renderer->set_scene_width_fraction(panels ? .8f : 1.f);
         renderer->set_scene_top_fraction(instrument_height / std::max(1.f, io.DisplaySize.y));
         renderer->set_scene_bottom_fraction(replay ? instrument_height / std::max(1.f, io.DisplaySize.y) : 0.f);
-        renderer->process_input(dt, io.WantCaptureMouse, io.WantCaptureKeyboard);
+        const bool navigation_capture = scene_navigation(*renderer, instrument_height, dpi);
+        renderer->process_input(dt, io.WantCaptureMouse || navigation_capture, io.WantCaptureKeyboard);
         const auto trail_time =
             replay ? std::max<int64_t>(0, replay->position_us() -
                                               int64_t(view.pose_time_offset_ms * 1000))
@@ -1897,14 +2254,14 @@ int run_app(const AppOptions& options) {
             change_source(hf_ready_recording, false);
             hf_ready_recording.clear();
         }
-        const auto hf_account_controls = [&] {
+        const auto hf_account_controls = [&](bool show_account = true) {
             ImGui::PushID("HuggingFaceAccount");
-            if (hf_status.username.empty()) {
+            if (show_account && hf_status.username.empty()) {
                 ImGui::BeginDisabled(hf_status.running);
                 if (ui::primary_button("Sign in to Hugging Face"))
                     hugging_face.sign_in();
                 ImGui::EndDisabled();
-            } else {
+            } else if (show_account) {
                 ImGui::TextWrapped("Signed in as %s", hf_status.username.c_str());
                 ImGui::BeginDisabled(hf_status.running);
                 if (ImGui::Button("Sign out")) hugging_face.sign_out();
@@ -2170,13 +2527,24 @@ int run_app(const AppOptions& options) {
                 ImGui::PopID();
                 end_body();
             }
-            if (section("Depth", "03", PaneSection::depth)) {
+            if (section("Spatial map", "03", PaneSection::depth)) {
                 begin_body("Depth body");
                 ImGui::PushID("Depth");
                 ImGui::PushID("Map");
+                if (ImGui::Button(view.map_frozen ? "Resume acquisition###FreezeMap"
+                                                  : "Freeze map###FreezeMap", {-1, 0})) {
+                    view.map_frozen = !view.map_frozen;
+                    if (view.map_frozen)
+                        frozen_environment = view.environment_depth;
+                }
+                ImGui::TextWrapped("%s / %zu points", view.map_frozen ? "Frozen" : "Acquiring",
+                            renderer->map_point_count(view.environment_depth));
+                ui::help("Freezing stops new map observations. Headset distance colours keep updating.");
                 const char* sources[] = {"Automatic", "Quest depth", "Stereo"};
+                ImGui::BeginDisabled(view.map_frozen);
                 ImGui::SetNextItemWidth(-1);
                 ImGui::Combo("##Depth source", &view.depth_source, sources, 3);
+                ImGui::EndDisabled();
                 ui::help(
                     "Automatic uses Quest depth when available, with stereo as a fallback.");
                 if (view.environment_depth) {
@@ -2185,7 +2553,16 @@ int run_app(const AppOptions& options) {
                                                                           : "Quest depth / CPU")
                                   : (snap.depth_status == "unsupported"
                                          ? "Quest depth unavailable"
-                                         : "Waiting for Quest depth"));
+                                          : "Waiting for Quest depth"));
+                    const auto& timing = renderer->environment_depth_timing();
+                    if (timing.valid) {
+                        ui::muted(timing.geometry_source == "sensor" ? "Pose: depth sensor"
+                                  : timing.geometry_source == "view" ? "Pose: depth view"
+                                  : timing.geometry_source == "view-fallback" ? "Pose: display view"
+                                                                            : "Pose source unreported");
+                        ui::help("The pose travels with its depth frame. A display-view pose relies "
+                                 "on the browser aligning depth to that view.");
+                    }
                 } else {
                     ui::muted(stereo_state.c_str());
                     pane_slider("Update", &view.stereo_update_hz, .2f, 5.f, "%.1f Hz");
@@ -2194,18 +2571,34 @@ int run_app(const AppOptions& options) {
                 const char* detail[] = {"Full", "Adaptive"};
                 pane_selector("Detail", view.depth_lod, detail);
                 float voxel_cm = view.voxel_size * 100.f;
-                if (pane_slider("Voxel", &voxel_cm, 1.f, 10.f, "%.1f cm"))
+                if (pane_slider("Spacing", &voxel_cm, 1.f, 10.f, "%.1f cm"))
                     view.voxel_size = voxel_cm / 100.f;
-                ui::help("Scene cell size. Changing it starts a new volume.");
+                ui::help("Fusion resolution. Existing geometry is retained when this changes.");
+                float density = view.map_density * 100.f;
+                if (pane_slider("Density", &density, 1.f, 100.f, "%.0f %%"))
+                    view.map_density = density / 100.f;
+                ui::help("Visible samples only. Changing density does not discard saved geometry.");
                 ImGui::Checkbox("Mask hands", &view.mask_hands);
                 ui::help("Exclude tracked fingers and palms while preserving the surfaces behind them.");
                 if (ImGui::Button("Clear map", {-1, 0})) {
-                    renderer->clear_stereo();
-                    renderer->clear_environment_depth();
-                    reset_stereo_acquisition();
-                    environment_seen.reset();
+                    try {
+                        begin_map_world(snap.epoch, snap.space_epoch);
+                    } catch (const std::exception& error) {
+                        map_error = error.what();
+                    }
                 }
-                ui::help("The map persists until new observations contradict it or its memory budget requires less detail.");
+                ui::help("Starts a new map. Previous saved maps remain available.");
+                ImGui::Separator();
+                ui::small_label("Appearance");
+                const char* map_styles[] = {"Points", "Shape"};
+                pane_selector("View", view.map_style, map_styles);
+                ui::help("Shape adds depth shading to reveal boundaries and overlapping surfaces.");
+                if (view.map_style == SpatialMapStyle::shape)
+                    pane_slider("Relief", &view.map_relief_strength, 0.f, 3.f, "%.1f");
+                const char* map_shaders[] = {"Distance", "Recency", "Confidence", "Neutral"};
+                pane_selector("Colour", view.map_shader, map_shaders);
+                if (view.map_shader == SpatialMapShader::recency)
+                    pane_slider("Age span", &view.map_recency_seconds, 1.f, 600.f, "%.0f s");
                 float depth_opacity = view.depth_opacity * 100.f;
                 if (pane_slider("Opacity", &depth_opacity, 10.f, 100.f, "%.0f %%"))
                     view.depth_opacity = depth_opacity / 100.f;
@@ -2217,7 +2610,7 @@ int run_app(const AppOptions& options) {
                 pane_slider("Near", &view.depth_min, .1f, 2.f, "%.2f m");
                 view.depth_max = std::max(view.depth_max, view.depth_min + .1f);
                 pane_slider("Far", &view.depth_max, view.depth_min + .1f, 10.f, "%.1f m");
-                if (view.environment_depth) {
+                if (view.map_shader == SpatialMapShader::distance) {
                     const ImVec2 start = ImGui::GetCursorScreenPos();
                     const float width = ImGui::GetContentRegionAvail().x;
                     const float height = 6.f * dpi;
@@ -2232,11 +2625,72 @@ int run_app(const AppOptions& options) {
                             colour(i / 7.f), colour((i + 1) / 7.f),
                             colour((i + 1) / 7.f), colour(i / 7.f));
                     ImGui::Dummy({width, height});
-                    ui::help("Spectral depth: warm nearby, cool farther away. Conflicting observations reduce opacity.");
+                    ui::help("Distance from the current headset position: warm nearby, cool farther away.");
                 }
                 pane_slider("Points", &view.point_size, 1.f, 5.f, "%.0f px");
-                ImGui::PopID();
+                ui::help("Exact framebuffer pixels, independent of distance and map spacing.");
                 ImGui::Separator();
+                ui::small_label("Storage");
+                float map_limit_mib = float(preferences.map_max_bytes) / (1024.f * 1024.f);
+                if (pane_slider("Max size", &map_limit_mib, 1.f, 256.f, "%.0f MiB")) {
+                    preferences.map_max_bytes = uint64_t(std::round(map_limit_mib)) * 1024 * 1024;
+                    for (auto& [path, store] : map_stores)
+                        store->set_max_bytes(preferences.map_max_bytes);
+                }
+                ui::help("Maximum size of each saved map. Nearby samples merge as the limit is approached.");
+                ImGui::Text("Live limit: %zu samples", map_point_budget());
+                ui::help("The live GPU map holds up to 262144 samples. A smaller saved-map limit reduces this budget.");
+                ImGui::SetNextItemWidth(-1);
+                if (ImGui::InputTextWithHint("##MapDirectory", "Map folder", map_directory_text,
+                                            sizeof(map_directory_text), ImGuiInputTextFlags_EnterReturnsTrue)) {
+                    if (map_directory_text[0]) {
+                        try {
+                            preferences.map_directory = std::filesystem::absolute(map_directory_text);
+                            requested_map_generation = {};
+                            map_snapshot_due = 0;
+                            map_error.clear();
+                        } catch (const std::exception& error) {
+                            map_error = error.what();
+                        }
+                    }
+                }
+                ui::help("The three most recent automatic maps are kept in this folder. Press Enter to change the folder.");
+                const auto map_file = current_map_files[view.environment_depth ? 0 : 1];
+                if (const auto store = map_stores.find(map_file); store != map_stores.end()) {
+                    const auto status = store->second->status();
+                    ImGui::TextWrapped("%s / %.2f MiB / %llu samples", status.busy ? "Saving" : "Saved",
+                                double(status.file.bytes) / (1024. * 1024.),
+                                static_cast<unsigned long long>(status.file.stored_points));
+                    if (status.file.grid_size > 0)
+                        ImGui::Text("Saved spacing: %.1f cm", status.file.grid_size * 100.f);
+                }
+                if (ImGui::Button("Save map now", {-1, 0})) {
+                    requested_map_generation = {};
+                    map_snapshot_due = 0;
+                    map_error.clear();
+                }
+                ImGui::SetNextItemWidth(-1);
+                ImGui::InputTextWithHint("##OpenMapPath", "Saved .cmap file", map_open_path,
+                                        sizeof(map_open_path));
+                ImGui::BeginDisabled(!map_open_path[0] || (map_loader && map_loader->status().busy));
+                if (ImGui::Button("Open saved map", {-1, 0})) {
+                    try {
+                        open_map(map_open_path);
+                    } catch (const std::exception& error) {
+                        map_error = error.what();
+                    }
+                }
+                ImGui::EndDisabled();
+                ui::help("Saved maps open frozen. Resuming starts a map in the current tracking space.");
+                if (!map_error.empty())
+                    ImGui::TextWrapped("%s", map_error.c_str());
+                ImGui::PopID();
+                ImGui::PopID();
+                end_body();
+            }
+            if (section("Scene", "04", PaneSection::scene)) {
+                begin_body("Scene body");
+                ImGui::PushID("Scene");
                 ui::small_label("Scene");
                 ImGui::Checkbox("Grid", &view.grid);
                 same_line_if_room("Frustum", true);
@@ -2275,77 +2729,113 @@ int run_app(const AppOptions& options) {
                     if (ImGui::Button("Reset", {-1, 0}))
                         renderer->reset_view();
                     ImGui::TableNextColumn();
+                    ImGui::BeginDisabled(!renderer->scene_reference_available(SceneReference::hands));
                     if (ImGui::Button("Hands", {-1, 0}))
                         renderer->frame_hands(inspection);
+                    ImGui::EndDisabled();
+                    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                        ImGui::SetTooltip("Centre the visible tracked hands");
                     ImGui::TableNextColumn();
+                    ImGui::BeginDisabled(!renderer->scene_view_available(SceneView::hmd));
                     if (ImGui::Button("Headset", {-1, 0}))
                         renderer->headset_view(inspection);
+                    ImGui::EndDisabled();
+                    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                        ImGui::SetTooltip("View from the last accepted headset pose");
                     ImGui::EndTable();
                 }
 
                 ImGui::PopID();
                 end_body();
             }
-            if (section("Task", "04", PaneSection::task)) {
+            if (section("Task", "05", PaneSection::task)) {
                 begin_body("Task body");
                 ImGui::PushID("Task");
-                ImGui::BeginDisabled(record_status.recording || pending_recording.has_value() ||
-                                     task_load.valid());
-                pane_text_input("Specification", task_specification_path,
-                                sizeof(task_specification_path),
-                                "JSON file or https:// URL");
-                if (ImGui::Button("Load")) {
-                    try {
-                        load_task_source();
-                    } catch (const std::exception& error) {
-                        ui_error = error.what();
-                    }
-                }
-                if (task_specification) {
-                    same_line_if_room("Clear");
-                    if (ImGui::Button("Clear")) {
-                        task_specification.reset();
-                        task_run = TaskRun{};
-                        task_specification_path[0] = '\0';
-                    }
-                }
-                if (!task_specification)
-                    pane_text_input("Description", task, sizeof(task), "Describe the task");
-                ImGui::EndDisabled();
-                if (task_load.valid()) {
-                    ui::muted("Loading...");
-                    same_line_if_room("Cancel");
-                    if (ImGui::Button("Cancel"))
-                        task_load_cancel.request_stop();
-                }
-                if (task_specification) {
-                    ImGui::Separator();
-                    ImGui::TextWrapped("%s", task_specification->run_title.c_str());
-                    if (!task_specification->run_description.empty())
-                        ImGui::TextWrapped("%s", task_specification->run_description.c_str());
-                    ImGui::Text("%zu tasks / %llu cycles", task_specification->tasks.size(),
-                                static_cast<unsigned long long>(task_specification->cycle_count));
-                    for (size_t index = 0; index < task_specification->tasks.size(); ++index) {
-                        const auto& step = task_specification->tasks[index];
+                if (replay) {
+                    const auto position = replay->position_us();
+                    const auto* current = replay_tasks.at(position);
+                    const auto* setup = current ? current : replay_tasks.tasks().empty()
+                        ? nullptr : &replay_tasks.tasks().front();
+                    if (setup && !setup->run_title.empty()) {
+                        ImGui::TextWrapped("%s", setup->run_title.c_str());
+                        if (!setup->run_description.empty())
+                            ImGui::TextWrapped("%s", setup->run_description.c_str());
                         ImGui::Separator();
-                        ImGui::TextWrapped("%zu. %s", index + 1, step.label.c_str());
-                        if (!step.instructions.empty())
-                            ImGui::TextWrapped("%s", step.instructions.c_str());
-                        if (step.type == TaskType::pause)
-                            ImGui::Text("Pause / %.0f s", step.duration_s);
-                        else if (step.type == TaskType::timed)
-                            ImGui::Text("%llu reps / %.0f s",
-                                        static_cast<unsigned long long>(step.repeat_count),
-                                        step.duration_s);
-                        else
-                            ImGui::Text("%llu reps / open",
-                                        static_cast<unsigned long long>(step.repeat_count));
+                    }
+                    replay_task_details(replay_tasks, position, episode_load.valid());
+                    if (!replay_tasks.tasks().empty()) {
+                        ImGui::Separator();
+                        ui::muted("Recorded task timeline");
+                        for (const auto& interval : replay_tasks.tasks()) {
+                            ImGui::PushStyleColor(ImGuiCol_Text, &interval == current
+                                ? ui::colour::amber : ui::colour::text);
+                            ImGui::TextWrapped("%s", interval.title.c_str());
+                            ImGui::TextUnformatted(replay_task_counters(&interval).c_str());
+                            ImGui::Text("%s to %s", replay_timestamp(interval.start_us).c_str(),
+                                        replay_timestamp(interval.end_us).c_str());
+                            ImGui::PopStyleColor();
+                            ImGui::Spacing();
+                        }
+                    }
+                } else {
+                    ImGui::BeginDisabled(record_status.recording || pending_recording.has_value() ||
+                                         task_load.valid());
+                    pane_text_input("Specification", task_specification_path,
+                                    sizeof(task_specification_path),
+                                    "JSON file or https:// URL");
+                    if (ImGui::Button("Load")) {
+                        try {
+                            load_task_source();
+                        } catch (const std::exception& error) {
+                            ui_error = error.what();
+                        }
+                    }
+                    if (task_specification) {
+                        same_line_if_room("Clear");
+                        if (ImGui::Button("Clear")) {
+                            task_specification.reset();
+                            task_run = TaskRun{};
+                            task_specification_path[0] = '\0';
+                        }
+                    }
+                    if (!task_specification)
+                        pane_text_input("Description", task, sizeof(task), "Describe the task");
+                    ImGui::EndDisabled();
+                    if (task_load.valid()) {
+                        ui::muted("Loading...");
+                        same_line_if_room("Cancel");
+                        if (ImGui::Button("Cancel"))
+                            task_load_cancel.request_stop();
+                    }
+                    if (task_specification) {
+                        ImGui::Separator();
+                        ImGui::TextWrapped("%s", task_specification->run_title.c_str());
+                        if (!task_specification->run_description.empty())
+                            ImGui::TextWrapped("%s", task_specification->run_description.c_str());
+                        ImGui::Text("%zu tasks / %llu cycles", task_specification->tasks.size(),
+                                    static_cast<unsigned long long>(task_specification->cycle_count));
+                        for (size_t index = 0; index < task_specification->tasks.size(); ++index) {
+                            const auto& step = task_specification->tasks[index];
+                            ImGui::Separator();
+                            ImGui::TextWrapped("%zu. %s", index + 1, step.label.c_str());
+                            if (!step.instructions.empty())
+                                ImGui::TextWrapped("%s", step.instructions.c_str());
+                            if (step.type == TaskType::pause)
+                                ImGui::Text("Pause / %.0f s", step.duration_s);
+                            else if (step.type == TaskType::timed)
+                                ImGui::Text("%llu reps / %.0f s",
+                                            static_cast<unsigned long long>(step.repeat_count),
+                                            step.duration_s);
+                            else
+                                ImGui::Text("%llu reps / open",
+                                            static_cast<unsigned long long>(step.repeat_count));
+                        }
                     }
                 }
                 ImGui::PopID();
                 end_body();
             }
-            if (section("Recording", "05", PaneSection::recording)) {
+            if (section("Recording", "06", PaneSection::recording)) {
                 begin_body("Recording body");
                 ImGui::PushID("Recording");
                 ImGui::BeginDisabled(record_status.recording || pending_recording.has_value());
@@ -2555,29 +3045,57 @@ int run_app(const AppOptions& options) {
                 ImGui::PopID();
                 end_body();
             }
-            if (section("Replay", "06", PaneSection::replay)) {
+            if (section("Replay", "07", PaneSection::replay)) {
                 begin_body("Replay body");
                 ImGui::PushID("Replay");
-                if (ui::disclosure("File", ImGuiTreeNodeFlags_DefaultOpen)) {
+                const std::array<const char*, 2> source_labels{"Hugging Face", "Local file"};
+                const float segment_space = ImGui::GetContentRegionAvail().x;
+                const float first_label_width = ImGui::CalcTextSize(source_labels[0]).x + 8.f * dpi;
+                const float second_label_width = ImGui::CalcTextSize(source_labels[1]).x + 8.f * dpi;
+                const float first_segment_width = segment_space * first_label_width /
+                                                  (first_label_width + second_label_width);
+                ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {0, ImGui::GetStyle().ItemSpacing.y});
+                ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {4.f * dpi, ImGui::GetStyle().FramePadding.y});
+                for (int index = 0; index < 2; ++index) {
+                    if (index) ImGui::SameLine();
+                    const auto location = static_cast<ReplayLocation>(index);
+                    const bool selected = preferences.replay_location == location;
+                    ImGui::PushStyleColor(ImGuiCol_Button, selected ? ui::colour::overlay : ui::colour::surface);
+                    ImGui::PushStyleColor(ImGuiCol_Text, selected ? ui::colour::amber : ui::colour::text);
+                    const float width = index == 0 ? first_segment_width : segment_space - first_segment_width;
+                    if (ImGui::Button(source_labels[index], {width, 0}))
+                        preferences.replay_location = location;
+                    ImGui::PopStyleColor(2);
+                }
+                ImGui::PopStyleVar(2);
+                ImGui::Spacing();
+                if (replay) {
+                    replay_task_details(replay_tasks, replay->position_us(), episode_load.valid());
+                    ImGui::Separator();
+                    ImGui::Spacing();
+                }
+                if (preferences.replay_location == ReplayLocation::local_file) {
                     ImGui::PushID("File");
                     pane_text_input("Recording", session_path, sizeof(session_path), ".mcap");
-                    ImGui::BeginDisabled(record_status.recording || pending_recording.has_value() || source_job.valid());
+                    ImGui::BeginDisabled(!session_path[0] || record_status.recording ||
+                                         pending_recording.has_value() || source_job.valid() || hf_status.running);
                     if (ui::primary_button("Open recording")) change_source(session_path, false);
                     ImGui::EndDisabled();
+                    if (hf_status.running)
+                        hf_account_controls(false);
                     ImGui::PopID();
-                }
-                if (ui::disclosure("Hugging Face", ImGuiTreeNodeFlags_DefaultOpen)) {
+                } else {
                     ImGui::PushID("HuggingFaceReplay");
-                    hf_account_controls();
                     ImGui::BeginDisabled(hf_status.running);
-                    pane_text_input("Organisation or username", hf_organisation, sizeof(hf_organisation));
-                    pane_text_input("Repository", hf_repository, sizeof(hf_repository));
-                    if (ImGui::Button("Browse recordings")) {
+                    pane_text_input("Repository", replay_repository, sizeof(replay_repository), "hf:username/dataset");
+                    ImGui::BeginDisabled(!replay_repository[0]);
+                    if (ui::primary_button("Browse recordings")) {
                         try {
                             hf_selected.clear();
-                            hugging_face.browse(hf::repository_id(hf_organisation, hf_repository));
+                            hugging_face.browse(replay_repository);
                         } catch (const std::exception& error) { ui_error = error.what(); }
                     }
+                    ImGui::EndDisabled();
                     ImGui::EndDisabled();
                     if (!hf_status.repository.empty()) {
                         ImGui::TextWrapped("%s", hf_status.repository.c_str());
@@ -2594,9 +3112,13 @@ int run_app(const AppOptions& options) {
                                 for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; ++row) {
                                     const auto& entry = (*hf_status.recordings)[visible[static_cast<size_t>(row)]];
                                     ImGui::PushID(entry.path.c_str());
-                                    if (ImGui::Selectable(entry.path.c_str(), hf_selected == entry.path))
+                                    const auto label = entry.is_dataset()
+                                        ? (entry.dataset_root.empty() ? std::string("Dataset")
+                                           : std::filesystem::path(entry.dataset_root).filename().string())
+                                        : entry.path;
+                                    if (ImGui::Selectable(label.c_str(), hf_selected == entry.path))
                                         hf_selected = entry.path;
-                                    ui::help((std::to_string(entry.bytes / 1048576) + " MiB").c_str());
+                                    ui::help((entry.path + "\n" + std::to_string(entry.bytes / 1048576) + " MiB").c_str());
                                     ImGui::PopID();
                                 }
                             ImGui::EndListBox();
@@ -2614,16 +3136,17 @@ int run_app(const AppOptions& options) {
                         ImGui::EndDisabled();
                         ImGui::EndDisabled();
                     }
+                    hf_account_controls();
                     ImGui::PopID();
                 }
                 ImGui::PopID();
                 end_body();
             }
-            if (section("Publish", "07", PaneSection::publish)) {
+            if (section("Publish", "08", PaneSection::publish)) {
                 begin_body("Publish body");
                 end_body();
             }
-            if (section("Telemetry", "08", PaneSection::telemetry)) {
+            if (section("Telemetry", "09", PaneSection::telemetry)) {
                 begin_body("Telemetry body");
                 ImGui::PushID("Telemetry");
                 ImFont* cadence_font =
@@ -2660,9 +3183,27 @@ int run_app(const AppOptions& options) {
                 if (view.depth) {
                     metric_value("Map memory", renderer->depth_map_bytes(view.environment_depth) / 1048576., "MiB", 1);
                     if (view.environment_depth) {
-                        metric_value("Depth", renderer->environment_depth_ms(), "ms", 2);
+                        metric_value("Depth GPU", renderer->environment_depth_ms(), "ms", 2);
                         metric_value("Updates", environment_hz, "Hz", 1);
                         metric_value("Rejected", double(snap.depth_rejected), "", 0);
+                        const auto& timing = renderer->environment_depth_timing();
+                        if (timing.valid) {
+                            if (timing.readback_ms)
+                                metric_value("Readback", *timing.readback_ms, "ms", 2);
+                            if (timing.callback_to_arrival_ms) {
+                                metric_value("Arrival age", *timing.callback_to_arrival_ms, "ms", 2);
+                                ui::help(timing.replay
+                                             ? "Recorded XR callback to complete depth arrival, including readback and transport."
+                                             : "XR callback to complete depth arrival, including readback and transport.");
+                            }
+                            metric_value("Depth queue", timing.arrival_to_submit_ms, "ms", 2);
+                            metric_value("Depth ready", timing.submit_to_ready_ms, "ms", 2);
+                            ui::help("Submission to observed CUDA completion, including the wait for the next viewer frame.");
+                            if (timing.target_lead_ms) {
+                                metric_value("Pose lead", *timing.target_lead_ms, "ms", 2);
+                                ui::help("XR target time minus the capture callback time. The browser does not expose the sensor's exposure timestamp.");
+                            }
+                        }
                     } else {
                         metric_value("Stereo", renderer->stereo_ms(), "ms", 2);
                         metric_value("Updates", stereo_hz, "Hz", 1);
@@ -2690,7 +3231,7 @@ int run_app(const AppOptions& options) {
                 ImGui::PopID();
                 end_body();
             }
-            if (section("Calibration", "09", PaneSection::calibration)) {
+            if (section("Calibration", "10", PaneSection::calibration)) {
                 begin_body("Calibration body");
                 ImGui::PushID("Calibration");
                 ui::small_label("Camera");
@@ -2743,7 +3284,6 @@ int run_app(const AppOptions& options) {
                             preferences.stereo_path = stereo_path;
                         }
                         reset_stereo_acquisition();
-                        renderer->clear_stereo();
                         recorder.push(calibration_event(snap.epoch, snap.space_epoch));
                     } catch (const std::exception& error) {
                         ui_error = error.what();
@@ -2754,7 +3294,6 @@ int run_app(const AppOptions& options) {
                     stereo_profile = quest_stereo();
                     stereo_path[0] = '\0';
                     reset_stereo_acquisition();
-                    renderer->clear_stereo();
                     if (!replay) {
                         preferences.stereo = stereo_profile;
                         preferences.stereo_path.clear();
@@ -2948,13 +3487,16 @@ int run_app(const AppOptions& options) {
                 }
             }
 
-            const auto elapsed = elapsed_label(record_status.active_duration_us);
+            const auto replay_position = replay ? replay->position_us() : 0;
+            const auto* replay_task = replay ? replay_tasks.at(replay_position) : nullptr;
+            const auto elapsed = elapsed_label(replay ? replay_position : record_status.active_duration_us);
             const auto time_cell = cell("##Recorded");
-            ui::instrument_text(time_cell, manual_recording_pause ? "PAUSED" : "RECORDED",
+            ui::instrument_text(time_cell, replay ? "REPLAY" : manual_recording_pause ? "PAUSED" : "RECORDED",
                                 mono_font, 11.f * dpi, .23f, ui::colour::muted);
             ui::instrument_text(time_cell, elapsed.c_str(), timer_font, timer_font->FontSize,
                                 .64f, manual_recording_pause ? ui::colour::amber : ui::colour::text);
-            ui::help(record_status.failed ? record_status.error.c_str() : "Recorded time, excluding pauses");
+            ui::help(replay ? "Position in the recording" : record_status.failed
+                ? record_status.error.c_str() : "Recorded time, excluding pauses");
 
             const auto progress = task_run.progress(monotonic_us());
             const auto* step = task_run.current_task();
@@ -2963,7 +3505,9 @@ int run_app(const AppOptions& options) {
             if (have_spec && ready)
                 step = &task_specification->tasks.front();
             std::string counters = "--";
-            if (have_spec) {
+            if (replay) {
+                counters = replay_task_counters(replay_task);
+            } else if (have_spec) {
                 std::ostringstream text;
                 text << 'C' << (ready ? 1 : progress.cycle) << '/' << task_specification->cycle_count;
                 if (step)
@@ -2974,7 +3518,7 @@ int run_app(const AppOptions& options) {
                     text << " T-- R--";
                 counters = text.str();
             }
-            const bool task_running = record_status.recording && have_spec &&
+            const bool task_running = !replay && record_status.recording && have_spec &&
                                       progress.phase != TaskRunPhase::stopped &&
                                       progress.phase != TaskRunPhase::complete;
             const bool repeat_enabled = task_running && task_run.can_restart();
@@ -3012,7 +3556,8 @@ int run_app(const AppOptions& options) {
             ui::instrument_text(progress_cell, "CYCLE / TASK / REP", mono_font, 11.f * dpi,
                                 .23f, ui::colour::muted);
             ui::instrument_text(progress_cell, counters.c_str(), mono_font, 18.f * dpi, .64f);
-            ui::help(step && !step->instructions.empty() ? step->instructions.c_str()
+            ui::help(replay ? (replay_task ? replay_task->description.c_str() : "No current recorded task")
+                     : step && !step->instructions.empty() ? step->instructions.c_str()
                      : step ? step->label.c_str() : "No task specification");
 
             const auto advance_task = [&](std::optional<bool> success) {
@@ -3069,7 +3614,10 @@ int run_app(const AppOptions& options) {
 
             const char* remaining_title = "REMAINING";
             std::string remaining = "OPEN";
-            if (progress.phase == TaskRunPhase::complete) {
+            if (replay) {
+                remaining_title = "REP REMAINING";
+                remaining = replay_task ? elapsed_label(replay_task->end_us - replay_position + 999999) : "--";
+            } else if (progress.phase == TaskRunPhase::complete) {
                 remaining_title = "COMPLETE";
                 remaining = "--";
             } else if (record_status.recording && progress.phase_remaining_us) {
@@ -3127,6 +3675,8 @@ int run_app(const AppOptions& options) {
                                                   {sidebar_heading_last.x, sidebar_heading_last.y}}},
                     {"paused", manual_recording_pause}, {"count_in", pending_recording.has_value()},
                     {"elapsed_label", elapsed}, {"counters", counters},
+                    {"replay_task", replay ? replay_tasks.to_json(replay_position) : Json()},
+                    {"replay_task_count", replay_tasks.tasks().size()},
                     {"remaining_label", remaining}, {"remaining_title", remaining_title},
                     {"task_controls", {{"repeat_enabled", repeat_enabled},
                         {"advance_enabled", advance_enabled}, {"outcome_enabled", outcome_enabled},
@@ -3166,6 +3716,11 @@ int run_app(const AppOptions& options) {
                 return ui::instrument_cell(id, {width, instrument_height}, interactive);
             };
             const auto clear_replay_frames = [&] {
+                try {
+                    capture_final_maps();
+                } catch (const std::exception& error) {
+                    map_error = error.what();
+                }
                 decoder->cancel_replay();
                 secondary_decoder->cancel_replay();
                 reset_stereo_acquisition();
@@ -3405,6 +3960,23 @@ int run_app(const AppOptions& options) {
     }
     exporter.cancel();
     try {
+        // Finish any old-world readback before requesting the final current-world snapshot.
+        for (bool environment : {true, false})
+            renderer->finish_map_snapshot(environment);
+        collect_map_snapshots();
+        request_map_snapshots();
+        for (bool environment : {true, false})
+            renderer->finish_map_snapshot(environment);
+        collect_map_snapshots();
+        for (auto& [path, store] : map_stores) {
+            store->flush();
+            if (!store->status().error.empty())
+                map_error = store->status().error;
+        }
+    } catch (const std::exception& error) {
+        map_error = error.what();
+    }
+    try {
         persist_preferences();
         persist_episodes();
     } catch (const std::exception& error) {
@@ -3435,6 +4007,19 @@ int run_app(const AppOptions& options) {
         {"environment_depth_updates", environment_updates},
         {"environment_depth_ms", renderer->environment_depth_ms()},
         {"environment_depth_source", environment_usage},
+        {"environment_depth_timing", [&] {
+            const auto& timing = renderer->environment_depth_timing();
+            const auto optional_value = [](const std::optional<double>& value) {
+                return value ? Json(*value) : Json();
+            };
+            return Json{{"valid", timing.valid}, {"replay", timing.replay},
+                        {"sequence", timing.sequence}, {"geometry_source", timing.geometry_source},
+                        {"readback_ms", optional_value(timing.readback_ms)},
+                        {"target_lead_ms", optional_value(timing.target_lead_ms)},
+                        {"callback_to_arrival_ms", optional_value(timing.callback_to_arrival_ms)},
+                        {"arrival_to_submit_ms", timing.arrival_to_submit_ms},
+                        {"submit_to_ready_ms", timing.submit_to_ready_ms}, {"gpu_ms", timing.gpu_ms}};
+        }()},
         {"environment_depth_received", final_receiver.depth_frames},
         {"environment_depth_rejected", final_receiver.depth_rejected},
         {"environment_depth_status", final_receiver.depth_status},
@@ -3444,7 +4029,18 @@ int run_app(const AppOptions& options) {
         {"stereo_update_hz", view.stereo_update_hz},
         {"stereo_last_update_age_ms", final_stereo_update_age_ms},
         {"voxel_size", view.voxel_size},
-        {"map_persistence", "evidence"},
+        {"map_persistence", "tsdf-surface-cache"},
+        {"map_frozen", view.map_frozen},
+        {"map_shader", static_cast<int>(view.map_shader)},
+        {"map_style", static_cast<int>(view.map_style)},
+        {"map_relief_strength", view.map_relief_strength},
+        {"map_density", view.map_density},
+        {"map_max_bytes", preferences.map_max_bytes},
+        {"map_point_count", renderer->map_point_count(view.environment_depth)},
+        {"map_file", preferences.last_map.string()},
+        {"map_error", map_error},
+        {"map_freeze_environment_updates", frozen_environment_updates},
+        {"map_freeze_stereo_pairs", frozen_stereo_pairs},
         {"map_memory_bytes", renderer->depth_map_bytes(view.environment_depth)},
         {"mask_hands", view.mask_hands},
         {"depth_lod", view.depth_lod},

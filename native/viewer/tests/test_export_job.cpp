@@ -1,4 +1,5 @@
 #include "ceres/export_job.hpp"
+#include "ceres/lerobot_import.hpp"
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
@@ -25,26 +26,49 @@ ceres::ExportStatus wait(ceres::ExportJob& job) {
     require(!status.running, "Export job did not finish");
     return status;
 }
+Json export_capabilities(bool source_dimensions = true) {
+    return {{"schema", "ceres-native-export-capabilities"},
+            {"job_version", 1}, {"lerobot", "v3.0"}, {"actions", true},
+            {"action_dimension", 2}, {"ceres_episode_shards", true},
+            {"source_video_dimensions", source_dimensions},
+            {"profiles", {"ceres-bridge-lerobot3-v1", "ceres-bridge-observation-v1"}}};
+}
 int helper(int argc, char** argv) {
+    const auto executable = from_utf8(argv[0]);
     if (std::string(argv[1]) == "--capabilities") {
-        std::cout << Json{{"schema", "ceres-native-export-capabilities"},
-                          {"job_version", 1},
-                          {"lerobot", "v3.0"},
-                          {"actions", true},
-                          {"action_dimension", 2},
-                          {"ceres_episode_shards", true},
-                          {"source_video_dimensions",
-                           from_utf8(argv[0]).filename().string().find("legacy") ==
-                               std::string::npos},
-                          {"profiles", {"ceres-bridge-lerobot3-v1", "ceres-bridge-observation-v1"}}}
-                         .dump()
-                  << '\n';
+        auto capabilities = export_capabilities(executable.filename().string().find("legacy") == std::string::npos);
+        if (executable.stem() == "ceres-native-exporter") {
+            std::ifstream file(executable.parent_path() / "replay-capabilities.json");
+            if (file) capabilities = Json::parse(file);
+        }
+        std::cout << capabilities.dump() << '\n';
+        return capabilities.value("fixture_exit", 0);
+    }
+    if (argc == 3 && std::string(argv[1]) == "--import-job") {
+        std::ofstream marker(executable.parent_path() / "import-started");
+        marker << "started\n";
+        std::ifstream input(from_utf8(argv[2]));
+        const auto job = Json::parse(input);
+        std::ofstream output(from_utf8(job.at("output").get<std::string>()), std::ios::binary);
+        output << "replay with task metadata";
+        output.close();
+        std::cout << Json{{"schema", "ceres-export-progress"}, {"stage", "complete"}}.dump() << '\n';
         return 0;
     }
     require(argc == 3 && std::string(argv[1]) == "--job", "Invalid helper invocation");
     std::ifstream input(from_utf8(argv[2]));
     const auto job = Json::parse(input);
     const auto scenario = job.value("test_scenario", "success");
+    if (scenario == "replay-capability") {
+        try {
+            ceres::import_lerobot_replay(from_utf8(job.at("dataset").get<std::string>()),
+                                       from_utf8(job.at("replay_output").get<std::string>()), {});
+        } catch (const std::exception& error) {
+            std::cout << Json{{"schema", "ceres-export-progress"}, {"stage", "error"},
+                               {"message", error.what()}}.dump() << '\n';
+            return 17;
+        }
+    }
     if (scenario == "failure") {
         std::cerr << Json{{"schema", "ceres-export-progress"},
                           {"version", 1},
@@ -84,6 +108,49 @@ int helper(int argc, char** argv) {
               << '\n';
     return 0;
 }
+void replay_capability_tests(const fs::path& root, const fs::path& self) {
+    fs::create_directories(root);
+    const auto importer = root / ("ceres-native-exporter" + self.extension().string());
+    const auto ffmpeg = root / ("ffmpeg" + self.extension().string());
+    const auto driver = root / ("replay driver" + self.extension().string());
+    for (const auto& executable : {importer, ffmpeg, driver}) fs::copy_file(self, executable);
+    const auto capability_file = root / "replay-capabilities.json";
+    const auto set_capabilities = [&](const Json& value) {
+        std::ofstream file(capability_file);
+        require(bool(file << value.dump() << '\n'), "Cannot write fixture capabilities");
+    };
+    const auto legacy = export_capabilities();
+    set_capabilities(legacy);
+    ceres::ExportJob normal_export(importer, ffmpeg);
+    require(normal_export.start(Json{{"output", (root / "normal-export").string()}}, root / "export.json"),
+            "Could not start normal export with an older helper");
+    require(wait(normal_export).error.empty(), "Replay capability requirements changed normal export support");
+
+    const auto replay = root / "imported.mcap";
+    const auto marker = root / "import-started";
+    const Json job{{"output", (root / "driver-output").string()}, {"dataset", (root / "dataset").string()},
+                   {"replay_output", replay.string()}, {"test_scenario", "replay-capability"}};
+    ceres::ExportJob runner(driver, ffmpeg);
+    auto current = legacy;
+    current["replay_import_version"] = 1;
+    current["replay_task_schema"] = "ceres-replay-task";
+    current["replay_task_version"] = 1;
+    auto wrong_schema = current; wrong_schema["replay_task_schema"] = "another-schema";
+    auto wrong_version = current; wrong_version["replay_task_version"] = 0;
+    auto wrong_type = current; wrong_type["replay_task_version"] = "1";
+    auto failed_probe = current; failed_probe["fixture_exit"] = 9;
+    for (const auto& unsupported : {legacy, wrong_schema, wrong_version, wrong_type, failed_probe}) {
+        set_capabilities(unsupported);
+        require(runner.start(job, root / "driver-job.json"), "Could not start replay capability fixture");
+        require(wait(runner).error.find("replay tasks and repetitions") != std::string::npos &&
+                    !fs::exists(marker) && !fs::exists(replay),
+                "Unsupported importer started replay conversion");
+    }
+    set_capabilities(current);
+    require(runner.start(job, root / "driver-job.json"), "Could not start current replay importer");
+    require(wait(runner).error.empty() && fs::is_regular_file(marker) && fs::is_regular_file(replay),
+            "Current task metadata importer was rejected");
+}
 int main(int argc, char** argv) {
     if (argc > 1)
         return helper(argc, argv);
@@ -92,6 +159,7 @@ int main(int argc, char** argv) {
     try {
         fs::create_directories(root);
         const auto self = fs::absolute(from_utf8(argv[0]));
+        replay_capability_tests(root / "replay capabilities", self);
 #ifdef _WIN32
         const auto executable = root / "helper with spaces.exe";
 #else

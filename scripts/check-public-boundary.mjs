@@ -8,7 +8,7 @@ const hash = bytes => createHash("sha256").update(bytes).digest("hex");
 const excluded = /(?:^|\/)(?:infrastructure|documentation|user-facing-documentation|AGENTS\.md|\.vercel|\.wrangler|\.env(?:\..*)?)(?:\/|$)|(?:^|\/)(?:hosted-|account-export-client|account-upload-receipt|account-identity|browser-observability|browser-journeys|client-diagnostics|recording-workflow-observability|javascript-error-telemetry|posthog|site-navigation|user-documentation|arrival-app|dataset-replay)/i;
 const viewerDocument = /^native\/viewer\/docs\/[A-Za-z0-9_-]+\.md$/;
 const nativeGenerated = /^native\/(?:viewer|lerobot-exporter)\/(?:build[^/]*|cmake-build[^/]*|out|stage|deps|target|artifacts|release|\.cache|\.venv)(?:\/|$)/i;
-const nativePrivate = /^native\/viewer\/(?:assets\/(?:local|mano)(?:\/|$)|import-provenance\.json$)|^native\/.*\.(?:mcap(?:\.partial)?|pkl|npz|npy)$/i;
+const nativePrivate = /^native\/viewer\/(?:assets\/(?:local|mano)(?:\/|$)|import-provenance\.json$)|^native\/.*\.(?:mcap(?:\.partial)?|cmap(?:\.pending)?|pkl|npz|npy)$/i;
 const privateNativeQualification = /^\.github\/(?:workflows\/native-viewer-hardware\.yml|scripts\/run-native-qualification\.py)$/i;
 const isExcludedPath = file => (file !== "src/dataset-replay-zstd.ts" && excluded.test(file))
   || (file !== "native/lerobot-exporter/build.rs" && nativeGenerated.test(file)) || nativePrivate.test(file)

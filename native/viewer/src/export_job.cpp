@@ -1,4 +1,5 @@
 #include "ceres/export_job.hpp"
+#include "ceres/lerobot_import.hpp"
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -357,6 +358,33 @@ class Process {
     bool done_ = false;
     int exit_code_ = 1;
 };
+void require_replay_importer(const fs::path& executable, std::stop_token stop) {
+    Json capabilities;
+    Process probe(executable, {"--capabilities"});
+    const auto started = Clock::now();
+    const auto line = [&](const std::string& text, bool is_error) {
+        if (is_error) return;
+        auto value = Json::parse(text, nullptr, false);
+        if (value.is_object()) capabilities = std::move(value);
+    };
+    while (probe.running()) {
+        probe.drain(line);
+        if (stop.stop_requested())
+            throw std::runtime_error("Replay import cancelled");
+        if (Clock::now() - started > std::chrono::seconds(5))
+            throw std::runtime_error("Dataset importer capability check timed out");
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    probe.finish_lines(line);
+    if (stop.stop_requested())
+        throw std::runtime_error("Replay import cancelled");
+    if (probe.exit_code() != 0 || !capabilities.is_object() ||
+        capabilities.value("schema", Json{}) != "ceres-native-export-capabilities" ||
+        capabilities.value("replay_import_version", Json{}) != 1 ||
+        capabilities.value("replay_task_schema", Json{}) != "ceres-replay-task" ||
+        capabilities.value("replay_task_version", Json{}) != 1)
+        throw std::runtime_error("Update the bundled dataset importer to replay tasks and repetitions");
+}
 } // namespace
 
 struct ExportJob::Impl {
@@ -514,6 +542,92 @@ fs::path ExportJob::discover_helper() {
 }
 fs::path ExportJob::discover_ffmpeg() {
     return find_executable("ffmpeg", true);
+}
+void import_lerobot_replay(const fs::path& dataset_directory, const fs::path& output_mcap,
+                           std::stop_token stop) {
+    if (stop.stop_requested())
+        throw std::runtime_error("Replay import cancelled");
+    const auto helper = ExportJob::discover_helper();
+    const auto ffmpeg = ExportJob::discover_ffmpeg();
+    if (helper.empty())
+        throw std::runtime_error("Native dataset importer executable was not found");
+    if (ffmpeg.empty())
+        throw std::runtime_error("FFmpeg executable was not found");
+    const auto output = fs::absolute(output_mcap);
+    if (fs::exists(output))
+        throw std::runtime_error("Replay destination already exists");
+    require_replay_importer(helper, stop);
+    fs::create_directories(output.parent_path());
+    static std::atomic<uint64_t> import_sequence{0};
+    const auto stem = ".ceres-replay-job-" + std::to_string(monotonic_us()) + "-" +
+                      std::to_string(import_sequence.fetch_add(1));
+    const auto manifest_path = output.parent_path() / (stem + ".json");
+    const auto cancel_path = output.parent_path() / (stem + ".cancel");
+    struct TemporaryFiles {
+        fs::path manifest, cancellation;
+        ~TemporaryFiles() {
+            std::error_code ignored;
+            fs::remove(manifest, ignored);
+            fs::remove(cancellation, ignored);
+        }
+    } cleanup{manifest_path, cancel_path};
+    const Json job{{"schema", "ceres-lerobot-replay"},
+                   {"version", 1},
+                   {"dataset", utf8(fs::absolute(dataset_directory))},
+                   {"output", utf8(output)},
+                   {"ffmpeg", utf8(ffmpeg)},
+                   {"cancel_file", utf8(cancel_path)}};
+    {
+        std::ofstream manifest(manifest_path, std::ios::binary | std::ios::trunc);
+        if (!manifest || !(manifest << job.dump(2) << '\n'))
+            throw std::runtime_error("Cannot write replay import job");
+        manifest.close();
+        if (!manifest)
+            throw std::runtime_error("Cannot finish replay import job");
+    }
+    Process process(helper, {"--import-job", utf8(manifest_path)});
+    std::string diagnostic, error;
+    bool completed = false;
+    const auto line = [&](const std::string& text, bool is_error) {
+        const auto value = Json::parse(text, nullptr, false);
+        if (value.is_object() && value.value("schema", "") == "ceres-export-progress") {
+            if (value.value("stage", "") == "complete")
+                completed = true;
+            else if (value.value("stage", "") == "error")
+                error = value.value("message", "Replay import failed");
+        } else if (is_error && !text.empty()) {
+            diagnostic += text + '\n';
+            if (diagnostic.size() > 16384)
+                diagnostic.erase(0, diagnostic.size() - 16384);
+        }
+    };
+    auto cancellation_started = Clock::time_point{};
+    while (process.running()) {
+        process.drain(line);
+        if (stop.stop_requested()) {
+            if (cancellation_started == Clock::time_point{}) {
+                cancellation_started = Clock::now();
+                std::ofstream signal(cancel_path, std::ios::binary);
+                signal << "cancel\n";
+            }
+            if (Clock::now() - cancellation_started > std::chrono::seconds(5)) {
+                process.terminate();
+                break;
+            }
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    process.finish_lines(line);
+    if (stop.stop_requested() || process.exit_code() != 0 || !completed ||
+        !fs::is_regular_file(output)) {
+        std::error_code ignored;
+        fs::remove(output, ignored);
+        if (stop.stop_requested())
+            throw std::runtime_error("Replay import cancelled");
+        throw std::runtime_error(!error.empty() ? error
+                                 : !diagnostic.empty() ? diagnostic
+                                                      : "Dataset importer did not complete replay");
+    }
 }
 bool ExportJob::start(Json job, const fs::path& requested_path) {
     std::lock_guard lifecycle(impl_->lifecycle);

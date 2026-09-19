@@ -852,6 +852,7 @@ struct ReplaySource::Impl {
             e.attributes["session_time_us"] = entry ? entry->time : position;
             e.attributes["replay_generation"] = token;
             e.attributes["replay_preroll"] = preroll;
+            e.attributes["replay_delivery_us"] = now;
             if (entry) {
                 e.receive_us = now + int64_t((entry->receive - position) / multiplier);
                 e.time_us = now + int64_t((entry->time - position) / multiplier);
@@ -1167,6 +1168,18 @@ std::vector<SessionEvent> ReplaySource::episodes() const {
         events.push_back(std::move(event));
     }
     return events;
+}
+Json ReplaySource::task_specification() const {
+    std::ifstream file(impl_->source_path, std::ios::binary);
+    for (const auto& entry : impl_->index.entries) {
+        if (entry.kind != EventKind::Asset || entry.stream != "task-specification")
+            continue;
+        const auto event = load_event(file, entry);
+        if (event.attributes.is_object() &&
+            event.attributes.value("schema", Json{}) == "ceres-task-specification")
+            return event.attributes;
+    }
+    return {};
 }
 std::vector<SessionEvent> ReplaySource::pose_history(int64_t start_us, int64_t end_us) const {
     const auto& p = *impl_;

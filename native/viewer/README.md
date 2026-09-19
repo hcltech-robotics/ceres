@@ -10,7 +10,7 @@ Hugging Face sign-in uses your web browser. On Linux, install `xdg-utils` in the
 
 Launch `ceres-viewer` from its distribution directory. **Connection** shows a QR code and access code. Open Ceres Bridge on the headset and enter that code. The receiver identity is retained between launches. **Disconnect** closes the active connection and **Pair again** creates a new pairing identity.
 
-**Connection**, **Hands**, **Depth**, **Task**, **Recording**, **Replay**, **Publish**, **Telemetry** and **Calibration** organise the control pane. **Recording** contains saving, episode selection and export. **Replay** opens local or Hugging Face recordings, with playback controls along the bottom of the scene. The **Publish** section is empty.
+**Connection**, **Hands**, **Spatial map**, **Scene**, **Task**, **Recording**, **Replay**, **Publish**, **Telemetry** and **Calibration** organise the control pane. **Scene** contains the grid, camera frusta and image controls. **Recording** contains saving, episode selection and export. **Replay** opens local or Hugging Face recordings, with playback controls along the bottom of the scene. The **Publish** section is empty.
 
 The sidebar reaches the top edge, and the recording strip ends at its left edge. Five buttons in the fixed sidebar footer control visibility: **HAND**, **HMD**, **TRL**, **RGB** and **DEPTH**. Hiding a layer preserves its appearance settings, tracking and spatial map. The selected section, display settings, task specification, calibration and recording destination persist between launches. Hiding the control pane lets the scene fill the window while the recording toolbar and replay timeline remain accessible. Text and controls follow the display scale.
 
@@ -31,7 +31,7 @@ The sidebar reaches the top edge, and the recording strip ends at its left edge.
 | Tab/Shift+Tab in controls | Move between controls |
 | Escape | Cancel the count-in or return focus to the scene |
 
-**Depth** provides reset, frame-hands and headset-view commands. Mouse and keyboard input belongs to the pane whenever ImGui captures it. Scrolling or dragging in the pane does not move the scene.
+The upper-left scene controls choose the orbit reference: **W** is the world origin, **M** is the centre of the displayed model, **H** is the visible hands and **C** is the headset camera. The reference follows the displayed geometry, and panning offsets the orbit centre. **HMD** views from the headset with its current orientation and roll. **Top**, **Side** and **Iso** frame the selected reference from above, the right or an isometric angle. Unavailable references and views are disabled. Changing the orbit reference leaves distance colouring relative to the headset. **Scene** also provides reset, frame-hands and headset-view commands. Mouse and keyboard input belongs to the controls whenever ImGui captures it. Scrolling or dragging over controls does not move the scene.
 
 ## Live view
 
@@ -43,11 +43,11 @@ Hands follow the latest accepted tracking independently of camera video. The rec
 
 The Quest preset supplies camera intrinsics and camera-to-head placement. A version 1 JSON calibration profile can replace it with measured values. Projection distance changes the size and location of the image plane without changing calibration. See [the calibration profile](docs/calibration.md).
 
-Use **DEPTH** in the sidebar footer to show the persistent spatial map. **Automatic** prefers the headset's environment depth, with stereo images as the fallback. Unseen surfaces remain in the map. New observations reduce confidence in contradicted geometry, while a fixed memory budget keeps distant detail coarse and prunes low-value cells when necessary. **Mask hands** excludes tracked fingers and palms. Quest depth arrives independently of camera video at two updates per second and uses the same tracking reference space as the hands. See [environment depth](docs/environment-depth.md).
+Use **DEPTH** in the sidebar footer to show the persistent TSDF spatial map. **Automatic** prefers Quest environment depth, with stereo images as the fallback. **Freeze map** stops acquisition while points retain their world positions and continue to show distance from the current headset. **Points** sets exact pixel size, **Spacing** controls fusion resolution and **Density** controls visible samples. **View > Shape** adds depth-aware shading with adjustable **Relief** to reveal object boundaries. **View > Points** keeps the unshaded point display. **Colour** independently selects **Distance**, **Recency**, **Confidence** or **Neutral**. Maps save automatically with an adjustable **Max size**, and neighbouring samples merge as the budget fills. The map folder keeps the three most recent autosaved files across both sources. **Open saved map** restores a frozen map. **Mask hands** excludes tracked fingers and palms. See [environment depth and map storage](docs/environment-depth.md).
 
 Recordings containing both cameras retain independently decoded left/right images. **Preview** shows both images and **RGB** in the sidebar footer places both camera planes in the scene. Select **Stereo** as the depth source to reconstruct from paired images. **Calibration > Stereo** provides the Quest default and measured profiles. Stereo pairs use sender media timestamps within the selected time limit. See [stereo calibration and reconstruction](docs/stereo-calibration.md).
 
-**Depth** contains the camera preview. **Telemetry** separates rendering, camera cadence and tracking packet rate, alongside decode time, GPU scene/UI time, depth updates, pose age, clock uncertainty and recorder queue use. The [instrument design system](docs/design-system.md) defines the shared controls, typography and signal colours.
+**Scene > Image** contains the camera preview, image distance and opacity. **Telemetry** separates rendering, camera cadence and tracking packet rate, alongside decode time, GPU scene/UI time, depth updates, pose age, clock uncertainty and recorder queue use. The [instrument design system](docs/design-system.md) defines the shared controls, typography and signal colours.
 
 The bundled anatomical SOMA-X hands follow the 25 WebXR joints and retain their original mesh topology and skinning weights. Each hand has 2,859 vertices and 5,692 triangles, with a continuous palm, thumb webbing and articulated fingers. The Apache 2.0 licence, NVIDIA attribution and source provenance accompany the meshes. Users with authorised MANO assets can place their converted files under `assets/local/mano` to use that geometry instead. The MANO loader retains all 16 skinning influences.
 
@@ -88,9 +88,11 @@ The binary envelope, timeline and recovery rules are documented in [the session 
 
 ## Replay
 
-In **Replay > File**, enter an MCAP path and choose **Open recording**. In **Replay > Hugging Face**, enter the organisation or username and repository name, then choose **Browse recordings**. The list includes the repository's MCAP recordings across folders and pages. Use **Filter** to find a recording, select it and choose **Load into player**. Private repositories use the same browser sign-in as uploads.
+**Replay** has two segments: **Hugging Face** and **Local file**. In **Local file**, enter an MCAP path and choose **Open recording**. In **Hugging Face**, enter a dataset repository such as `hf:chrisvoncsefalvay/ceres-demos`, then choose **Browse recordings**. The list includes MCAP recordings and CERES LeRobot datasets, including episode shards in nested folders. Use **Filter** to find a recording, select it and choose **Load into player**. Public repositories can be browsed directly, while private repositories use the same browser sign-in as uploads.
 
 Hugging Face downloads use the selected repository commit and verify each file's size and content hash before opening it. An accompanying `.episodes.json` sidecar is downloaded from that same revision, preserving saved episode selections.
+
+CERES LeRobot episodes load their recorded video, headset poses, hand joints, task specifications and repetition intervals into the playback timeline. **Replay** shows the current task and description, the recorded repetition/take and its start/end times. **Task** shows the run description and complete recorded task timeline. The toolbar follows the current cycle/task/repetition and time remaining while playing or seeking. Original repetition numbers and source timestamps are retained when a dataset contains selected attempts. Downloaded datasets and their replay files are cached for subsequent loads.
 
 The bottom playback strip provides play/pause, previous/next frame, the timeline, elapsed and total time and speeds from 0.25x to 4x. It remains visible when the control pane is hidden. Seeking starts at the preceding video keyframe and cancels earlier outstanding scrubs.
 

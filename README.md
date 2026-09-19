@@ -152,9 +152,9 @@ release assets:
 
 | Platform | Download | System |
 | --- | --- | --- |
-| Windows x64 | [Download ZIP](https://github.com/hcltech-robotics/ceres/releases/download/v1.1.1/ceres-viewer-1.1.1-windows-x64.zip) | Windows 11 with an NVIDIA GPU |
-| Linux x64 | [Download tar.gz](https://github.com/hcltech-robotics/ceres/releases/download/v1.1.1/ceres-viewer-1.1.1-linux-x64.tar.gz) | Ubuntu 22.04 or newer with an NVIDIA GPU |
-| Linux ARM64 | [Download tar.gz](https://github.com/hcltech-robotics/ceres/releases/download/v1.1.1/ceres-viewer-1.1.1-linux-arm64.tar.gz) | Ubuntu 24.04 or newer on NVIDIA GB10 |
+| Windows x64 | [Download ZIP](https://github.com/hcltech-robotics/ceres/releases/download/v1.1.2/ceres-viewer-1.1.2-windows-x64.zip) | Windows 11 with an NVIDIA GPU |
+| Linux x64 | [Download tar.gz](https://github.com/hcltech-robotics/ceres/releases/download/v1.1.2/ceres-viewer-1.1.2-linux-x64.tar.gz) | Ubuntu 22.04 or newer with an NVIDIA GPU |
+| Linux ARM64 | [Download tar.gz](https://github.com/hcltech-robotics/ceres/releases/download/v1.1.2/ceres-viewer-1.1.2-linux-arm64.tar.gz) | Ubuntu 24.04 or newer on NVIDIA GB10 |
 
 Extract the archive and start `ceres-viewer.exe` on Windows or `./ceres-viewer` on
 Linux. Each download includes the exporter, FFmpeg, runtime libraries, product
@@ -175,6 +175,12 @@ return to the preceding repetition or task. **Done** completes a repetition,
 The **Publish** section is empty. The included SOMA-X meshes retain their Apache
 2.0 licence and source provenance, and users can also load authorised MANO assets
 locally.
+
+The **Spatial map** pane controls TSDF fusion, freeze/resume, point size, spacing and
+display density. Distance colours follow the current headset position, with Recency
+and Confidence available as alternative shaders. Maps save automatically as `.cmap`
+files within a configurable size limit and reopen frozen. Automatic storage keeps
+the three most recent maps.
 
 The archive's version matches its CERES release. Compare its SHA-256 digest with
 the signed `SHA256SUMS` file. To verify a complete locally assembled release,
@@ -279,7 +285,7 @@ please cite the version you used. The citation below is also available in
   author  = {Foldi, Tamas and von Csefalvay, Chris and Unni Krishnan, Achyuthan},
   title   = {{CERES: Capturing Egocentric Recordings with Ease and Speed}},
   year    = {2026},
-  version = {1.1.1},
+  version = {1.1.2},
   doi     = {10.5281/zenodo.22729061},
   url     = {https://github.com/hcltech-robotics/ceres},
   license = {MIT}

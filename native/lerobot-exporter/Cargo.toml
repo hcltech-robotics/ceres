@@ -13,7 +13,7 @@ arrow-schema = "=59.2.0"
 ceres-lerobot-exporter = { path = "../../wasm/lerobot-exporter" }
 mcap = "=0.25.0"
 memmap2 = "0.9"
-parquet = { version = "=59.2.0", default-features = false, features = ["arrow", "snap"] }
+parquet = { version = "=59.2.0", default-features = false, features = ["arrow", "snap", "zstd"] }
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.151"
 tempfile = "3.23"

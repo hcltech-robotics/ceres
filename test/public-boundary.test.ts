@@ -37,6 +37,7 @@ test("native product docs pass while private docs and local model assets fail", 
     "docs/private.md", "native/lerobot-exporter/docs/private.md", "native/viewer/docs/private/note.md",
     "native/viewer/AGENTS.md", "native/viewer/import-provenance.json", "native/viewer/assets/local/mano-left.bin",
     "native/viewer/MANO_RIGHT.pkl", "native/viewer/artifacts/recording.json", "native/viewer/secret.key", "native/lerobot-exporter/build-output.json",
+    "native/viewer/room.cmap", "native/viewer/room.cmap.pending",
     "src/dataset-replay-app.ts", "src/private/dataset-replay-zstd.ts",
     ".github/workflows/native-viewer-hardware.yml", ".github/scripts/run-native-qualification.py",
   ]) {

@@ -14,7 +14,8 @@ import sys
 from datetime import datetime, timezone
 
 PLATFORMS = ("windows-x64", "linux-x64", "linux-arm64")
-CHECKS = {"package", "cuda", "nvdec", "render", "record", "replay", "dual_camera", "depth", "export"}
+CHECKS = {"package", "cuda", "nvdec", "render", "record", "replay", "dual_camera", "depth", "export",
+          "spatial_map_pixels", "spatial_map_lifecycle", "spatial_map_freeze", "spatial_map_storage"}
 TEXT_SUFFIXES = {".cpp", ".hpp", ".h", ".cu", ".cuh", ".cmake", ".json", ".py", ".ps1", ".sh", ".cmd", ".rs", ".toml", ".lock", ".yml", ".txt"}
 
 
