@@ -53,6 +53,16 @@ import { loadRuntimeFeatures, RuntimeFeatureRecovery } from "./runtime-features-
 import { episodeBlockPresentation } from "./monitor-episode-presentation.js";
 import { episodeDisplayCycles } from "./monitor-episode-sequence.js";
 import { episodeSelectionAvailable } from "./monitor-episode-review.js";
+import { loadAutomaticExportPreference, loadMonitorExportDestination, loadUploadCadence, savedExportFolder, storeAutomaticExportPreference, storeMonitorExportDestination, storeUploadCadence, type MonitorExportDestination } from "./monitor-export-preference.js";
+import { automaticCaptureExports, taskExportCheckpoint, type AutomaticCaptureExport } from "./monitor-task-export.js";
+import { listStoredExports, copyStoredExportsToFolder, deleteStoredExports, type StoredExportCapture } from "./monitor-stored-exports.js";
+import { renderCaptureMetadata } from "./monitor-capture-metadata.js";
+import { monitorHfAccountMarkup, renderMonitorHfAccount } from "./monitor-hf-panel.js";
+import { DEPTH_CHANNEL, MonitorDepthView } from "./monitor-depth.js";
+import { MonitorRunStack } from "./monitor-run-stack.js";
+import { MonitorRunPosition } from "./monitor-run-position.js";
+import { MonitorRunTimeline } from "./monitor-run-timeline.js";
+import { loadAutomaticUploadEnabled, storeAutomaticUploadEnabled } from "./monitor-export-preference.js";
 import { Bug, createIcons, Keyboard } from "lucide";
 import { RunEditor } from "./run-editor.js";
 import {
@@ -143,7 +153,7 @@ const formatWristPose = (
   position: [number, number, number] | null,
   rotation: [number, number, number, number] | null,
 ) => position && rotation
-  ? `P ${position.map((value) => value.toFixed(3)).join(" ")} / Q ${rotation.map((value) => value.toFixed(3)).join(" ")}`
+  ? `P ${position.map((value) => value.toFixed(3)).join(" ")}/Q ${rotation.map((value) => value.toFixed(3)).join(" ")}`
   : "NO POSE";
 const nextMode = <T extends string>(modes: readonly T[], current: T) => modes[(modes.indexOf(current) + 1) % modes.length];
 const peerRunControlActions = new Set(["start-sequence", "start", "pause", "stop", "finish", "success", "fail", "retry", "resume", "next-task", "show-instructions"]);
@@ -174,6 +184,7 @@ interface BrowserExportJob {
   episodeIds: string[];
   lerobotStartedAtMs: number;
   deliveryStartedAtMs: number | null;
+  automaticKey?: string;
   activityStage?: "queued" | "exporting" | "uploading";
   accountUploadJobId?: string;
   backendUploadRecovery?: {
@@ -187,7 +198,8 @@ type BrowserExportJourneyOutcome = "queued" | "completed" | "failed" | "cancelle
 function recordMonitorExportJourney(
   type: BrowserExportJob["type"],
   outcome: BrowserExportJourneyOutcome,
-) {}
+) {
+}
 
 function browserExportJobIsTerminal(job: BrowserExportJob) {
   return job.state === "completed" || job.state === "failed" || job.state === "cancelled";
@@ -284,6 +296,10 @@ export class MonitorApp {
   private accountUploadAbort: AbortController | null = null;
   private accountUploadPlanning = false;
   private repositoryCatalogueAbort: AbortController | null = null;
+  private repositoryBranchesAbort: AbortController | null = null;
+  private repositoryBranchesKey = "";
+  private repositoryBranchesState: "idle" | "loading" | "ready" | "error" = "idle";
+  private repositoryBranchesPending: Promise<void> | null = null;
   private repositoryCatalogueTimer: number | null = null;
   private readonly backendUploadOptions = new Map<string, BackendUploadOptions>();
   private readonly backendUploadCompletions = new Set<string>();
@@ -349,6 +365,10 @@ export class MonitorApp {
   private advancingDirectRunClock = false;
   private pendingRunStartRevision: number | null = null;
   private runEditor: RunEditor | null = null;
+  private runStack: MonitorRunStack | null = null;
+  private runPosition: MonitorRunPosition | null = null;
+  private runTimeline: MonitorRunTimeline | null = null;
+  private wrapUpRequest: { startedAtMs: number | null; requestedAtMs: number } | null = null;
   private taskImportWorkspace: TaskImportWorkspaceHandle | null = null;
   private lastVideoBytes = 0;
   private lastVideoStatsAt = 0;
@@ -371,7 +391,8 @@ export class MonitorApp {
   private cameraCalibration: CameraCalibrationResult | null = null;
   private cameraRegistration: CameraRegistration | null = null;
 
-  constructor() {  }
+  constructor() {
+  }
   private activeCameraRegistrationKey: string | null = null;
   private publishedCameraRegistration = "";
   private calibrationWidth: number | null = null;
@@ -384,6 +405,25 @@ export class MonitorApp {
   private readonly pendingRecordingQualityEpisodes = new Map<string, Episode["qualitySummary"]>();
   private recordingQualityDelivery: Promise<void> | null = null;
   private readonly automaticUploadQueue = new Set<string>();
+  private exportDestination: MonitorExportDestination = loadMonitorExportDestination(exportDestinationService() ? "hugging-face" : "opfs");
+  private automaticExport = loadAutomaticExportPreference();
+  private uploadCadence = loadUploadCadence();
+  private automaticHfUploadOverride = loadAutomaticUploadEnabled();
+  private automaticPreferenceRevision = 0;
+  private exportFolder: FileSystemDirectoryHandle | null = null;
+  private folderPermission = false;
+  private localExportPlanning = false;
+  private automaticExportInitialised = false;
+  private sessionExportRunObserved = false;
+  private readonly observedAutomaticExports = new Set<string>();
+  private readonly automaticLocalQueue = new Map<string, AutomaticCaptureExport>();
+  private storedExports: StoredExportCapture[] = [];
+  private readonly selectedStoredExports = new Set<string>();
+  private storedExportBusy = false;
+  private storedExportMessage = "";
+  private storedExportSignature = "";
+  private accountFocus: (() => void) | null = null;
+  private accountSessionRequest = 0;
   private exportableEpisodesInitialised = false;
   private cameraOverlayObserver: ResizeObserver | null = null;
   private videoFrameCallback: number | null = null;
@@ -396,6 +436,8 @@ export class MonitorApp {
   private readonly overlayBackgroundState = new Map<string, Array<[HTMLElement, boolean]>>();
   private readonly overlayStack: string[] = [];
   private disposed = false;
+  private depthView: MonitorDepthView | null = null;
+  private depthLabel = "OFF";
 
   mount(root: HTMLElement) {
     const shell = applicationServices();
@@ -411,8 +453,8 @@ export class MonitorApp {
       <div class="studio-shell">
         ${applicationHeaderMarkup("director", "monitor-account")}
         <section class="studio-topbar" aria-label="Capture director command bar">
-          <section class="studio-run-centre" aria-label="Run and recording controls"><div id="top-run-controls" class="top-run-controls"></div></section>
-          <div class="studio-timing"><div class="timing-metrics"><span>LEFT <b id="top-task-remaining">--:--.-</b></span><span>SESS <b id="top-session-elapsed">00:00.0</b></span><span>TAKE <b id="top-task-elapsed">00:00.0</b></span></div><div class="timing-clocks"><span>UTC <b id="top-utc">--:--:--</b></span><span>LOCT <b id="top-local-time">--:--:--</b></span></div></div>
+          <section class="studio-run-centre" aria-label="Run and recording controls"><div id="top-run-controls" class="top-run-controls"></div><output id="monitor-run-position" aria-live="off"></output></section>
+          <div class="studio-timing"><div class="timing-metrics"><span>LEFT <b id="top-task-remaining">--:--.-</b></span><span>SESS <b id="top-session-elapsed">00:00.0</b></span><span>REP <b id="top-task-elapsed">00:00.0</b></span></div><div class="timing-clocks"><span>UTC <b id="top-utc">--:--:--</b></span><span>LOCT <b id="top-local-time">--:--:--</b></span></div></div>
         </section>
         <main class="studio-grid">
           <aside class="studio-pane stream-pane">
@@ -422,27 +464,32 @@ export class MonitorApp {
               <img id="capture-headset-icon" class="capture-headset-icon" src="/assets/quest-3.svg" alt="Meta Quest 3" hidden>
             </div>
             <details class="tree-section stream-section setup-details" open><summary><span class="tree-title">STREAMS</span></summary><ul class="stream-tree" id="stream-tree"></ul></details>
-            <div class="tree-section"><span class="tree-title">ACTIVITY</span><ol class="activity-list" id="activity-log" role="log" aria-label="Director activity" aria-live="polite"></ol></div>
-            <section class="tree-section episode-history sidebar-episode-history"><span class="tree-title">EPS</span><ul id="episode-log" class="episode-log"></ul></section>
+            <ol class="sr-only" id="activity-log" role="log" aria-label="Director notifications" aria-live="polite"></ol>
+            <div class="capture-details-sidebar">
+              <section id="episode-history" class="tree-section episode-history sidebar-episode-history" hidden><span class="tree-title">CAPTURES</span><ul id="episode-log" class="episode-log"></ul></section>
+              <section id="capture-metadata" aria-label="Capture metadata"></section>
+            </div>
           </aside>
           <section class="studio-centre">
             <div class="view-grid">
               <section class="view-panel camera-panel">
-                <div class="view-header"><span>CAM</span><span class="composite-view-controls"><span class="hand-mode-controls" aria-label="Hand visual controls"><button type="button" data-hand-control="render">OUTLINE</button><button type="button" data-hand-control="shading">SIDE</button><button type="button" data-hand-control="trail">OFF</button></span><span class="view-header-actions"><span id="video-transport">RTC OFF</span><button id="refresh-feed" class="pane-action">SYNC</button></span></span></div>
+                <div class="view-header"><span class="monitor-view-selector"><button id="show-camera" class="pane-action" type="button" aria-pressed="true">CAM</button><button id="toggle-depth" class="pane-action" type="button" aria-pressed="false">DEPTH</button></span><span class="composite-view-controls"><span class="hand-mode-controls" aria-label="Hand visual controls"><button type="button" data-hand-control="render">OUTLINE</button><button type="button" data-hand-control="shading">SIDE</button><button type="button" data-hand-control="trail">OFF</button></span><span class="view-header-actions"><span id="video-transport">RTC OFF</span><button id="refresh-feed" class="pane-action">SYNC</button></span></span></div>
+                <section id="monitor-run-timeline" aria-label="Run timeline"></section>
                 <div class="camera-viewport">
                   <video id="live-video" autoplay playsinline muted></video>
                   <canvas id="pose-canvas" width="1280" height="720" aria-label="Hand tracking overlay"></canvas>
                   <div id="hand-projection-status" class="hand-projection-status is-unregistered" role="status">POSE UNREGISTERED</div>
                   <div id="left-hand-energy" class="hand-energy hand-energy-left is-idle" role="meter" aria-label="Left hand motion speed" aria-valuemin="0" aria-valuemax="3" aria-valuenow="0"><span class="hand-energy-marker"><b>L 0.00</b></span></div>
                   <div id="right-hand-energy" class="hand-energy hand-energy-right is-idle" role="meter" aria-label="Right hand motion speed" aria-valuemin="0" aria-valuemax="3" aria-valuenow="0"><span class="hand-energy-marker"><b>R 0.00</b></span></div>
-                  <div id="video-empty" class="view-empty telemetry-empty video-empty"><span>NO VIDEO</span><small>CONNECT HEADSET / START XR</small></div>
+                  <div id="video-empty" class="view-empty telemetry-empty video-empty"><span>NO VIDEO</span><small>CONNECT HEADSET/START XR</small></div>
                 </div>
+                <div id="depth-viewport" hidden></div>
               </section>
             </div>
             <section class="time-panel">
               <div class="view-header signal-header"><span id="signal-source-label">SIGNALS</span><div class="signal-toggles" aria-label="Signal channels"><button type="button" data-signal="hxyz" class="is-active" aria-pressed="true">HXYZ</button><button type="button" data-signal="hrot" class="is-active" aria-pressed="true">HROT</button><button type="button" data-signal="lpos" class="is-active" aria-pressed="true">LPOS</button><button type="button" data-signal="lrot" class="is-active" aria-pressed="true">LROT</button><button type="button" data-signal="lp" class="is-active" aria-pressed="true">LP</button><button type="button" data-signal="rpos" class="is-active" aria-pressed="true">RPOS</button><button type="button" data-signal="rrot" class="is-active" aria-pressed="true">RROT</button><button type="button" data-signal="rp" class="is-active" aria-pressed="true">RP</button></div></div>
               <canvas id="signal-canvas" width="1400" height="170" aria-label="Sensor latency and pinch distance traces"></canvas>
-              <div id="signal-empty" class="view-empty telemetry-empty signal-empty"><span>NO SENSOR FRAMES</span><small id="signal-empty-detail">CONNECT HEADSET / START XR</small></div>
+              <div id="signal-empty" class="view-empty telemetry-empty signal-empty"><span>NO SENSOR FRAMES</span><small id="signal-empty-detail">CONNECT HEADSET/START XR</small></div>
               <div class="audio-spectrum-strip"><span class="audio-spectrum-label">AUDIO</span><canvas id="audio-spectrum-canvas" width="1400" height="56" aria-label="Live audio spectrum history"></canvas><span id="audio-spectrum-empty" class="audio-spectrum-empty">NO AUDIO</span></div>
               <div class="timeline-bar"><span class="timeline-origin">LIVE</span><div class="timeline-track"><i id="timeline-playhead"></i></div><span id="timeline-count">0 F</span></div>
             </section>
@@ -476,13 +523,41 @@ ${applicationServices().turn?.fields(this.sessionId) ?? ""}
                 <div class="run-overview-actions"><span id="configuration-state" role="status" aria-live="polite" hidden>SENT R1</span><button id="load-draft" class="toolbar-button" type="button">EDIT</button></div>
               </header>
               <div id="run-editor-home-slot" hidden><div id="run-editor-home"></div></div>
-              <section class="inspector-section active-task-section run-transport-section"><div class="active-task-heading"><span id="inspector-task-id" class="inspector-task-id">NO TASK</span></div><p id="inspector-task-description" class="active-task-description">Open task</p></section>
+              <section id="monitor-run-stack" aria-label="Run tasks"></section>
               <section class="inspector-section setup-details beam-control run-transport-section"><div class="section-label">MESSAGE DEMONSTRATOR</div><div class="beam-entry"><input id="beam-text" type="text" autocomplete="off" placeholder="Message to demonstrator"><button id="beam-send" type="button" aria-label="Send message"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg></button></div><div class="beam-options"><label data-speech-feature><input id="beam-tts" type="checkbox" checked>VOICE</label></div></section>
             </section>
-            <section id="sidebar-export" class="sidebar-panel inspector-section setup-details export-inspector" role="tabpanel" data-sidebar-panel="export" hidden><div id="hf-account-state" class="import-source-status">CHECKING HUGGING FACE ACCOUNT</div><a id="hf-account-action" class="toolbar-button" href="/account">MANAGE ACCOUNT EXPORT</a><div class="export-field"><span class="export-field-label">HF REPO</span><div class="repository-entry"><select id="hf-organisation" aria-label="Hugging Face organisation" disabled><option value="">SELECT ORG</option></select><span>/</span><input id="hf-repository" list="hf-repository-options" aria-label="Hugging Face repository name" placeholder="capture-datetime-task" autocomplete="off"><datalist id="hf-repository-options"></datalist><button id="hf-private" class="repository-private-toggle" type="button" aria-pressed="true" aria-label="Private repository enabled" title="Private repository"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="10"/><path class="private-lock-closed" d="M8 10V7a4 4 0 0 1 8 0v3"/><path class="private-lock-open" d="M16 10V7a4 4 0 0 0-7.6-1.7"/></svg></button></div></div><div class="export-upload-options"><label>BRANCH<input id="hf-branch" value="main" autocomplete="off"></label></div><div class="beam-options export-upload-option"><label><input id="hf-after-episode" type="checkbox">UPLOAD AFTER EACH EPISODE</label></div><div class="delivery-actions"><button id="export-data" class="toolbar-button" type="button" disabled>OPFS</button><button id="export-folder" class="toolbar-button" type="button" disabled>FOLDER</button><button id="upload-data" class="toolbar-button toolbar-primary" type="button" disabled>HF SYNC</button><button id="cancel-export" class="toolbar-button" type="button" disabled>CANCEL</button></div><progress id="export-progress" max="1" value="0" hidden></progress><ul id="job-log" class="job-log" aria-live="polite"></ul></section>
+            <section id="sidebar-export" class="sidebar-panel inspector-section setup-details export-inspector" role="tabpanel" data-sidebar-panel="export" hidden>
+              <div class="export-destination-selector" role="tablist" aria-label="Export destination">
+                <button id="export-tab-opfs" type="button" role="tab" data-export-destination="opfs" aria-controls="export-panel-opfs" aria-selected="false" tabindex="-1">OPFS</button>
+                <button id="export-tab-folder" type="button" role="tab" data-export-destination="folder" aria-controls="export-panel-folder" aria-selected="false" tabindex="-1">FOLDER</button>
+                <button id="export-tab-hugging-face" type="button" role="tab" data-export-destination="hugging-face" aria-controls="export-panel-hugging-face" aria-selected="false" tabindex="-1">HUGGING FACE</button>
+              </div>
+              <div id="export-panel-opfs" class="export-destination-panel" role="tabpanel" data-export-panel="opfs" aria-labelledby="export-tab-opfs" tabindex="0" hidden>
+                <p class="export-destination-description">Save a LeRobot dataset in this browser.</p>
+                <label class="export-default-option"><input type="checkbox" data-export-default="opfs">Default destination</label>
+                <label class="export-cadence-label">Export after<select data-export-cadence="opfs" aria-label="OPFS export frequency"><option value="cycle">Every cycle</option><option value="task">Every task</option></select></label>
+                <button id="export-data" class="toolbar-button toolbar-primary export-action" type="button" aria-describedby="export-readiness" disabled>EXPORT TO OPFS</button>
+                <section class="stored-export-library" aria-label="Saved captures"><div class="stored-export-heading"><span class="section-label">SAVED CAPTURES</span><button id="refresh-stored-exports" class="pane-action" type="button">REFRESH</button></div><div id="stored-export-list"></div><div class="stored-export-actions"><button id="stored-to-folder" class="toolbar-button" type="button" disabled>TO FOLDER</button><button id="stored-to-hf" class="toolbar-button" type="button" disabled>TO HUGGING FACE</button><button id="delete-stored-exports" class="toolbar-button" type="button" disabled>DELETE</button></div><p id="stored-export-status" class="export-destination-description" role="status"></p></section>
+              </div>
+              <div id="export-panel-folder" class="export-destination-panel" role="tabpanel" data-export-panel="folder" aria-labelledby="export-tab-folder" tabindex="0" hidden>
+                <p class="export-destination-description">Save a LeRobot dataset to a folder on this computer.</p>
+                <label class="export-default-option"><input type="checkbox" data-export-default="folder">Default destination</label>
+                <label class="export-cadence-label">Export after<select data-export-cadence="folder" aria-label="Folder export frequency"><option value="cycle">Every cycle</option><option value="task">Every task</option></select></label>
+                <button id="choose-export-folder" class="toolbar-button export-action" type="button">CHOOSE FOLDER</button><p id="export-folder-name" class="export-destination-description" role="status">No folder selected.</p>
+                <button id="export-folder" class="toolbar-button toolbar-primary export-action" type="button" aria-describedby="export-readiness" disabled>EXPORT TO FOLDER</button>
+              </div>
+              <div id="export-panel-hugging-face" class="export-destination-panel" role="tabpanel" data-export-panel="hugging-face" aria-labelledby="export-tab-hugging-face" tabindex="0" hidden>
+                ${monitorHfAccountMarkup()}<div id="hf-destination-fields" hidden><div class="export-field"><span class="export-field-label">HF REPO</span><div class="repository-entry"><select id="hf-organisation" aria-label="Hugging Face organisation" disabled><option value="">SELECT ORG</option></select><span>/</span><input id="hf-repository" list="hf-repository-options" aria-label="Hugging Face repository name" placeholder="capture-datetime-task" autocomplete="off"><datalist id="hf-repository-options"></datalist><button id="hf-private" class="repository-private-toggle" type="button" aria-pressed="true" aria-label="Private repository enabled" title="Private repository"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="10"/><path class="private-lock-closed" d="M8 10V7a4 4 0 0 1 8 0v3"/><path class="private-lock-open" d="M16 10V7a4 4 0 0 0-7.6-1.7"/></svg></button></div></div><div class="export-upload-options"><label>BRANCH<select id="hf-branch" aria-label="Hugging Face branch"><option value="main">main</option></select></label></div><div class="beam-options export-upload-option"><label><input id="hf-after-episode" type="checkbox">Upload every</label><select id="hf-upload-cadence" aria-label="Hugging Face upload frequency"><option value="cycle">cycle</option><option value="task">task</option><option value="session">session</option></select></div>
+                <button id="upload-data" class="toolbar-button toolbar-primary export-action" type="button" aria-describedby="export-readiness" disabled>HF SYNC</button></div>
+              </div>
+              <p id="export-readiness" class="export-destination-description" role="status">Record a capture to export.</p>
+              <button id="cancel-export" class="toolbar-button export-action" type="button" disabled hidden>CANCEL</button>
+              <progress id="export-progress" max="1" value="0" hidden></progress>
+              <ul id="job-log" class="job-log" aria-live="polite"></ul>
+            </section>
             <section id="sidebar-settings" class="sidebar-panel settings-inspector" role="tabpanel" data-sidebar-panel="settings" hidden>
               <section class="inspector-section setup-details"><div class="section-label">DIRECTOR</div><div class="settings-grid"><label class="setting-toggle"><span>Cue sounds</span><input id="setting-cue-sounds" type="checkbox" role="switch"><b aria-hidden="true"></b></label><label class="setting-toggle" data-speech-feature><span>Voice cues</span><input id="setting-voice-cues" type="checkbox" role="switch"><b aria-hidden="true"></b></label><label data-speech-feature><span>TTS provider</span><select id="setting-tts-provider"><option value="browser">Browser</option></select></label><label data-speech-feature><span>STT provider</span><select id="setting-stt-provider"><option value="gateway">ASR gateway</option></select></label></div></section>
-              <section class="inspector-section setup-details camera-inspector"><div class="section-label">CAMERA CALIBRATION</div><div class="camera-device-summary"><div><b id="camera-device-name">NO CAMERA</b><span id="camera-resolution">-- x --</span></div></div><dl class="camera-calibration-grid"><div><dt>STATE</dt><dd id="camera-calibration-state">NOT RUN</dd></div><div><dt>ALIGN</dt><dd id="camera-alignment-state">UNREGISTERED</dd></div><div><dt>SAMPLES</dt><dd id="camera-calibration-samples">0/${calibrationFrameTarget}</dd></div><div><dt>MODEL</dt><dd>PINHOLE</dd></div><div><dt>FPS</dt><dd id="camera-frame-rate">--</dd></div><div><dt>FX / FY</dt><dd id="camera-intrinsics-focal">-- / --</dd></div><div><dt>CX / CY</dt><dd id="camera-intrinsics-centre">-- / --</dd></div><div><dt>DIST</dt><dd id="camera-intrinsics-distortion">--</dd></div><div><dt>RMS</dt><dd id="camera-intrinsics-rms">-- PX</dd></div><div><dt>L WRIST</dt><dd id="left-wrist-pose">NO POSE</dd></div><div><dt>R WRIST</dt><dd id="right-wrist-pose">NO POSE</dd></div><div class="camera-calibration-action"><dt>CALIBRATE</dt><dd><button id="calibrate-camera" class="toolbar-button calibration-action-chip" type="button" disabled>CAL</button></dd></div></dl></section>
+              <section class="inspector-section setup-details camera-inspector"><div class="section-label">CAMERA CALIBRATION</div><div class="camera-device-summary"><div><b id="camera-device-name">NO CAMERA</b><span id="camera-resolution">-- x --</span></div></div><dl class="camera-calibration-grid"><div><dt>STATE</dt><dd id="camera-calibration-state">NOT RUN</dd></div><div><dt>ALIGN</dt><dd id="camera-alignment-state">UNREGISTERED</dd></div><div><dt>SAMPLES</dt><dd id="camera-calibration-samples">0/${calibrationFrameTarget}</dd></div><div><dt>MODEL</dt><dd>PINHOLE</dd></div><div><dt>FPS</dt><dd id="camera-frame-rate">--</dd></div><div><dt>FX/FY</dt><dd id="camera-intrinsics-focal">--/--</dd></div><div><dt>CX/CY</dt><dd id="camera-intrinsics-centre">--/--</dd></div><div><dt>DIST</dt><dd id="camera-intrinsics-distortion">--</dd></div><div><dt>RMS</dt><dd id="camera-intrinsics-rms">-- PX</dd></div><div><dt>L WRIST</dt><dd id="left-wrist-pose">NO POSE</dd></div><div><dt>R WRIST</dt><dd id="right-wrist-pose">NO POSE</dd></div><div class="camera-calibration-action"><dt>CALIBRATE</dt><dd><button id="calibrate-camera" class="toolbar-button calibration-action-chip" type="button" disabled>CAL</button></dd></div></dl></section>
             </section>
           </aside>
         </main>
@@ -505,6 +580,30 @@ ${applicationServices().turn?.fields(this.sessionId) ?? ""}
       icons: { Bug, Keyboard },
       root,
     });
+    this.depthView = new MonitorDepthView({
+      surface: root.querySelector<HTMLElement>("#depth-viewport")!,
+      onStateChange: (_state, label) => {
+        this.depthLabel = label;
+        const status = root.querySelector<HTMLElement>("#tree-depth-state");
+        if (status) status.textContent = label;
+      },
+    });
+    const selectDepth = (selected: boolean) => {
+      root.querySelector<HTMLElement>(".camera-panel")!.classList.toggle("is-depth", selected);
+      root.querySelector<HTMLElement>("#depth-viewport")!.hidden = !selected;
+      root.querySelector("#toggle-depth")!.setAttribute("aria-pressed", String(selected));
+      root.querySelector("#show-camera")!.setAttribute("aria-pressed", String(!selected));
+      this.depthView?.setSelected(selected);
+    };
+    root.querySelector("#toggle-depth")!.addEventListener("click", () => selectDepth(root.querySelector("#toggle-depth")!.getAttribute("aria-pressed") !== "true"));
+    root.querySelector("#show-camera")!.addEventListener("click", () => selectDepth(false));
+    this.runStack = new MonitorRunStack({
+      surface: root.querySelector<HTMLElement>("#monitor-run-stack")!,
+      onAdvance: (cursor) => this.handleRunControl(root, "next", "director", cursor),
+      onWrapUp: () => this.wrapUpRun(root),
+    });
+    this.runPosition = new MonitorRunPosition(root.querySelector<HTMLElement>("#monitor-run-position")!);
+    this.runTimeline = new MonitorRunTimeline({ surface: root.querySelector<HTMLElement>("#monitor-run-timeline")! });
     this.runEditor = new RunEditor({
       root: root.querySelector<HTMLElement>("#run-editor-home")!,
       configuration: defaultConfiguration,
@@ -526,6 +625,7 @@ ${applicationServices().turn?.fields(this.sessionId) ?? ""}
     this.syncDirectorAvailability(root, false);
     this.startTiming(root);
     this.wireUi(root);
+    this.renderCaptureDetails(root);
     const disposeHeader = mountApplicationHeader(root);
     const disposeTurn = applicationServices().turn?.mount(root, this.sessionId);
     this.disposeSiteHeader = () => { disposeHeader(); disposeTurn?.(); };
@@ -536,6 +636,8 @@ ${applicationServices().turn?.fields(this.sessionId) ?? ""}
     this.wireSession(root);
     this.exporter.onEvent((event) => this.handleExportEvent(root, event));
     void this.refreshAccountExportSession(root);
+    this.accountFocus = () => { void this.refreshAccountExportSession(root); };
+    window.addEventListener("focus", this.accountFocus);
     this.session.connect(
       root.querySelector<HTMLCanvasElement>("#pose-canvas")!,
       root.querySelector<HTMLCanvasElement>("#signal-canvas")!,
@@ -599,11 +701,24 @@ ${applicationServices().turn?.fields(this.sessionId) ?? ""}
     this.taskImportWorkspace = null;
     this.runEditor?.dispose();
     this.runEditor = null;
+    this.runStack?.dispose();
+    this.runStack = null;
+    this.runPosition?.dispose();
+    this.runPosition = null;
+    this.runTimeline?.dispose();
+    this.runTimeline = null;
     this.automaticUploadQueue.clear();
+    this.automaticLocalQueue.clear();
+    this.depthView?.dispose();
+    this.depthView = null;
+    if (this.accountFocus) window.removeEventListener("focus", this.accountFocus);
+    this.accountFocus = null;
     this.accountUploadAbort?.abort();
     this.accountUploadAbort = null;
     this.repositoryCatalogueAbort?.abort();
     this.repositoryCatalogueAbort = null;
+    this.repositoryBranchesAbort?.abort();
+    this.repositoryBranchesAbort = null;
     if (this.repositoryCatalogueTimer !== null) window.clearTimeout(this.repositoryCatalogueTimer);
     this.repositoryCatalogueTimer = null;
     this.backendUploadOptions.clear();
@@ -649,14 +764,15 @@ ${applicationServices().turn?.fields(this.sessionId) ?? ""}
     root.querySelector<HTMLInputElement>("#connection-server")!.addEventListener("change", () => this.commitConnectionSettings(root));
     [
       "setting-cue-sounds", "setting-voice-cues", "setting-tts-provider", "setting-stt-provider",
-      "hf-after-episode",
     ].forEach((id) => root.querySelector<HTMLInputElement>(`#${id}`)!.addEventListener("input", () => this.markConfigurationDraft(root)));
     root.querySelector<HTMLSelectElement>("#hf-organisation")!.addEventListener("change", () => {
       this.markConfigurationDraft(root);
+      this.invalidateRepositoryBranches(root);
       this.scheduleRepositoryCatalogue(root);
     });
     root.querySelector<HTMLInputElement>("#hf-repository")!.addEventListener("input", () => {
       this.markConfigurationDraft(root);
+      this.invalidateRepositoryBranches(root);
       this.scheduleRepositoryCatalogue(root);
     });
     root.querySelector("#hf-private")!.addEventListener("click", () => {
@@ -665,6 +781,22 @@ ${applicationServices().turn?.fields(this.sessionId) ?? ""}
       this.markConfigurationDraft(root);
     });
     root.querySelector("#load-draft")!.addEventListener("click", () => void this.openTaskEditor(root));
+    const exportTabs = [...root.querySelectorAll<HTMLButtonElement>("[data-export-destination]")];
+    exportTabs.forEach((button, index) => {
+      button.addEventListener("click", () => this.selectExportDestination(root, button.dataset.exportDestination as MonitorExportDestination));
+      button.addEventListener("keydown", (event) => {
+        const next = event.key === "ArrowRight" ? (index + 1) % exportTabs.length
+          : event.key === "ArrowLeft" ? (index + exportTabs.length - 1) % exportTabs.length
+            : event.key === "Home" ? 0 : event.key === "End" ? exportTabs.length - 1 : null;
+        if (next === null) return;
+        event.preventDefault();
+        exportTabs[next].click();
+        exportTabs[next].focus();
+      });
+    });
+    this.renderExportDestination(root);
+    this.bindExportPreferences(root);
+    void this.refreshStoredExports(root);
     root.querySelector("#export-data")!.addEventListener("click", () => this.startBrowserExport(root));
     root.querySelector("#export-folder")!.addEventListener("click", () => void this.startFolderExport(root));
     root.querySelector("#upload-data")!.addEventListener("click", () => void this.startBrowserUpload(root));
@@ -746,6 +878,247 @@ ${applicationServices().turn?.fields(this.sessionId) ?? ""}
     root.querySelectorAll<HTMLElement>("[data-sidebar-panel]").forEach((section) => {
       section.hidden = section.dataset.sidebarPanel !== panel;
     });
+  }
+
+  private selectExportDestination(root: HTMLElement, destination: MonitorExportDestination) {
+    this.exportDestination = destination;
+    storeMonitorExportDestination(destination);
+    this.renderExportDestination(root);
+    this.updateExportControls(root);
+  }
+
+  private renderExportDestination(root: HTMLElement) {
+    root.querySelectorAll<HTMLButtonElement>("[data-export-destination]").forEach((button) => {
+      const selected = button.dataset.exportDestination === this.exportDestination;
+      button.setAttribute("aria-selected", String(selected));
+      button.tabIndex = selected ? 0 : -1;
+    });
+    root.querySelectorAll<HTMLElement>("[data-export-panel]").forEach((panel) => {
+      panel.hidden = panel.dataset.exportPanel !== this.exportDestination;
+    });
+  }
+
+  private bindExportPreferences(root: HTMLElement) {
+    const uploadCadence = root.querySelector<HTMLSelectElement>("#hf-upload-cadence")!;
+    uploadCadence.value = this.uploadCadence;
+    uploadCadence.addEventListener("change", () => {
+      this.automaticPreferenceRevision += 1;
+      this.uploadCadence = uploadCadence.value === "task" ? "task" : uploadCadence.value === "session" ? "session" : "cycle";
+      storeUploadCadence(this.uploadCadence);
+      this.automaticUploadQueue.clear();
+      this.automaticLocalQueue.clear();
+      this.automaticExportInitialised = false;
+      if (this.snapshot) this.updateAutomaticLocalQueue(root, this.snapshot);
+    });
+    root.querySelector<HTMLInputElement>("#hf-after-episode")!.addEventListener("change", (event) => {
+      this.automaticPreferenceRevision += 1;
+      this.automaticHfUploadOverride = (event.target as HTMLInputElement).checked;
+      storeAutomaticUploadEnabled(this.automaticHfUploadOverride);
+      if ((event.target as HTMLInputElement).checked) {
+        this.automaticExport.destination = null;
+        storeAutomaticExportPreference(this.automaticExport);
+      }
+      this.automaticUploadQueue.clear();
+      this.automaticLocalQueue.clear();
+      this.automaticExportInitialised = false;
+      this.renderExportPreferences(root);
+      storeMonitorRunConfiguration(this.sessionId, this.readDraftConfiguration(root));
+      if (this.snapshot) this.updateAutomaticLocalQueue(root, this.snapshot);
+    });
+    root.querySelectorAll<HTMLInputElement>("[data-export-default]").forEach((input) => input.addEventListener("change", () => {
+      this.automaticPreferenceRevision += 1;
+      const destination = input.dataset.exportDefault as "opfs" | "folder";
+      this.automaticExport.destination = input.checked ? destination : null;
+      this.automaticLocalQueue.clear();
+      this.automaticExportInitialised = false;
+      if (input.checked) {
+        this.automaticHfUploadOverride = false;
+        storeAutomaticUploadEnabled(false);
+        root.querySelector<HTMLInputElement>("#hf-after-episode")!.checked = false;
+        this.automaticUploadQueue.clear();
+        storeMonitorRunConfiguration(this.sessionId, this.readDraftConfiguration(root));
+      }
+      storeAutomaticExportPreference(this.automaticExport);
+      this.renderExportPreferences(root);
+      if (this.snapshot) this.updateAutomaticLocalQueue(root, this.snapshot);
+    }));
+    root.querySelectorAll<HTMLSelectElement>("[data-export-cadence]").forEach((select) => select.addEventListener("change", () => {
+      this.automaticPreferenceRevision += 1;
+      this.automaticExport.cadence = select.value === "task" ? "task" : "cycle";
+      this.automaticLocalQueue.clear();
+      this.automaticExportInitialised = false;
+      storeAutomaticExportPreference(this.automaticExport);
+      this.renderExportPreferences(root);
+      if (this.snapshot) this.updateAutomaticLocalQueue(root, this.snapshot);
+    }));
+    root.querySelector("#choose-export-folder")!.addEventListener("click", () => void this.chooseDefaultExportFolder(root));
+    root.querySelector("#refresh-stored-exports")!.addEventListener("click", () => void this.refreshStoredExports(root));
+    root.querySelector("#stored-export-list")!.addEventListener("change", (event) => {
+      const input = event.target as HTMLInputElement;
+      if (!input.dataset.storedExport) return;
+      if (input.checked) this.selectedStoredExports.add(input.dataset.storedExport);
+      else this.selectedStoredExports.delete(input.dataset.storedExport);
+      this.renderStoredExports(root);
+    });
+    root.querySelector("#stored-to-folder")!.addEventListener("click", () => void this.transferStoredToFolder(root));
+    root.querySelector("#stored-to-hf")!.addEventListener("click", () => void this.startStoredUpload(root));
+    root.querySelector("#delete-stored-exports")!.addEventListener("click", () => void this.removeStoredExports(root));
+    this.renderExportPreferences(root);
+    void savedExportFolder().then(async (folder) => {
+      if (this.disposed) return;
+      this.exportFolder = folder;
+      this.folderPermission = Boolean(folder && await this.exportFolderPermitted(folder));
+      if (!this.disposed) this.renderExportPreferences(root);
+    }).catch(() => undefined);
+  }
+
+  private renderExportPreferences(root: HTMLElement) {
+    root.querySelectorAll<HTMLInputElement>("[data-export-default]").forEach((input) => {
+      input.checked = input.dataset.exportDefault === this.automaticExport.destination;
+    });
+    root.querySelectorAll<HTMLSelectElement>("[data-export-cadence]").forEach((select) => { select.value = this.automaticExport.cadence; });
+    root.querySelector<HTMLElement>("#export-folder-name")!.textContent = this.exportFolder
+      ? this.folderPermission ? this.exportFolder.name : `${this.exportFolder.name}: choose this folder again to allow exports.`
+      : "Choose a folder before automatic export.";
+  }
+
+  private async pickExportFolder() {
+    const picker = (window as typeof window & { showDirectoryPicker?: (options: { mode: "readwrite" }) => Promise<FileSystemDirectoryHandle> }).showDirectoryPicker;
+    if (!picker) throw new Error("Folder selection is unavailable in this browser");
+    return picker.call(window, { mode: "readwrite" });
+  }
+
+  private async exportFolderPermitted(folder: FileSystemDirectoryHandle, request = false) {
+    const handle = folder as FileSystemDirectoryHandle & {
+      queryPermission?: (options: { mode: "readwrite" }) => Promise<string>;
+      requestPermission?: (options: { mode: "readwrite" }) => Promise<string>;
+    };
+    if (!handle.queryPermission || await handle.queryPermission({ mode: "readwrite" }) === "granted") return true;
+    return request && Boolean(handle.requestPermission)
+      && await handle.requestPermission!({ mode: "readwrite" }) === "granted";
+  }
+
+  private async chooseDefaultExportFolder(root: HTMLElement) {
+    try {
+      this.exportFolder = await this.pickExportFolder();
+      this.folderPermission = true;
+      await savedExportFolder(this.exportFolder);
+      this.renderExportPreferences(root);
+      void this.drainAutomaticLocalExport(root);
+    } catch (error) {
+      if (!(error instanceof DOMException && error.name === "AbortError")) this.reportExportStartError(root, error);
+    }
+  }
+
+  private async refreshStoredExports(root: HTMLElement) {
+    try {
+      const entries = await listStoredExports({});
+      if (this.disposed) return;
+      this.storedExports = entries;
+      for (const key of this.selectedStoredExports) if (!entries.some((entry) => entry.key === key)) this.selectedStoredExports.delete(key);
+      this.renderStoredExports(root);
+    } catch (error) {
+      if (this.disposed) return;
+      this.storedExportMessage = error instanceof Error ? error.message : "Saved captures could not be read.";
+      this.renderStoredExports(root);
+    }
+  }
+
+  private renderStoredExports(root: HTMLElement) {
+    const list = root.querySelector<HTMLElement>("#stored-export-list")!;
+    const busy = this.exportWorkBusy();
+    const signature = JSON.stringify([this.storedExports, [...this.selectedStoredExports], busy]);
+    if (signature !== this.storedExportSignature) {
+      this.storedExportSignature = signature;
+      list.innerHTML = this.storedExports.length ? this.storedExports.map((entry) => `<label class="stored-export-row"><input type="checkbox" data-stored-export="${escapeHtml(entry.key)}" ${this.selectedStoredExports.has(entry.key) ? "checked" : ""} ${busy ? "disabled" : ""}><span><b>${escapeHtml(entry.title)}${entry.cycle === null ? "" : `/C${String(entry.cycle).padStart(2, "0")}`}</b><small>${escapeHtml(entry.taskLabel)}${entry.taskLabel ? "/" : ""}${(entry.byteLength / 1024 / 1024).toFixed(1)} MB</small></span></label>`).join("") : "<p class=\"export-destination-description\">No saved captures.</p>";
+    }
+    const selected = this.selectedStoredExports.size > 0;
+    root.querySelector<HTMLButtonElement>("#stored-to-folder")!.disabled = !selected || busy;
+    root.querySelector<HTMLButtonElement>("#delete-stored-exports")!.disabled = !selected || busy;
+    root.querySelector<HTMLButtonElement>("#stored-to-hf")!.disabled = !selected || busy
+      || this.accountExportSession?.huggingFace.state !== "ready" || !this.repositoryBranchReady(root);
+    root.querySelector<HTMLElement>("#stored-export-status")!.textContent = this.storedExportMessage
+      || (selected && this.accountExportSession?.huggingFace.state !== "ready" ? "Sign in to Hugging Face to upload selected captures." : "");
+  }
+
+  private exportWorkBusy() {
+    return this.storedExportBusy || this.exporter.isRunning() || Boolean(this.accountUploadAbort)
+      || this.accountUploadPlanning || this.localExportPlanning
+      || this.backendUploadRecoveryControllers.size > 0 || this.backendUploadRecoveryTimers.size > 0;
+  }
+
+  private selectedStoredCaptures() {
+    return this.storedExports.filter((entry) => this.selectedStoredExports.has(entry.key));
+  }
+
+  private async transferStoredToFolder(root: HTMLElement) {
+    const selected = this.selectedStoredCaptures();
+    if (!selected.length || this.exportWorkBusy()) return;
+    this.storedExportBusy = true;
+    this.updateExportControls(root);
+    try {
+      const folder = await this.pickExportFolder();
+      this.storedExportBusy = true;
+      this.storedExportMessage = "Copying selected captures...";
+      this.renderStoredExports(root);
+      await copyStoredExportsToFolder(selected, folder, {});
+      this.storedExportMessage = `${selected.length} capture${selected.length === 1 ? "" : "s"} copied to ${folder.name}.`;
+    } catch (error) {
+      if (!(error instanceof DOMException && error.name === "AbortError")) this.reportExportStartError(root, error);
+    } finally {
+      this.storedExportBusy = false;
+      this.updateExportControls(root);
+      this.drainAutomaticUpload(root);
+    }
+  }
+
+  private async removeStoredExports(root: HTMLElement) {
+    const selected = this.selectedStoredCaptures();
+    if (!selected.length || this.exportWorkBusy() || !window.confirm(`Delete ${selected.length} saved capture${selected.length === 1 ? "" : "s"} from browser storage?`)) return;
+    this.storedExportBusy = true;
+    this.renderStoredExports(root);
+    try {
+      await deleteStoredExports(selected, {});
+      this.selectedStoredExports.clear();
+      this.storedExportMessage = `${selected.length} saved capture${selected.length === 1 ? "" : "s"} deleted.`;
+      await this.refreshStoredExports(root);
+    } catch (error) { this.reportExportStartError(root, error); }
+    finally {
+      this.storedExportBusy = false;
+      this.updateExportControls(root);
+      this.drainAutomaticUpload(root);
+    }
+  }
+
+  private async startStoredUpload(root: HTMLElement) {
+    const selected = this.selectedStoredCaptures();
+    if (!selected.length || this.exportWorkBusy()) return;
+    this.accountUploadPlanning = true;
+    this.updateExportControls(root);
+    this.renderStoredExports(root);
+    try {
+      const upload = await this.prepareAccountUploadOptions(root);
+      if (this.disposed) return;
+      const startedAt = performance.now();
+      const requestId = this.exporter.start({
+        sessionId: this.sessionId, episodes: [], storedExports: selected,
+        episodeIndexBase: upload.appendAllocation.nextEpisodeIndex,
+        globalFrameIndexBase: upload.appendAllocation.nextGlobalFrameIndex,
+      });
+      this.backendUploadOptions.set(requestId, upload);
+      this.browserJobs.unshift({
+        id: requestId, type: "upload", state: "queued", detail: "Preparing saved captures for Hugging Face",
+        episodeIds: selected.map((entry) => entry.episodeId), lerobotStartedAtMs: startedAt,
+        deliveryStartedAtMs: startedAt, activityStage: "queued",
+      });
+      this.renderJobs(root);
+    } catch (error) { this.reportExportStartError(root, error); }
+    finally {
+      this.accountUploadPlanning = false;
+      this.updateExportControls(root);
+      this.renderStoredExports(root);
+      void this.drainAutomaticLocalExport(root);
+    }
   }
 
   private handleDirectorShortcut(root: HTMLElement, event: KeyboardEvent) {
@@ -924,46 +1297,37 @@ ${applicationServices().turn?.fields(this.sessionId) ?? ""}
   }
 
   private async refreshAccountExportSession(root: HTMLElement) {
-    const status = root.querySelector<HTMLElement>("#hf-account-state");
-    const action = root.querySelector<HTMLAnchorElement>("#hf-account-action");
-    if (!status || !action) return;
+    const request = ++this.accountSessionRequest;
+    const accountUrl = applicationServices().directoryUrl ?? location.origin;
     if (!exportDestinationService()) {
       this.accountExportSession = null;
-      status.textContent = "LOCAL EXPORT";
-      action.hidden = true;
-      root.querySelectorAll<HTMLElement>("#sidebar-export .export-field, #sidebar-export .export-upload-options, #sidebar-export .export-upload-option, #upload-data")
-        .forEach(element => { element.hidden = true; });
+      this.resetRepositoryAccount(root);
+      renderMonitorHfAccount(root, { session: null, accountUrl });
       this.updateExportControls(root);
       return;
     }
     try {
       const session = await this.accountExportClient.session();
-      if (this.disposed || this.mountedRoot !== root) return;
+      if (this.disposed || this.mountedRoot !== root || request !== this.accountSessionRequest) return;
+      const previousIdentity = this.accountDestinationIdentity();
       this.accountExportSession = session;
+      const identityChanged = previousIdentity !== this.accountDestinationIdentity();
+      if (identityChanged) this.resetRepositoryAccount(root, previousIdentity !== null || !this.accountDestinationIdentity());
+      renderMonitorHfAccount(root, { session, accountUrl });
       if (session.huggingFace.state === "ready") {
-        status.textContent = `HUGGING FACE CONNECTED / ${session.huggingFace.username ?? "ACCOUNT"}`;
-        status.className = "import-source-status is-success";
-        action.textContent = "MANAGE ACCOUNT EXPORT";
         root.querySelector<HTMLSelectElement>("#hf-organisation")!.disabled = false;
         root.querySelector<HTMLInputElement>("#hf-repository")!.placeholder = `${session.defaults.repositoryPrefix || "ceres-"}capture`;
-        this.setRepositoryPrivacy(root, session.defaults.visibility === "private");
-        root.querySelector<HTMLButtonElement>("#hf-private")!.disabled = true;
-        void this.refreshRepositoryCatalogue(root, session.defaults.organisation);
-      } else if (session.huggingFace.state === "reauthentication_required") {
-        status.textContent = "HUGGING FACE REAUTHENTICATION REQUIRED";
-        status.className = "import-source-status is-error";
-        action.textContent = "REAUTHENTICATE IN ACCOUNT";
-      } else {
-        status.textContent = session.signedIn ? "HUGGING FACE NOT CONNECTED" : "CERES SIGN-IN REQUIRED";
-        status.className = "import-source-status";
-        action.textContent = session.signedIn ? "CONNECT IN ACCOUNT" : "SIGN IN";
+        if (identityChanged) {
+          this.setRepositoryPrivacy(root, session.defaults.visibility === "private");
+          root.querySelector<HTMLButtonElement>("#hf-private")!.disabled = true;
+          void this.refreshRepositoryCatalogue(root, session.defaults.organisation);
+        }
       }
     } catch {
-      if (this.disposed || this.mountedRoot !== root) return;
+      if (this.disposed || this.mountedRoot !== root || request !== this.accountSessionRequest) return;
       this.accountExportSession = null;
-      status.textContent = "LOCAL EXPORT ONLY";
-      status.className = "import-source-status";
-      action.textContent = "ACCOUNT SERVICE UNAVAILABLE";
+      this.resetRepositoryAccount(root);
+      renderMonitorHfAccount(root, { session: null, accountUrl });
     }
     this.updateExportControls(root);
     this.drainAutomaticUpload(root);
@@ -977,8 +1341,103 @@ ${applicationServices().turn?.fields(this.sessionId) ?? ""}
     }, 180);
   }
 
+  private accountDestinationIdentity() {
+    const account = this.accountExportSession;
+    return account?.signedIn && account.huggingFace.state === "ready"
+      ? JSON.stringify([account.subject, account.huggingFace.subject]) : null;
+  }
+
+  private resetRepositoryAccount(root: HTMLElement, clearRepository = true) {
+    this.repositoryCatalogueAbort?.abort();
+    this.repositoryCatalogueAbort = null;
+    if (this.repositoryCatalogueTimer !== null) window.clearTimeout(this.repositoryCatalogueTimer);
+    this.repositoryCatalogueTimer = null;
+    const organisation = root.querySelector<HTMLSelectElement>("#hf-organisation")!;
+    if (clearRepository) organisation.replaceChildren(new Option("SELECT ORG", ""));
+    root.querySelector<HTMLDataListElement>("#hf-repository-options")!.replaceChildren();
+    if (clearRepository) root.querySelector<HTMLInputElement>("#hf-repository")!.value = "";
+    this.invalidateRepositoryBranches(root);
+  }
+
+  private repositoryBranchKey(root: HTMLElement) {
+    const identity = this.accountDestinationIdentity();
+    const organisation = root.querySelector<HTMLSelectElement>("#hf-organisation")!.value.trim();
+    const name = root.querySelector<HTMLInputElement>("#hf-repository")!.value.trim();
+    return identity && organisation && name ? `${identity}:${organisation}/${name}` : "";
+  }
+
+  private repositoryBranchReady(root: HTMLElement) {
+    if (!exportDestinationService()?.repositoryBranches) return true;
+    if (!root.querySelector<HTMLInputElement>("#hf-repository")!.value.trim()) return true;
+    return this.repositoryBranchesState === "ready" && this.repositoryBranchesKey === this.repositoryBranchKey(root)
+      && Boolean(root.querySelector<HTMLSelectElement>("#hf-branch")!.value);
+  }
+
+  private invalidateRepositoryBranches(root: HTMLElement) {
+    this.repositoryBranchesAbort?.abort();
+    this.repositoryBranchesAbort = null;
+    this.repositoryBranchesKey = "";
+    this.repositoryBranchesState = "idle";
+    this.repositoryBranchesPending = null;
+    const select = root.querySelector<HTMLSelectElement>("#hf-branch")!;
+    select.replaceChildren(new Option("main", "main"));
+    select.disabled = true;
+    select.title = "Select a repository to load its branches";
+    this.updateExportControls(root);
+  }
+
+  private refreshRepositoryBranches(root: HTMLElement): Promise<void> {
+    const service = exportDestinationService();
+    if (!service?.repositoryBranches || this.accountExportSession?.huggingFace.state !== "ready") return Promise.resolve();
+    const organisation = root.querySelector<HTMLSelectElement>("#hf-organisation")!.value.trim();
+    const name = root.querySelector<HTMLInputElement>("#hf-repository")!.value.trim();
+    const select = root.querySelector<HTMLSelectElement>("#hf-branch")!;
+    if (!organisation || !name) {
+      this.invalidateRepositoryBranches(root);
+      return Promise.resolve();
+    }
+    const repository = `${organisation}/${name}`;
+    const key = this.repositoryBranchKey(root);
+    if (this.repositoryBranchesKey === key && this.repositoryBranchesState !== "error") {
+      return this.repositoryBranchesPending ?? Promise.resolve();
+    }
+    this.repositoryBranchesAbort?.abort();
+    const abort = new AbortController();
+    this.repositoryBranchesAbort = abort;
+    this.repositoryBranchesKey = key;
+    this.repositoryBranchesState = "loading";
+    const preferred = select.value;
+    select.disabled = true;
+    select.title = "Loading repository branches";
+    this.updateExportControls(root);
+    const pending = service.repositoryBranches(repository, abort.signal).then((result) => {
+      if (this.disposed || this.mountedRoot !== root || this.repositoryBranchesAbort !== abort
+        || key !== this.repositoryBranchKey(root)) return;
+      const branches = result.branches.length ? result.branches : ["main"];
+      select.replaceChildren(...branches.map((branch) => new Option(branch, branch)));
+      select.value = branches.includes(preferred) ? preferred : branches[0];
+      select.disabled = false;
+      this.repositoryBranchesState = "ready";
+      select.title = result.repositoryFound ? "Select the upload branch" : "The new repository will use main";
+    }).catch(() => {
+      if (abort.signal.aborted || this.disposed || this.mountedRoot !== root || this.repositoryBranchesAbort !== abort) return;
+      this.repositoryBranchesState = "error";
+      select.replaceChildren(new Option("Branches unavailable", ""));
+      select.title = "Branches could not be loaded. Change the repository to retry.";
+    }).finally(() => {
+      if (this.repositoryBranchesAbort !== abort) return;
+      this.repositoryBranchesAbort = null;
+      this.repositoryBranchesPending = null;
+      this.updateExportControls(root);
+      if (this.repositoryBranchesState === "ready") this.drainAutomaticUpload(root);
+    });
+    this.repositoryBranchesPending = pending;
+    return pending;
+  }
+
   private async refreshRepositoryCatalogue(root: HTMLElement, preferredOrganisation?: string) {
     if (this.accountExportSession?.huggingFace.state !== "ready") return;
+    const identity = this.accountDestinationIdentity();
     this.repositoryCatalogueAbort?.abort();
     const abort = new AbortController();
     this.repositoryCatalogueAbort = abort;
@@ -988,7 +1447,8 @@ ${applicationServices().turn?.fields(this.sessionId) ?? ""}
     if (!organisationSelect || !repository || !repositoryOptions) return;
     try {
       const initial = await this.accountExportClient.repositoryCatalogue(undefined, "", abort.signal);
-      if (this.disposed || this.mountedRoot !== root || this.repositoryCatalogueAbort !== abort) return;
+      if (this.disposed || this.mountedRoot !== root || this.repositoryCatalogueAbort !== abort
+        || identity !== this.accountDestinationIdentity()) return;
       const current = organisationSelect.value;
       const selected = initial.organisations.includes(current)
         ? current
@@ -1003,8 +1463,10 @@ ${applicationServices().turn?.fields(this.sessionId) ?? ""}
       const catalogue = selected === initial.organisations[0] && !repository.value.trim()
         ? initial
         : await this.accountExportClient.repositoryCatalogue(selected, repository.value.trim(), abort.signal);
-      if (this.disposed || this.mountedRoot !== root || this.repositoryCatalogueAbort !== abort) return;
+      if (this.disposed || this.mountedRoot !== root || this.repositoryCatalogueAbort !== abort
+        || identity !== this.accountDestinationIdentity()) return;
       repositoryOptions.replaceChildren(...catalogue.repositories.map((name) => new Option(name, name)));
+      void this.refreshRepositoryBranches(root);
     } catch (error) {
       if (abort.signal.aborted || this.disposed || this.mountedRoot !== root) return;
       repositoryOptions.replaceChildren();
@@ -1092,7 +1554,8 @@ ${applicationServices().turn?.fields(this.sessionId) ?? ""}
       this.showActivity(root, "STOP THE RUN BEFORE CHANGING CONNECTION", "error");
       this.restoreConnectionControls(root);
       return;
-    }    this.reinitialiseConnection(root, profile);
+    }
+    this.reinitialiseConnection(root, profile);
   }
 
   private restoreConnectionControls(root: HTMLElement) {
@@ -1118,6 +1581,24 @@ ${applicationServices().turn?.fields(this.sessionId) ?? ""}
     this.syncConnectionControls(root);
     this.renderSnapshot(root, this.directSession.snapshot);
     if (announce) this.showActivity(root, `CONNECTION ${profile.mode.toUpperCase()} APPLIED`, "system");
+  }
+
+  private wrapUpRun(root: HTMLElement): boolean {
+    const snapshot = this.snapshot;
+    if (this.disposed || this.wrapUpRequest || !snapshot || snapshot.run.status !== "running"
+      || snapshot.run.recordingState === "arming" || snapshot.run.recordingState === "stopping" || !snapshot.captureConnected
+      || !this.controlTransportConnected()) return false;
+    this.wrapUpRequest = { startedAtMs: snapshot.run.startedAtMs, requestedAtMs: Date.now() };
+    try {
+      this.controlSession(root, "finish", "director", nextRunControlCursor(snapshot, "finish"));
+      this.showActivity(root, "WRAPPING UP CAPTURE", "system");
+      this.renderTiming(root);
+      return true;
+    } catch (error) {
+      this.wrapUpRequest = null;
+      this.showError(root, error, "WRAP UP FAILED");
+      return false;
+    }
   }
 
   private handleRunControl(
@@ -1499,7 +1980,10 @@ ${applicationServices().turn?.fields(this.sessionId) ?? ""}
     this.session.on<any>("control", (message) => {
       if (message.action === "show-instructions") this.showActivity(root, `INSTR ${message.instructions || "--"}`, "command");
     });
-    this.session.on<any>("error", (message) => this.showActivity(root, message.message || "Server error", "error"));
+    this.session.on<any>("error", (message) => {
+      this.wrapUpRequest = null;
+      this.showActivity(root, message.message || "Server error", "error");
+    });
     this.session.on<any>("webrtc-signal", (message) => {
       if (!this.webRtcSignal) void this.acceptSignal(root, message.peerId, message.signal);
     });
@@ -2093,6 +2577,11 @@ ${applicationServices().turn?.fields(this.sessionId) ?? ""}
     this.advanceDirectRunClock(root);
     const now = Date.now();
     const run = this.snapshot?.run;
+    if (this.wrapUpRequest && (run?.status !== "running" || run.recordingState === "stopping"
+      || run.startedAtMs !== this.wrapUpRequest.startedAtMs || !this.snapshot?.captureConnected
+      || !this.controlTransportConnected() || now - this.wrapUpRequest.requestedAtMs >= 10_000)) {
+      this.wrapUpRequest = null;
+    }
     root.querySelector("#top-utc")!.textContent = new Date(now).toISOString().slice(11, 19);
     root.querySelector("#top-local-time")!.textContent = new Date(now).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
     root.querySelector("#top-session-elapsed")!.textContent = formatDuration(run ? sessionElapsedMs(run, now) : 0);
@@ -2104,6 +2593,18 @@ ${applicationServices().turn?.fields(this.sessionId) ?? ""}
     this.renderActiveTaskProgress(root, remaining);
     this.renderPairingCountdown(root, now);
     this.renderRunPresentation(root);
+    const runPresentationOptions = {
+      configuration: this.runEditor?.readConfiguration(),
+      draft: this.configurationDraft,
+      now,
+    };
+    this.runPosition?.update(this.snapshot, runPresentationOptions);
+    this.runTimeline?.render(this.snapshot, runPresentationOptions);
+    this.runStack?.render(this.snapshot, {
+      ...runPresentationOptions,
+      controlConnected: this.controlTransportConnected(),
+      wrapUpPending: this.wrapUpRequest !== null,
+    });
   }
 
   private renderActiveTaskProgress(root: HTMLElement, remainingMs: number | null) {
@@ -2185,7 +2686,7 @@ ${applicationServices().turn?.fields(this.sessionId) ?? ""}
         : "";
       const unavailable = transportConnected ? "" : "Monitor link unavailable";
       const blockers = control.slot === "record" && !control.enabled
-        ? snapshot?.recordingReadiness.blockers.map((blocker) => blocker.message).join(" / ")
+        ? snapshot?.recordingReadiness.blockers.map((blocker) => blocker.message).join("/")
         : "";
       const shortcutKey = control.slot in directorShortcutKeyBySlot
         ? directorShortcutKeyBySlot[control.slot as DirectorShortcutSlot]
@@ -2232,7 +2733,7 @@ ${applicationServices().turn?.fields(this.sessionId) ?? ""}
     if (this.episodeReviewMode === "live") {
       const hasFrame = deviceConnected && Boolean(this.latestReadout || this.snapshot?.lastFrame);
       root.querySelector("#signal-empty")?.classList.toggle("is-hidden", hasFrame);
-      const waitingDetail = deviceConnected ? "START XR / MOVE HANDS" : "CONNECT HEADSET / START XR";
+      const waitingDetail = deviceConnected ? "START XR/MOVE HANDS" : "CONNECT HEADSET/START XR";
       root.querySelector("#signal-empty-detail")!.textContent = waitingDetail;
     }
     if (!deviceConnected && this.episodeReviewMode === "live") {
@@ -2358,6 +2859,7 @@ ${applicationServices().turn?.fields(this.sessionId) ?? ""}
   }
 
   private resetVideoPeer(root: HTMLElement) {
+    this.depthView?.disconnect();
     this.revokePeerTelemetryAuthority();
     const peer = this.peer;
     this.stopAudioSpectrum(root);
@@ -2388,7 +2890,8 @@ ${applicationServices().turn?.fields(this.sessionId) ?? ""}
   }
 
   private revokePeerTelemetryAuthority() {
-    this.directSession.resetTelemetryModeAuthority();  }
+    this.directSession.resetTelemetryModeAuthority();
+  }
 
   private updateLiveSessionMarker(connected: boolean) {
     try {
@@ -2596,7 +3099,7 @@ ${applicationServices().turn?.fields(this.sessionId) ?? ""}
   }
 
   private setDeliveryFields(root: HTMLElement, configuration: CaptureConfiguration) {
-    root.querySelector<HTMLInputElement>("#hf-after-episode")!.checked = configuration.uploadAfterEpisode;
+    root.querySelector<HTMLInputElement>("#hf-after-episode")!.checked = this.automaticHfUploadOverride ?? configuration.uploadAfterEpisode;
     this.setRepositoryPrivacy(root, configuration.hfPrivate);
     root.querySelector<HTMLInputElement>("#setting-cue-sounds")!.checked = configuration.promptAudio.enabled;
     root.querySelector<HTMLInputElement>("#setting-voice-cues")!.checked = configuration.promptAudio.useTextToSpeech;
@@ -2756,8 +3259,8 @@ ${applicationServices().turn?.fields(this.sessionId) ?? ""}
     root.querySelector("#camera-calibration-samples")!.textContent = `${this.calibrationCaptures}/${calibrationFrameTarget}`;
     if (this.calibrationWidth && this.calibrationHeight) root.querySelector("#camera-resolution")!.textContent = `${this.calibrationWidth} x ${this.calibrationHeight}`;
     const calibration = this.cameraCalibration;
-    root.querySelector("#camera-intrinsics-focal")!.textContent = calibration ? `${calibration.fx.toFixed(1)} / ${calibration.fy.toFixed(1)}` : "-- / --";
-    root.querySelector("#camera-intrinsics-centre")!.textContent = calibration ? `${calibration.cx.toFixed(1)} / ${calibration.cy.toFixed(1)}` : "-- / --";
+    root.querySelector("#camera-intrinsics-focal")!.textContent = calibration ? `${calibration.fx.toFixed(1)}/${calibration.fy.toFixed(1)}` : "--/--";
+    root.querySelector("#camera-intrinsics-centre")!.textContent = calibration ? `${calibration.cx.toFixed(1)}/${calibration.cy.toFixed(1)}` : "--/--";
     root.querySelector("#camera-intrinsics-distortion")!.textContent = calibration ? calibration.distortion.map((value) => value.toFixed(4)).join(" ") : "--";
     root.querySelector("#camera-intrinsics-rms")!.textContent = calibration ? `${calibration.rms.toFixed(2)} PX` : "-- PX";
   }
@@ -2767,7 +3270,7 @@ ${applicationServices().turn?.fields(this.sessionId) ?? ""}
     const video = root.querySelector<HTMLVideoElement>("#live-video")!;
     const width = status.selectedCameraWidth ?? (video.videoWidth || this.calibrationWidth);
     const height = status.selectedCameraHeight ?? (video.videoHeight || this.calibrationHeight);
-    const side = status.selectedCameraSide === "unknown" ? "" : ` / ${status.selectedCameraSide.toUpperCase()}`;
+    const side = status.selectedCameraSide === "unknown" ? "" : `/${status.selectedCameraSide.toUpperCase()}`;
     const outputRegistration = status.selectedCameraFrame
       ? cameraRegistrationForCaptureFrame(this.cameraRegistration, status.selectedCameraFrame)
       : this.cameraRegistration?.captureFrameKey ? null : this.cameraRegistration;
@@ -2812,20 +3315,12 @@ ${applicationServices().turn?.fields(this.sessionId) ?? ""}
 
   private syncDraftTaskDisplay(root: HTMLElement) {
     const editor = this.runEditor?.readConfiguration() ?? this.snapshot?.configuration ?? defaultConfiguration;
-    const task = this.activeDraftTask();
-    const taskDescription = task?.instructions.trim();
-    const runDescription = editor.runDescription.trim() || editor.runTitle.trim();
     const runTitle = editor.runTitle.trim() || defaultConfiguration.runTitle;
     const runDescriptionText = editor.runDescription.trim();
     root.querySelector("#run-display-title")!.textContent = runTitle;
     root.querySelector("#run-display-description")!.textContent = runDescriptionText || "No run description";
-    root.querySelector("#inspector-task-id")!.textContent = task?.label ?? "NO TASK";
-    root.querySelector("#inspector-task-description")!.textContent = taskDescription && taskDescription !== "--"
-      ? taskDescription
-      : runDescription && runDescription !== "--"
-        ? runDescription
-        : "Open task";
     this.renderTiming(root);
+    this.renderCaptureDetails(root);
   }
 
   private markConfigurationDraft(root: HTMLElement) {
@@ -2914,19 +3409,18 @@ ${applicationServices().turn?.fields(this.sessionId) ?? ""}
       this.accountUploadPlanning = true;
       this.updateExportControls(root);
       episodes = this.selectedExportEpisodes();
-      if (!episodes) throw new Error("Session episodes are not available");
-      for (const episode of episodes) {      }
+      if (!episodes) throw new Error("Session captures are not available");
       this.materialiseRepositoryName(root);
       this.saveConfiguration(root);
       const upload = await this.prepareAccountUploadOptions(root);
       this.startBrowserExport(root, upload, episodes, true);
     } catch (error) {
-      for (const episode of episodes ?? []) {}
       recordMonitorExportJourney("upload", "failed");
       this.reportExportStartError(root, error);
     } finally {
       this.accountUploadPlanning = false;
       this.updateExportControls(root);
+      void this.drainAutomaticLocalExport(root);
     }
   }
 
@@ -2935,14 +3429,15 @@ ${applicationServices().turn?.fields(this.sessionId) ?? ""}
     upload?: BackendUploadOptions,
     episodes?: Episode[],
     workflowStarted = false,
+    source?: { catalogue: Episode[]; sourceEpisodeIds?: Record<string, string>; directoryHandle?: FileSystemDirectoryHandle; episodeIndexBase?: number; globalFrameIndexBase?: number; automaticKey?: string },
   ) {
     let queued = false;
     let exportEpisodes: Episode[] | null = null;
     try {
       exportEpisodes = episodes ?? this.selectedExportEpisodes();
-      if (!exportEpisodes) throw new Error("Session episodes are not available");
-      const catalogue = this.exportEpisodeCatalogue();
-      if (!catalogue) throw new Error("Session episodes are not available");
+      if (!exportEpisodes) throw new Error("Session captures are not available");
+      const catalogue = source?.catalogue ?? this.exportEpisodeCatalogue();
+      if (!catalogue) throw new Error("Session captures are not available");
       const lerobotStartedAtMs = performance.now();
       const requestId = this.exporter.start({
         sessionId: this.session.sessionId,
@@ -2951,6 +3446,10 @@ ${applicationServices().turn?.fields(this.sessionId) ?? ""}
         exportCapability: this.session.exportCapability ?? undefined,
         source: isPeerConnectionMode(this.connectionProfile) ? "monitor-opfs" : "server",
         recorderRateHz: this.snapshot?.configuration.recorderRateHz,
+        sourceEpisodeIds: source?.sourceEpisodeIds,
+        directoryHandle: source?.directoryHandle,
+        episodeIndexBase: source?.episodeIndexBase,
+        globalFrameIndexBase: source?.globalFrameIndexBase,
         ...(upload
           ? {
               episodeIndexBase: upload.appendAllocation.nextEpisodeIndex,
@@ -2967,20 +3466,19 @@ ${applicationServices().turn?.fields(this.sessionId) ?? ""}
         episodeIds: exportEpisodes.map((episode) => episode.id),
         lerobotStartedAtMs,
         deliveryStartedAtMs: upload ? lerobotStartedAtMs : null,
+        automaticKey: source?.automaticKey,
         ...(upload ? { activityStage: "queued" as const } : {}),
       });
       if (upload && !workflowStarted) {
-        for (const episode of exportEpisodes) {}
       }
       recordMonitorExportJourney(upload ? "upload" : "export", "queued");
       queued = true;
       this.browserJobs.splice(8);
       this.updateExportControls(root);
       this.renderJobs(root);
-      if (upload) this.showActivity(root, `HF QUEUED ${exportEpisodes.length} EPISODE${exportEpisodes.length === 1 ? "" : "S"} FOR ${upload.repository}@${upload.branch}`, "system");
+      if (upload) this.showActivity(root, `HF QUEUED ${exportEpisodes.length} CAPTURE${exportEpisodes.length === 1 ? "" : "S"} FOR ${upload.repository}@${upload.branch}`, "system");
     } catch (error) {
       if (upload) {
-        for (const episode of exportEpisodes ?? []) {}
       }
       if (!queued) recordMonitorExportJourney(upload ? "upload" : "export", "failed");
       this.reportExportStartError(root, error);
@@ -2988,50 +3486,29 @@ ${applicationServices().turn?.fields(this.sessionId) ?? ""}
   }
 
   private async startFolderExport(root: HTMLElement) {
-    let queued = false;
+    if (this.exportWorkBusy()) return;
+    this.localExportPlanning = true;
+    this.updateExportControls(root);
     try {
-      const snapshot = this.snapshot;
-      if (!snapshot) throw new Error("Session episodes are not available");
-      const picker = (window as typeof window & {
-        showDirectoryPicker?: (options?: { mode?: "read" | "readwrite" }) => Promise<FileSystemDirectoryHandle>;
-      }).showDirectoryPicker;
-      if (!picker) throw new Error("File System Access directory selection is unavailable in this browser");
-      const directoryHandle = await picker.call(window, { mode: "readwrite" });
+      const directoryHandle = this.exportFolder && await this.exportFolderPermitted(this.exportFolder, true)
+        ? this.exportFolder : await this.pickExportFolder();
+      if (this.disposed || this.mountedRoot !== root) return;
+      this.exportFolder = directoryHandle;
+      this.folderPermission = true;
+      await savedExportFolder(directoryHandle);
       const episodes = this.selectedExportEpisodes();
-      if (!episodes) throw new Error("Session episodes are not available");
       const catalogue = this.exportEpisodeCatalogue();
-      if (!catalogue) throw new Error("Session episodes are not available");
-      const lerobotStartedAtMs = performance.now();
-      const requestId = this.exporter.start({
-        sessionId: this.session.sessionId,
-        episodes: catalogue,
-        episodeIds: episodes.map((episode) => episode.id),
-        exportCapability: this.session.exportCapability ?? undefined,
-        source: isPeerConnectionMode(this.connectionProfile) ? "monitor-opfs" : "server",
-        recorderRateHz: snapshot.configuration.recorderRateHz,
-        directoryHandle,
-      });
-      this.browserJobs.unshift({
-        id: requestId,
-        type: "export",
-        state: "queued",
-        detail: `Queued folder export to ${directoryHandle.name}`,
-        episodeIds: episodes.map((episode) => episode.id),
-        lerobotStartedAtMs,
-        deliveryStartedAtMs: null,
-      });
-      recordMonitorExportJourney("export", "queued");
-      queued = true;
-      this.browserJobs.splice(8);
-      this.updateExportControls(root);
-      this.renderJobs(root);
+      if (!episodes || !catalogue) throw new Error("Session captures are not available");
+      this.startBrowserExport(root, undefined, episodes, false, { catalogue, directoryHandle });
+      this.renderExportPreferences(root);
     } catch (error) {
-      if (error instanceof DOMException && error.name === "AbortError") {
-        recordMonitorExportJourney("export", "cancelled");
-        return;
-      }
-      if (!queued) recordMonitorExportJourney("export", "failed");
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      recordMonitorExportJourney("export", "failed");
       this.reportExportStartError(root, error);
+    } finally {
+      this.localExportPlanning = false;
+      this.updateExportControls(root);
+      this.drainAutomaticUpload(root);
     }
   }
 
@@ -3041,6 +3518,25 @@ ${applicationServices().turn?.fields(this.sessionId) ?? ""}
     const eligible = episodes.filter(isExportableEpisode);
     if (this.selectedEpisodeIds.size === 0) return eligible;
     return eligible.filter((episode) => this.selectedEpisodeIds.has(episode.id));
+  }
+
+  private renderCaptureDetails(root: HTMLElement) {
+    const selectedId = this.selectedEpisodeIds.size === 1 ? [...this.selectedEpisodeIds][0] : null;
+    const episode = selectedId ? this.exportEpisodeCatalogue()?.find((entry) => entry.id === selectedId) : null;
+    renderCaptureMetadata(root.querySelector<HTMLElement>("#capture-metadata")!, {
+      sessionId: this.sessionId,
+      snapshot: this.snapshot,
+      configuration: this.configurationDraft || !this.snapshot
+        ? this.readDraftConfiguration(root) : this.snapshot.configuration,
+      episode,
+      onEdit: (field, value) => {
+        const configuration = this.readDraftConfiguration(root);
+        configuration.studyMetadata = { ...configuration.studyMetadata, [field]: value };
+        this.runEditor?.applyConfiguration(configuration);
+        this.saveConfiguration(root);
+        this.renderCaptureDetails(root);
+      },
+    });
   }
 
   private exportEpisodeCatalogue() {
@@ -3060,6 +3556,7 @@ ${applicationServices().turn?.fields(this.sessionId) ?? ""}
       button.closest(".episode-block")?.classList.toggle("is-selected", selected);
     });
     this.updateExportControls(root);
+    this.renderCaptureDetails(root);
     await this.renderSelectedEpisodeSignals(root);
   }
 
@@ -3067,7 +3564,7 @@ ${applicationServices().turn?.fields(this.sessionId) ?? ""}
     const episode = [...(this.snapshot?.episodes ?? []), ...(this.snapshot?.attempts ?? [])]
       .find((entry) => entry.id === episodeId);
     if (!episode) return;
-    if (!window.confirm(`Delete episode ${episodeId}? This cannot be undone.`)) return;
+    if (!window.confirm(`Delete capture ${episodeId}? This cannot be undone.`)) return;
     try {
       if (this.selectedEpisodeIds.delete(episodeId) || this.replayedEpisodeId === episodeId) this.clearEpisodeReplay(root);
       if (isPeerConnectionMode(this.connectionProfile)) {
@@ -3083,9 +3580,9 @@ ${applicationServices().turn?.fields(this.sessionId) ?? ""}
       } else this.session.send({ type: "delete-episode", episodeId });
       this.automaticUploadQueue.delete(episodeId);
       this.observedExportableEpisodes.delete(episodeId);
-      this.showActivity(root, `EPISODE DELETED ${episodeId}`, "system");
+      this.showActivity(root, `CAPTURE DELETED ${episodeId}`, "system");
     } catch (error) {
-      this.showError(root, error, "EPISODE DELETE FAILED");
+      this.showError(root, error, "CAPTURE DELETE FAILED");
     }
   }
 
@@ -3098,7 +3595,7 @@ ${applicationServices().turn?.fields(this.sessionId) ?? ""}
       this.clearEpisodeReplay(root);
       if (this.selectedEpisodeIds.size > 1) {
         root.querySelector("#signal-empty")!.classList.remove("is-hidden");
-        root.querySelector("#signal-empty span")!.textContent = `${this.selectedEpisodeIds.size} EPISODES SELECTED`;
+        root.querySelector("#signal-empty span")!.textContent = `${this.selectedEpisodeIds.size} CAPTURES SELECTED`;
         root.querySelector("#signal-empty-detail")!.textContent = "EXPORT WILL INCLUDE ONLY THIS SELECTION";
       }
       return;
@@ -3114,11 +3611,12 @@ ${applicationServices().turn?.fields(this.sessionId) ?? ""}
     const button = root.querySelector<HTMLButtonElement>(`[data-episode-id="${CSS.escape(episodeId)}"]`);
     const label = `${button?.querySelector("b")?.textContent ?? "EP"} ${button?.querySelector("span")?.textContent ?? ""}`.trim();
     this.episodeReviewMode = "loading";
+    this.depthView?.setLive(false);
     root.dataset.episodeReviewMode = "loading";
-    this.suspendLiveVideo(root, "LOADING EPISODE", label);
-    root.querySelector("#signal-source-label")!.textContent = "SIGNALS / LOADING";
+    this.suspendLiveVideo(root, "LOADING CAPTURE", label);
+    root.querySelector("#signal-source-label")!.textContent = "SIGNALS/LOADING";
     root.querySelector("#signal-empty")!.classList.remove("is-hidden");
-    root.querySelector("#signal-empty span")!.textContent = "LOADING EPISODE";
+    root.querySelector("#signal-empty span")!.textContent = "LOADING CAPTURE";
     root.querySelector("#signal-empty-detail")!.textContent = label;
     try {
       const {
@@ -3147,7 +3645,7 @@ ${applicationServices().turn?.fields(this.sessionId) ?? ""}
           frames.push(JSON.parse(line) as SensorFrame);
           if (frames.length > 240) frames.shift();
         }
-        if (frames.length === 0) throw new Error("Episode has no durable sensor frames");
+        if (frames.length === 0) throw new Error("Capture has no durable sensor frames");
         return frames;
       })();
       const [frames, video] = await Promise.all([
@@ -3161,12 +3659,12 @@ ${applicationServices().turn?.fields(this.sessionId) ?? ""}
       root.dataset.episodeReviewMode = "replay";
       this.session.presentEpisodeFrames(frames);
       this.replayedEpisodeId = episodeId;
-      root.querySelector("#signal-source-label")!.textContent = `SIGNALS / ${label}`;
+      root.querySelector("#signal-source-label")!.textContent = `SIGNALS/${label}`;
       root.querySelector("#signal-empty")!.classList.add("is-hidden");
     } catch (error) {
       if (controller.signal.aborted) return;
       this.clearEpisodeReplay(root);
-      root.querySelector("#signal-empty span")!.textContent = "EPISODE REVIEW UNAVAILABLE";
+      root.querySelector("#signal-empty span")!.textContent = "CAPTURE REVIEW UNAVAILABLE";
       root.querySelector("#signal-empty-detail")!.textContent = error instanceof Error ? error.message.toUpperCase().slice(0, 96) : label;
     } finally {
       if (this.episodeReplayController === controller) this.episodeReplayController = null;
@@ -3180,13 +3678,14 @@ ${applicationServices().turn?.fields(this.sessionId) ?? ""}
     this.replayedEpisodeId = null;
     const restoreVideo = this.episodeReviewMode !== "live" || this.episodeVideoUrl !== null;
     this.episodeReviewMode = "live";
+    this.depthView?.setLive(true);
     root.dataset.episodeReviewMode = "live";
     root.dataset.monitorFrameSource = "live";
     if (restoreVideo) this.restoreLiveVideo(root);
     root.querySelector("#signal-source-label")!.textContent = "SIGNALS";
     if (this.selectedEpisodeIds.size <= 1) {
       root.querySelector("#signal-empty span")!.textContent = "NO SENSOR FRAMES";
-      root.querySelector("#signal-empty-detail")!.textContent = this.snapshot?.captureConnected ? "WAITING FOR SENSOR FRAMES" : "CONNECT HEADSET / START XR";
+      root.querySelector("#signal-empty-detail")!.textContent = this.snapshot?.captureConnected ? "WAITING FOR SENSOR FRAMES" : "CONNECT HEADSET/START XR";
       const hasLiveFrames = Boolean(this.latestReadout?.traceCount);
       root.querySelector("#signal-empty")!.classList.toggle("is-hidden", hasLiveFrames);
     }
@@ -3248,11 +3747,11 @@ ${applicationServices().turn?.fields(this.sessionId) ?? ""}
       };
       const failed = () => {
         cleanup();
-        reject(new Error("Episode video could not be decoded"));
+        reject(new Error("Capture video could not be decoded"));
       };
       const aborted = () => {
         cleanup();
-        reject(signal.reason instanceof Error ? signal.reason : new DOMException("Episode review cancelled", "AbortError"));
+        reject(signal.reason instanceof Error ? signal.reason : new DOMException("Capture review cancelled", "AbortError"));
       };
       video.addEventListener("loadeddata", loaded);
       video.addEventListener("error", failed);
@@ -3270,7 +3769,7 @@ ${applicationServices().turn?.fields(this.sessionId) ?? ""}
     this.releaseEpisodeVideo();
     const empty = root.querySelector<HTMLElement>("#video-empty")!;
     empty.querySelector("span")!.textContent = "NO VIDEO";
-    empty.querySelector("small")!.textContent = this.snapshot?.captureConnected ? "WAITING FOR VIDEO" : "CONNECT HEADSET / START XR";
+    empty.querySelector("small")!.textContent = this.snapshot?.captureConnected ? "WAITING FOR VIDEO" : "CONNECT HEADSET/START XR";
     const liveTrack = this.liveVideoStream?.getVideoTracks().find((track) => track.readyState === "live");
     if (!this.liveVideoStream || !liveTrack) {
       root.querySelector(".camera-viewport")?.classList.remove("has-video");
@@ -3310,7 +3809,8 @@ ${applicationServices().turn?.fields(this.sessionId) ?? ""}
       throw new Error("Connect Hugging Face through the CERES account before syncing");
     }
     const repository = this.materialiseRepositoryName(root);
-    const branch = root.querySelector<HTMLInputElement>("#hf-branch")!.value.trim() || "main";
+    if (!this.repositoryBranchReady(root)) throw new Error("Select a repository branch before uploading");
+    const branch = root.querySelector<HTMLSelectElement>("#hf-branch")!.value.trim() || "main";
     if (!repository.includes("/")) throw new Error("Set the Hugging Face dataset repository before syncing");
     return {
       expectedAccountSubject: account.subject,
@@ -3322,6 +3822,9 @@ ${applicationServices().turn?.fields(this.sessionId) ?? ""}
   }
 
   private async prepareAccountUploadOptions(root: HTMLElement, signal?: AbortSignal) {
+    this.materialiseRepositoryName(root);
+    await this.refreshRepositoryBranches(root);
+    signal?.throwIfAborted();
     const options = this.accountUploadOptions(root);
     const [organisation = "", repository = "", ...remainder] = options.repository.split("/");
     if (remainder.length > 0 || !organisation || !repository) {
@@ -3360,34 +3863,42 @@ ${applicationServices().turn?.fields(this.sessionId) ?? ""}
     if (event.type === "progress") {
       job.state = "running";
       const percent = event.total > 0 ? Math.min(100, Math.floor(event.completed / event.total * 100)) : 0;
-      job.detail = `${event.detail} ${percent}%${event.backend ? ` / ${event.backend}` : ""}`;
+      job.detail = `${event.detail} ${percent}%${event.backend ? `/${event.backend}` : ""}`;
       const progress = root.querySelector<HTMLProgressElement>("#export-progress")!;
       progress.hidden = false;
       progress.value = percent / 100;
-      if (job.type === "upload") {        const activityStage = event.stage === "uploading" ? "uploading" : event.stage === "queued" ? "queued" : "exporting";
+      if (job.type === "upload") {
+        const activityStage = event.stage === "uploading" ? "uploading" : event.stage === "queued" ? "queued" : "exporting";
         if (job.activityStage !== activityStage) {
           job.activityStage = activityStage;
-          const context = event.episodeId ? ` ${event.episodeId}` : ` ${job.episodeIds.length} EPISODE${job.episodeIds.length === 1 ? "" : "S"}`;
+          const context = event.episodeId ? ` ${event.episodeId}` : ` ${job.episodeIds.length} CAPTURE${job.episodeIds.length === 1 ? "" : "S"}`;
           this.showActivity(root, `HF ${activityStage.toUpperCase()}${context}: ${event.detail.toUpperCase()}`, "system");
         }
       }
-    } else if (event.type === "complete") {      const upload = this.backendUploadOptions.get(event.requestId);
+    } else if (event.type === "complete") {
+      job.episodeIds = [...event.episodeIds];
+      void this.refreshStoredExports(root);
+      const upload = this.backendUploadOptions.get(event.requestId);
       if (upload) {
-        job.deliveryStartedAtMs ??= performance.now();        job.state = "running";
+        job.deliveryStartedAtMs ??= performance.now();
+        job.state = "running";
         job.activityStage = "uploading";
-        job.detail = `${event.episodeCount} episodes / ${event.artifactCount} artefacts / requesting backend upload`;
+        job.detail = `${event.episodeCount} captures/${event.artifactCount} artefacts/requesting backend upload`;
         void this.completeBackendUpload(root, event.requestId, event.episodeIds, event.artefacts, upload);
       } else {
         job.state = "completed";
-        job.detail = `${event.episodeCount} episodes / ${event.artifactCount} artefacts`;
+        job.detail = `${event.episodeCount} captures/${event.artifactCount} artefacts`;
         recordMonitorExportJourney(job.type, "completed");
       }
     } else {
       this.backendUploadOptions.delete(event.requestId);
       job.state = event.cancelled ? "cancelled" : "failed";
-      job.detail = event.error;      if (job.type === "upload") {      }
+      job.detail = event.error;
+      if (job.type === "upload") {
+      }
       recordMonitorExportJourney(job.type, event.cancelled ? "cancelled" : "failed");
-      if (!event.cancelled) {        if (job.type === "upload") this.showActivity(root, `HF UPLOAD FAILED ${event.error.toUpperCase()}`, "error");
+      if (!event.cancelled) {
+        if (job.type === "upload") this.showActivity(root, `HF UPLOAD FAILED ${event.error.toUpperCase()}`, "error");
         this.showJobError(root, event.error);
       }
     }
@@ -3398,6 +3909,7 @@ ${applicationServices().turn?.fields(this.sessionId) ?? ""}
     this.renderJobs(root);
     if ((event.type === "complete" && !this.backendUploadOptions.has(event.requestId)) || event.type === "error") {
       this.drainAutomaticUpload(root);
+      void this.drainAutomaticLocalExport(root);
     }
   }
 
@@ -3447,7 +3959,8 @@ ${applicationServices().turn?.fields(this.sessionId) ?? ""}
         episodeIds,
         artefacts,
         signal: abort.signal,
-        onProgress: (progress) => {          job.state = progress.stage === "completed" ? "completed" : "running";
+        onProgress: (progress) => {
+          job.state = progress.stage === "completed" ? "completed" : "running";
           job.detail = progress.detail;
           const value = progress.total > 0 ? Math.min(1, progress.completed / progress.total) : 0;
           const progressNode = root.querySelector<HTMLProgressElement>("#export-progress")!;
@@ -3460,20 +3973,22 @@ ${applicationServices().turn?.fields(this.sessionId) ?? ""}
         accountJob,
         this.session.sessionId,
         episodeIds,
-      );      job.accountUploadJobId = accountJob.id;
+      );
+      job.accountUploadJobId = accountJob.id;
       job.state = "completed";
       job.detail = `Verified Hugging Face commit ${accountJob.finalCommit!.oid}`;
       delete job.backendUploadRecovery;
       recordMonitorExportJourney("upload", "completed");
       this.showActivity(
         root,
-        `HF UPLOAD COMPLETED ${episodeIds.length} EPISODE${episodeIds.length === 1 ? "" : "S"} TO ${accountJob.repository}@${accountJob.branch}`,
+        `HF UPLOAD COMPLETED ${episodeIds.length} CAPTURE${episodeIds.length === 1 ? "" : "S"} TO ${accountJob.repository}@${accountJob.branch}`,
         "system",
       );
       try {
         await this.persistBrowserUploadOutcome(root, episodeIds, upload);
       } catch (error) {
-        job.detail = `Verified Hugging Face commit ${accountJob.finalCommit!.oid} / local receipt not saved`;        this.showActivity(root, "HF UPLOAD COMPLETED. LOCAL RECEIPT SAVE FAILED.", "error");
+        job.detail = `Verified Hugging Face commit ${accountJob.finalCommit!.oid}/local receipt not saved`;
+        this.showActivity(root, "HF UPLOAD COMPLETED. LOCAL RECEIPT SAVE FAILED.", "error");
         this.showJobError(root, "The Hugging Face upload completed, but its local completion receipt could not be saved");
       }
     } catch (error) {
@@ -3494,9 +4009,11 @@ ${applicationServices().turn?.fields(this.sessionId) ?? ""}
         job.detail = abort.signal.aborted
           ? "Hugging Face upload cancelled"
           : error instanceof Error ? error.message : "Hugging Face upload failed";
-        delete job.backendUploadRecovery;        recordMonitorExportJourney("upload", abort.signal.aborted ? "cancelled" : "failed");
+        delete job.backendUploadRecovery;
+        recordMonitorExportJourney("upload", abort.signal.aborted ? "cancelled" : "failed");
       }
-      if (!abort.signal.aborted && !(error instanceof AccountUploadCancellationUnconfirmedError)) {        this.showActivity(root, `HF UPLOAD FAILED ${job.detail.toUpperCase()}`, "error");
+      if (!abort.signal.aborted && !(error instanceof AccountUploadCancellationUnconfirmedError)) {
+        this.showActivity(root, `HF UPLOAD FAILED ${job.detail.toUpperCase()}`, "error");
         this.showJobError(root, job.detail);
       }
     } finally {
@@ -3663,7 +4180,8 @@ ${applicationServices().turn?.fields(this.sessionId) ?? ""}
           accountJob = racedJob;
         }
       }
-      if (accountJob.status === "finalising") {        accountJob = await this.accountExportClient.reconcileUpload(accountJob, signal);
+      if (accountJob.status === "finalising") {
+        accountJob = await this.accountExportClient.reconcileUpload(accountJob, signal);
       }
       signal.throwIfAborted();
       if (accountJob.status === "completed") {
@@ -3671,20 +4189,22 @@ ${applicationServices().turn?.fields(this.sessionId) ?? ""}
           accountJob,
           this.session.sessionId,
           episodeIds,
-        );        job.accountUploadJobId = accountJob.id;
+        );
+        job.accountUploadJobId = accountJob.id;
         job.state = "completed";
         job.detail = `Verified Hugging Face commit ${accountJob.finalCommit!.oid}`;
         delete job.backendUploadRecovery;
         recordMonitorExportJourney("upload", "completed");
         this.showActivity(
           root,
-          `HF UPLOAD COMPLETED ${episodeIds.length} EPISODE${episodeIds.length === 1 ? "" : "S"} TO ${accountJob.repository}@${accountJob.branch}`,
+          `HF UPLOAD COMPLETED ${episodeIds.length} CAPTURE${episodeIds.length === 1 ? "" : "S"} TO ${accountJob.repository}@${accountJob.branch}`,
           "system",
         );
         try {
           await this.persistBrowserUploadOutcome(root, [...episodeIds], upload);
         } catch (error) {
-          job.detail = `Verified Hugging Face commit ${accountJob.finalCommit!.oid} / local receipt not saved`;          this.showActivity(root, "HF UPLOAD COMPLETED. LOCAL RECEIPT SAVE FAILED.", "error");
+          job.detail = `Verified Hugging Face commit ${accountJob.finalCommit!.oid}/local receipt not saved`;
+          this.showActivity(root, "HF UPLOAD COMPLETED. LOCAL RECEIPT SAVE FAILED.", "error");
           this.showJobError(root, "The Hugging Face upload completed, but its local completion receipt could not be saved");
         }
       } else if (accountJob.status === "failed" || accountJob.status === "cancelled") {
@@ -3693,7 +4213,8 @@ ${applicationServices().turn?.fields(this.sessionId) ?? ""}
         job.detail = cancelled
           ? "Hugging Face upload cancellation confirmed"
           : accountJob.error || "Hugging Face backend upload failed";
-        delete job.backendUploadRecovery;        recordMonitorExportJourney("upload", cancelled ? "cancelled" : "failed");
+        delete job.backendUploadRecovery;
+        recordMonitorExportJourney("upload", cancelled ? "cancelled" : "failed");
         if (!cancelled) this.showActivity(root, `HF UPLOAD FAILED ${job.detail.toUpperCase()}`, "error");
       } else {
         job.state = "running";
@@ -3719,6 +4240,8 @@ ${applicationServices().turn?.fields(this.sessionId) ?? ""}
     episodeIds: string[],
     upload: VerifiedEpisodeHuggingFaceUpload,
   ) {
+    const catalogue = this.exportEpisodeCatalogue() ?? [];
+    if (!episodeIds.every((id) => catalogue.some((episode) => episode.id === id))) return;
     if (isPeerConnectionMode(this.connectionProfile)) {
       const previousSnapshot = this.directSession.snapshot;
       this.directSession.recordEpisodeUpload(episodeIds, upload);
@@ -3753,8 +4276,12 @@ ${applicationServices().turn?.fields(this.sessionId) ?? ""}
 
 
 
+  private automaticHuggingFaceEnabled(snapshot = this.snapshot) {
+    return this.automaticHfUploadOverride ?? snapshot?.configuration.uploadAfterEpisode ?? false;
+  }
+
   private updateAutomaticUploadQueue(root: HTMLElement, snapshot: SessionSnapshot) {
-    const exportable = [...snapshot.episodes, ...snapshot.attempts].filter(isExportableEpisode);
+    const exportable = [...snapshot.episodes, ...snapshot.attempts].filter((episode) => isExportableEpisode(episode) && episode.integrity === "valid" && Boolean(episode.endedAt));
     if (!this.exportableEpisodesInitialised) {
       exportable.forEach((episode) => this.observedExportableEpisodes.add(episode.id));
       this.exportableEpisodesInitialised = true;
@@ -3763,18 +4290,27 @@ ${applicationServices().turn?.fields(this.sessionId) ?? ""}
     for (const episode of exportable) {
       if (this.observedExportableEpisodes.has(episode.id)) continue;
       this.observedExportableEpisodes.add(episode.id);
-      if (snapshot.configuration.uploadAfterEpisode) this.automaticUploadQueue.add(episode.id);
+      if (!this.automaticExport.destination && this.uploadCadence === "cycle" && this.automaticHuggingFaceEnabled(snapshot)
+        && episode.integrity === "valid" && episode.endedAt) this.automaticUploadQueue.add(episode.id);
     }
     this.drainAutomaticUpload(root);
   }
 
   private drainAutomaticUpload(root: HTMLElement) {
+    void this.drainAutomaticLocalExport(root);
     if (
-      this.exporter.isRunning()
+      this.automaticExport.destination !== null
+      || this.uploadCadence !== "cycle"
+      || !this.automaticHuggingFaceEnabled()
+      || this.exporter.isRunning()
       || this.accountUploadAbort
       || this.backendUploadRecoveryControllers.size > 0
       || this.backendUploadRecoveryTimers.size > 0
       || this.accountUploadPlanning
+      || this.localExportPlanning
+      || this.storedExportBusy
+      || this.accountExportSession?.huggingFace.state !== "ready"
+      || !this.repositoryBranchReady(root)
       || this.automaticUploadQueue.size === 0
       || !this.snapshot
     ) return;
@@ -3787,28 +4323,121 @@ ${applicationServices().turn?.fields(this.sessionId) ?? ""}
       return;
     }
     this.accountUploadPlanning = true;
-    this.updateExportControls(root);    void this.prepareAccountUploadOptions(root).then((upload) => {
-      if (this.disposed || this.mountedRoot !== root || this.exporter.isRunning()) return;
+    this.updateExportControls(root);
+    void this.prepareAccountUploadOptions(root).then((upload) => {
+      if (this.disposed || this.mountedRoot !== root || this.exporter.isRunning()
+        || this.automaticExport.destination !== null || this.uploadCadence !== "cycle"
+        || !this.automaticHuggingFaceEnabled() || !this.automaticUploadQueue.has(episode.id)) return;
       this.automaticUploadQueue.delete(episode.id);
       this.startBrowserExport(root, upload, [episode], true);
-    }).catch(() => {      // The queued episode remains pending until repository credentials are supplied.
+    }).catch(() => {
+      // The queued episode remains pending until repository credentials are supplied.
     }).finally(() => {
       this.accountUploadPlanning = false;
       if (!this.disposed && this.mountedRoot === root) this.updateExportControls(root);
+      void this.drainAutomaticLocalExport(root);
     });
   }
 
+  private updateAutomaticLocalQueue(root: HTMLElement, snapshot: SessionSnapshot) {
+    if (snapshot.run.status === "running" || snapshot.run.startedAtMs !== null) this.sessionExportRunObserved = true;
+    const destination = this.automaticExport.destination
+      ?? (this.automaticHuggingFaceEnabled(snapshot) && this.uploadCadence !== "cycle" ? "hugging-face" : null);
+    if (!destination) return;
+    const cadence = destination === "hugging-face" ? this.uploadCadence : this.automaticExport.cadence;
+    const candidates = cadence === "session"
+      ? this.sessionExportRunObserved && (snapshot.run.status === "complete" || snapshot.run.status === "stopped")
+        && snapshot.run.recordingState === "idle" && !snapshot.currentEpisode && !snapshot.pendingEpisode
+        ? automaticCaptureExports(snapshot, "cycle") : []
+      : automaticCaptureExports(snapshot, cadence);
+    if (!this.automaticExportInitialised) {
+      const baseline = cadence === "session" ? automaticCaptureExports(snapshot, "cycle") : candidates;
+      for (const candidate of baseline) this.observedAutomaticExports.add(candidate.key);
+      this.automaticExportInitialised = true;
+      return;
+    }
+    for (const candidate of candidates) {
+      if (this.observedAutomaticExports.has(candidate.key)) continue;
+      this.observedAutomaticExports.add(candidate.key);
+      this.automaticLocalQueue.set(candidate.key, structuredClone(candidate));
+    }
+    void this.drainAutomaticLocalExport(root);
+  }
+
+  private async drainAutomaticLocalExport(root: HTMLElement) {
+    const snapshot = this.snapshot;
+    const destination = this.automaticExport.destination
+      ?? (this.automaticHuggingFaceEnabled(snapshot) && this.uploadCadence !== "cycle" ? "hugging-face" : null);
+    if (!destination || !snapshot || this.disposed || this.localExportPlanning || this.exporter.isRunning()
+      || this.accountUploadPlanning || this.accountUploadAbort || this.storedExportBusy
+      || this.backendUploadRecoveryControllers.size || this.backendUploadRecoveryTimers.size || !this.automaticLocalQueue.size) return;
+    if (destination === "folder" && (!this.exportFolder || !this.folderPermission)) return;
+    if (destination === "hugging-face" && (this.accountExportSession?.huggingFace.state !== "ready"
+      || !this.repositoryBranchReady(root))) return;
+    const candidate = this.automaticLocalQueue.values().next().value as AutomaticCaptureExport;
+    const revision = this.automaticPreferenceRevision;
+    const batch = destination === "hugging-face" && this.uploadCadence === "session"
+      ? [...this.automaticLocalQueue.values()] : [candidate];
+    this.localExportPlanning = true;
+    this.updateExportControls(root);
+    try {
+      let episode = candidate.episode;
+      if (candidate.taskId) {
+        const finalised = [...snapshot.episodes, ...snapshot.attempts].find((entry) => entry.id === episode.id);
+        if (!finalised) return;
+        const checkpoint = taskExportCheckpoint(candidate, finalised);
+        if (!checkpoint) {
+          this.automaticLocalQueue.delete(candidate.key);
+          return;
+        }
+        episode = checkpoint;
+      }
+      const upload = destination === "hugging-face" ? await this.prepareAccountUploadOptions(root) : undefined;
+      const existing = upload ? [] : (await listStoredExports({})).filter((entry) => entry.sessionId === this.sessionId && !entry.archiveId);
+      if (this.disposed || revision !== this.automaticPreferenceRevision || !this.automaticLocalQueue.has(candidate.key)
+        || (this.automaticExport.destination ?? (this.automaticHuggingFaceEnabled() ? "hugging-face" : null)) !== destination) return;
+      if (destination === "folder" && (!this.exportFolder || !await this.exportFolderPermitted(this.exportFolder))) {
+        this.folderPermission = false;
+        this.renderExportPreferences(root);
+        return;
+      }
+      for (const item of batch) this.automaticLocalQueue.delete(item.key);
+      const captures = batch.length > 1 ? batch.map((item) => item.episode) : [episode];
+      this.startBrowserExport(root, upload, captures, true, {
+        catalogue: captures, automaticKey: candidate.key,
+        ...(candidate.taskId ? { sourceEpisodeIds: { [episode.id]: candidate.episode.id } } : {}),
+        ...(destination === "folder" ? { directoryHandle: this.exportFolder! } : {}),
+        ...(!upload ? {
+          episodeIndexBase: existing.reduce((next, entry) => Math.max(next, entry.episodeIndex + 1), 0),
+          globalFrameIndexBase: existing.reduce((total, entry) => total + (entry.frameCount ?? 0), 0),
+        } : {}),
+      });
+    } catch (error) {
+      this.automaticLocalQueue.delete(candidate.key);
+      this.reportExportStartError(root, error);
+    } finally {
+      this.localExportPlanning = false;
+      if (!this.disposed) this.updateExportControls(root);
+      if (!this.disposed && !this.automaticLocalQueue.has(candidate.key) && this.automaticLocalQueue.size
+        && !this.exporter.isRunning() && !this.accountUploadAbort) queueMicrotask(() => void this.drainAutomaticLocalExport(root));
+    }
+  }
+
   private reportExportStartError(root: HTMLElement, error: unknown) {
-    const message = error instanceof Error ? error.message : "Browser export could not start";    this.showActivity(root, message.toUpperCase(), "error");
+    const message = error instanceof Error ? error.message : "Browser export could not start";
+    this.showActivity(root, message.toUpperCase(), "error");
     this.showJobError(root, message);
   }
 
-  private renderSnapshot(root: HTMLElement, snapshot: SessionSnapshot) {    if (this.directFinalisationPublication !== null) return;
+  private renderSnapshot(root: HTMLElement, snapshot: SessionSnapshot) {
+    if (this.directFinalisationPublication !== null) return;
     const captureWasConnected = Boolean(this.snapshot?.captureConnected);
     const previousSnapshot = this.snapshot;
     const startPendingRun = pendingRunConfigurationApplied(this.pendingRunStartRevision, snapshot.configurationStatus);
     if (snapshot.configurationStatus.state === "error") this.pendingRunStartRevision = null;
-    this.adoptCameraRegistrationFromSnapshot(root, snapshot);    this.snapshot = snapshot;    const reviewAvailable = episodeSelectionAvailable(snapshot.run.recordingState);
+    this.adoptCameraRegistrationFromSnapshot(root, snapshot);
+    this.snapshot = snapshot;
+    const reviewAvailable = episodeSelectionAvailable(snapshot.run.recordingState);
     root.dataset.episodeSelectionAvailable = String(reviewAvailable);
     if (!reviewAvailable && (
       this.selectedEpisodeIds.size > 0
@@ -3882,8 +4511,9 @@ ${applicationServices().turn?.fields(this.sessionId) ?? ""}
       const selected = this.selectedEpisodeIds.has(episode.id);
       const uploaded = presentation.uploaded ? " is-uploaded" : "";
       const disabled = reviewAvailable ? "" : " disabled aria-disabled=\"true\"";
-      return `<li class="episode-block episode-${presentation.state}${uploaded}${selected ? " is-selected" : ""}" title="${escapeHtml(presentation.detail)}"><button type="button" data-episode-id="${escapeHtml(episode.id)}" aria-pressed="${selected}" aria-label="${escapeHtml(`${presentation.cycleLabel} ${presentation.taskLabel}. ${presentation.detail}`)}"${disabled}><b>${presentation.cycleLabel}</b><span>${presentation.taskLabel}</span></button><button class="episode-delete" type="button" data-delete-episode-id="${escapeHtml(episode.id)}" aria-label="Delete episode ${escapeHtml(episode.id)}" title="Delete episode">DEL</button></li>`;
+      return `<li class="episode-block episode-${presentation.state}${uploaded}${selected ? " is-selected" : ""}" title="${escapeHtml(presentation.detail)}"><button type="button" data-episode-id="${escapeHtml(episode.id)}" aria-pressed="${selected}" aria-label="${escapeHtml(`${presentation.cycleLabel} ${presentation.taskLabel}. ${presentation.detail}`)}"${disabled}><b>${presentation.cycleLabel}</b><span>${presentation.taskLabel}</span></button><button class="episode-delete" type="button" data-delete-episode-id="${escapeHtml(episode.id)}" aria-label="Delete capture ${escapeHtml(episode.id)}" title="Delete capture">DEL</button></li>`;
     }).join("");
+    root.querySelector<HTMLElement>("#episode-history")!.hidden = episodePresentations.length === 0;
     this.renderJobs(root);
     const promptLocked = snapshot.run.recordingState !== "idle";
     ["setting-cue-sounds", "setting-voice-cues", "setting-tts-provider", "setting-stt-provider"]
@@ -3897,6 +4527,7 @@ ${applicationServices().turn?.fields(this.sessionId) ?? ""}
     this.renderCaptureStatus(root, snapshot.captureStatus);
     this.renderAudioToggle(root, snapshot.configuration.recordAudio);
     this.updateAutomaticUploadQueue(root, snapshot);
+    this.updateAutomaticLocalQueue(root, snapshot);
     this.updateExportControls(root);
     if (startPendingRun) {
       this.pendingRunStartRevision = null;
@@ -3909,20 +4540,30 @@ ${applicationServices().turn?.fields(this.sessionId) ?? ""}
 
 
   private updateExportControls(root: HTMLElement) {
+    this.renderStoredExports(root);
     const selected = this.selectedExportEpisodes();
     const eligible = Boolean(selected?.length);
     const running = this.exporter.isRunning() || this.accountUploadAbort !== null;
     const recovering = this.backendUploadRecoveryControllers.size > 0
       || this.backendUploadRecoveryTimers.size > 0;
-    const busy = running || recovering || this.accountUploadPlanning;
+    const busy = running || recovering || this.accountUploadPlanning || this.localExportPlanning || this.storedExportBusy;
     const reviewAvailable = Boolean(this.snapshot && episodeSelectionAvailable(this.snapshot.run.recordingState));
     root.querySelector<HTMLButtonElement>("#export-data")!.disabled = !reviewAvailable || !eligible || busy;
     root.querySelector<HTMLButtonElement>("#export-folder")!.disabled = !reviewAvailable || !eligible || busy;
     root.querySelector<HTMLButtonElement>("#upload-data")!.disabled = !reviewAvailable
       || !eligible
       || busy
-      || this.accountExportSession?.huggingFace.state !== "ready";
+      || this.accountExportSession?.huggingFace.state !== "ready"
+      || !this.repositoryBranchReady(root);
     root.querySelector<HTMLButtonElement>("#cancel-export")!.disabled = !running;
+    root.querySelector<HTMLButtonElement>("#cancel-export")!.hidden = !running;
+    root.querySelector<HTMLElement>("#export-readiness")!.textContent = busy
+      ? "An export is in progress."
+      : !eligible ? "Record a capture to export."
+        : !reviewAvailable ? "Stop recording to export."
+          : this.exportDestination === "hugging-face" && this.accountExportSession?.huggingFace.state !== "ready"
+            ? "Connect Hugging Face in Account to sync."
+            : "";
     root.dataset.exportEligibleEpisodes = String(selected?.length ?? 0);
     root.dataset.selectedEpisodes = String(this.selectedEpisodeIds.size);
   }
@@ -4026,6 +4667,7 @@ ${applicationServices().turn?.fields(this.sessionId) ?? ""}
     }
     root.querySelector("#stream-tree")!.innerHTML = streamRows
       .map(([name, label, active, muted]) => `<li class="${active ? "is-live" : ""}${muted ? " is-muted" : ""}"><i></i><span>${escapeHtml(String(name))}</span><b${name === "CAM" ? " id=\"stream-camera-value\"" : ""}>${escapeHtml(String(label))}</b></li>`).join("");
+    root.querySelector("#stream-tree")!.insertAdjacentHTML("beforeend", `<li><i></i><span>DEPTH</span><b id="tree-depth-state">${escapeHtml(this.depthLabel)}</b></li>`);
     void this.updateStreamBandwidth(root, displayedStatus);
     root.querySelector("#capture-health")!.innerHTML = [
       ["CAM", statusLabel(displayedStatus.camera)],
@@ -4119,7 +4761,7 @@ ${applicationServices().turn?.fields(this.sessionId) ?? ""}
     const hasTrackedHand = readout.leftHandTracked || readout.rightHandTracked;
     const projectionStatus = root.querySelector<HTMLElement>("#hand-projection-status")!;
     projectionStatus.textContent = readout.handProjectionRegistered
-      ? `POSE REGISTERED / L${readout.leftProjectedJointCount} R${readout.rightProjectedJointCount}`
+      ? `POSE REGISTERED/L${readout.leftProjectedJointCount} R${readout.rightProjectedJointCount}`
       : hasTrackedHand ? "POSE UNREGISTERED" : "NO HAND POSE";
     projectionStatus.classList.toggle("is-unregistered", !readout.handProjectionRegistered);
     if (readout.source === "episode") {
@@ -4173,7 +4815,7 @@ ${applicationServices().turn?.fields(this.sessionId) ?? ""}
     element.classList.remove("is-go", "is-caution", "is-stop");
     element.classList.add(`is-${summary.decision}`);
     element.querySelector("b")!.textContent = summary.decision.toUpperCase();
-    const reason = summary.reasons.join(" / ") || "Capture signals are within configured limits";
+    const reason = summary.reasons.join("/") || "Capture signals are within configured limits";
     element.querySelector("small")!.textContent = reason;
     element.setAttribute("aria-label", `Status ${summary.decision}. ${reason}`);
   }
@@ -4375,6 +5017,8 @@ ${applicationServices().turn?.fields(this.sessionId) ?? ""}
       void video.play().then(showVideo).catch(() => undefined);
     });
     peer.addEventListener("datachannel", (event) => {
+      if (this.disposed || this.peer !== peer) return;
+      if (event.channel.label === DEPTH_CHANNEL) this.depthView?.attachChannel(event.channel);
       if (event.channel.label === "ceres-telemetry") this.wirePeerTelemetry(root, peer, event.channel);
       if (event.channel.label === "ceres-control") this.wirePeerControl(root, peer, event.channel);
       if (event.channel.label === "ceres-recorder") this.wirePeerRecorder(root, peer, event.channel);
@@ -4414,7 +5058,8 @@ ${applicationServices().turn?.fields(this.sessionId) ?? ""}
 
   private recordWebRtcJourneyOutcome(outcome: "connected" | "failed") {
     if (this.webRtcJourneyOutcome === outcome) return;
-    this.webRtcJourneyOutcome = outcome;  }
+    this.webRtcJourneyOutcome = outcome;
+  }
 
   private async activateTurnFallback(root: HTMLElement, peerId: string, peer: RTCPeerConnection) {
     if (this.connectionProfile.mode !== "relayed" || !applicationServices().turn) return;
@@ -4485,6 +5130,7 @@ ${applicationServices().turn?.fields(this.sessionId) ?? ""}
       void this.openPeerControl(root, peer, channel);
     });
     channel.addEventListener("close", () => {
+      if (this.peer === peer) this.depthView?.disconnect();
       if (this.peerControlChannel !== channel) return;
       this.revokePeerTelemetryAuthority();
       this.peerControlChannel = null;

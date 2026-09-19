@@ -68,6 +68,14 @@ export interface AccountExportRepositoryCatalogue {
 }
 
 
+export interface AccountExportRepositoryBranches {
+  version: typeof ACCOUNT_EXPORT_API_VERSION;
+  repository: string;
+  branches: string[];
+  repositoryFound: boolean;
+}
+
+
 export interface AccountExportDestinationValidationRequest {
   organisation: string;
   repository: string;

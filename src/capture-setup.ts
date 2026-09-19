@@ -18,9 +18,9 @@ export function installCaptureSetup(root: HTMLElement, bridge: boolean) {
   setup.setAttribute("aria-label", `${bridge ? "Bridge" : "Duet"} capture setup`);
   const steps = [
     ["pairing", bridge ? "Pair receiver" : "Pair capture director", bridge ? "Enter the receiver code or scan its QR code." : "Enter a join code, scan an invitation or select an account invitation."],
-    ["camera", "Camera and audio", "Grant access and confirm the outward camera preview. Voice control stays available."],
+    ["camera", "Camera and audio", bridge ? "Camera video is optional. Enable it for a preview alongside depth and motion." : "Grant access and confirm the outward camera preview. Voice control stays available."],
     ...bridge ? [] : [["task", "Assigned task", "Review the task supplied by the capture director."]],
-    ["xr", "Open XR", bridge ? "Send live video and motion to your receiver." : "Enter immersive capture when the session is ready."],
+    ["xr", "Open XR", bridge ? "Send depth, motion and any enabled camera video." : "Enter immersive capture when the session is ready."],
   ];
   setup.innerHTML = `${captureSafetyMarkup()}<ol class="capture-setup-steps">${steps.map(([id, title, detail], i) => `
     <li class="capture-setup-step" data-capture-step="${id}" data-state="available" data-collapsed="false">

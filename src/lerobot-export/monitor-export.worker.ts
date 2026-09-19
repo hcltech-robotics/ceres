@@ -10,7 +10,7 @@ import { resolveMonitorEpisodeAllocation } from "./allocation.js";
 import { reducePending } from "../../wasm/lerobot-exporter/ts/webgpu-reducer.js";
 import { serialiseWorkerError, workerErrorContext } from "../worker-errors.js";
 import {
-  fetchEpisodeExportManifest,
+  fetchMonitorEpisodeExportManifest,
   loadMonitorOpfsEpisodeExportManifest,
   MONITOR_RECORDING_STORAGE_ROOT,
   SOLO_RECORDING_STORAGE_ROOT,
@@ -76,6 +76,22 @@ workerScope.onmessage = (event: MessageEvent<MonitorExportWorkerRequest>) => {
 
 async function runExport(message: MonitorExportStartMessage, signal: AbortSignal): Promise<void> {
   try {
+    if (message.storedExports) {
+      const { rebuildStoredExports } = await import("./stored-export.js");
+      const result = await rebuildStoredExports({
+        storedExports: message.storedExports,
+        sessionId: message.sessionId,
+        episodeIndexBase: message.episodeIndexBase ?? Number.NaN,
+        globalFrameIndexBase: message.globalFrameIndexBase ?? Number.NaN,
+        signal,
+        onProgress: (completed, total, detail) => progress(message, "writing", detail, completed, total),
+      });
+      post({ type: "complete", requestId: message.requestId, episodeCount: result.episodeCount,
+        episodeIds: result.episodeIds, artifactCount: result.artefacts.length,
+        artefacts: result.artefacts.map(({ file: _file, ...artifact }) => artifact),
+      });
+      return;
+    }
     if (message.episodeIds.length === 0) throw new Error("There are no episodes with durable sensor frames to export");
     if (new Set(message.episodeIds).size !== message.episodeIds.length) throw new Error("Episode export selection contains duplicates");
     const hasEpisodeIndexBase = message.episodeIndexBase !== undefined;
@@ -100,11 +116,14 @@ async function runExport(message: MonitorExportStartMessage, signal: AbortSignal
           sessionId: message.sessionId,
           episodes: message.monitorEpisodes ?? [],
           recorderRateHz: message.monitorRecorderRateHz ?? Number.NaN,
+          sourceEpisodeIds: message.sourceEpisodeIds,
           storageRoot: message.source === "solo-opfs"
             ? SOLO_RECORDING_STORAGE_ROOT
             : MONITOR_RECORDING_STORAGE_ROOT,
         }, episodeId, signal)
-        : await fetchEpisodeExportManifest(message.sessionId, episodeId, signal, message.exportCapability));
+        : await fetchMonitorEpisodeExportManifest({
+          sessionId: message.sessionId, episodes: message.monitorEpisodes ?? [], sourceEpisodeIds: message.sourceEpisodeIds,
+        }, episodeId, signal, message.exportCapability));
     }
     manifests.sort((left, right) => left.episodeIndex - right.episodeIndex);
     const artifacts: StoredExportArtifact[] = [];
@@ -157,6 +176,7 @@ async function runExport(message: MonitorExportStartMessage, signal: AbortSignal
           manifest.episode.id,
           bundle,
           {
+            capture: { runTitle: manifest.episode.runTitle, cycle: manifest.episode.cycle, taskLabel: manifest.episode.taskLabel },
             ...(manifest.episode.captureMetadata ? { captureMetadata: manifest.episode.captureMetadata } : {}),
             segments: timeline.segments,
             ...(manifest.taskSpecification && manifest.taskSpecVersion !== undefined && manifest.taskSpecHash
@@ -171,7 +191,7 @@ async function runExport(message: MonitorExportStartMessage, signal: AbortSignal
           },
           message.directoryHandle,
           signal,
-          (completed, total, path) => progress(message, "writing", `Writing ${path} to headset storage`, completed, total, manifest.episode.id, module.backend),
+          (completed, total, path) => progress(message, "writing", `Writing ${path} to browser storage`, completed, total, manifest.episode.id, module.backend),
         );
         artifacts.push(...stored);
       } finally {
@@ -180,7 +200,7 @@ async function runExport(message: MonitorExportStartMessage, signal: AbortSignal
       }
       completedEpisodes += 1;
       allocatedGlobalFrameIndex = allocation.nextGlobalFrameIndex;
-      progress(message, "writing", `Completed episode ${episodeIndex} to headset storage`, completedEpisodes, manifests.length, manifest.episode.id, module.backend);
+      progress(message, "writing", `Saved capture ${episodeIndex + 1} in browser storage`, completedEpisodes, manifests.length, manifest.episode.id, module.backend);
     }
 
     post({
@@ -216,7 +236,7 @@ async function runExport(message: MonitorExportStartMessage, signal: AbortSignal
 
 async function pushEpisodeRows(
   exporter: CeresLeRobotExporter,
-  manifest: Awaited<ReturnType<typeof fetchEpisodeExportManifest>>,
+  manifest: Awaited<ReturnType<typeof fetchMonitorEpisodeExportManifest>>,
   timeline: EpisodeExportTimeline,
   message: MonitorExportStartMessage,
   signal: AbortSignal,

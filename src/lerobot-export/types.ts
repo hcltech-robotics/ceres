@@ -2,6 +2,7 @@ import type { AccountUploadManifestArtefact } from "../../shared/export-destinat
 import type { Episode } from "../../shared/protocol.js";
 import { WorkerErrorDetail } from "../worker-errors.js";
 import type { ExportVideoPreparationProfile } from "./media.js";
+import type { StoredExportReference } from "./stored-export-files.js";
 
 export type MonitorExportStage =
   | "queued"
@@ -32,6 +33,8 @@ export interface MonitorExportStartMessage {
   source?: "server" | "monitor-opfs" | "solo-opfs";
   monitorEpisodes?: Episode[];
   monitorRecorderRateHz?: number;
+  sourceEpisodeIds?: Record<string, string>;
+  storedExports?: StoredExportReference[];
   episodeIndexBase?: number;
   globalFrameIndexBase?: number;
   directoryHandle?: FileSystemDirectoryHandle;

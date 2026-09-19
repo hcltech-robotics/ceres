@@ -1,0 +1,47 @@
+{
+  "schema": "ceres-native-hardware-qualification",
+  "version": 1,
+  "status": "passed",
+  "platform": "windows-x64",
+  "input_sha256": "85fbc419a086aee9ea712c90e8ec6f1a3a584b7981b7942acdcdc3cc51bae3ca",
+  "source_revision": "931a899ce55692650bbc3de8847187495e3bc786",
+  "archive_name": "ceres-viewer-1.1.1-windows-x64.zip",
+  "archive_sha256": "e86aabaeca2602716a193df4f816707083db178a1f31f9e0da47c2a83c36d0bf",
+  "build_inputs_sha256": "fcf00e53ad54a3595667fa61fc427955f82a8e85b1f3ca10b248bd305fa01f81",
+  "completed_at": "2026-09-19T13:02:03.067784+00:00",
+  "gpu": "NVIDIA GeForce RTX 3090",
+  "driver": "NVIDIA GeForce RTX 3090, 591.86",
+  "graphics": {
+    "vendor": "NVIDIA Corporation",
+    "renderer": "NVIDIA GeForce RTX 3090/PCIe/SSE2",
+    "version": "4.5.0 NVIDIA 591.86"
+  },
+  "checks": {
+    "cuda": true,
+    "depth": true,
+    "dual_camera": true,
+    "export": true,
+    "nvdec": true,
+    "package": true,
+    "record": true,
+    "render": true,
+    "replay": true
+  },
+  "evidence_sha256": {
+    "nvdec.json": "138ee9219db06546e2a6733d4bcf1da41bb859ce8532e6e09411990f820b3188",
+    "nvdec.log": "f45a546c0e35550de8426065fdaa1ad4653ed7b61535ae5fa89fe959cb55f828",
+    "record.json": "d7fe2c4a046ca9fa5ee92291a5cf529945b01714328fc5bb4bcb33e8029e2416",
+    "record.log": "5a880bd30bef2b4fefa896f8ae7d90594082ad0af2bddd444d22871e035c80da",
+    "record.ppm": "c620163a235253dd8cff3854957dec0c6279d9e0a4caca9ae7845478d0789542",
+    "recording-check.log": "ad13b340d061ca744749108dc47cc7073b513d836a4325f1ec37916d0e6cfc32",
+    "recording-report.json": "3a8a131114ed061a001207b80c62d490c3c41f584ef8e394bf0f2068f5db4580",
+    "recording.mcap.episodes.json": "0dcf70e8907f69ed3c819062bfb78299de2a3120f78b6ebbf0be47edd9b519a7",
+    "replay.json": "ec905efe2989a7cd739925cc2a3235195ffe86639ca7f99fb74cd9e5a9bbb39a",
+    "replay.log": "1b53d86a931f78fb7a076d88a0ea3720eb639b4fbdc5ea4796ee8f70d1e5562b",
+    "replay.ppm": "ce9948a53ab8b14716d5d1ae8f3ff4487aeafcd0efd4715f5f1dde7d51dfe54b",
+    "test_depth_cuda.log": "25d2a377d4d31bb4861ab64ae2bbbe97107fabb09dfa94049c22460bfdef6cf0",
+    "test_image.log": "23bee06221a81ef5323885846a97e05b17c9f521a866190b884b53f547ec501d",
+    "test_stereo_cuda.log": "4b1ddaea2d5395e3ff44bfcda973e357a84ab21f946cc3e91aa9680761e58958",
+    "test_voxel_cuda.log": "49e65cd7fd3abc01ebd3aa69d9d1014bcdf952cd381bef913ec9831f6e965a72"
+  }
+}

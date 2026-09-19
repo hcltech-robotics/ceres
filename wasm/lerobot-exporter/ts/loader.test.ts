@@ -147,7 +147,8 @@ test("the managed card makes the real exporter output load through the Parquet b
       "    'action_length': len(first['action']),",
       "}))",
     ].join("\n");
-    const loaded = spawnSync("python", ["-c", python, root], {
+    const oraclePython = process.env.CERES_LEROBOT_ORACLE_PYTHON || "python";
+    const loaded = spawnSync(oraclePython, ["-c", python, root], {
       encoding: "utf8",
       timeout: 60_000,
     });

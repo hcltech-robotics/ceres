@@ -1,0 +1,81 @@
+.hf-account-panel {
+  min-width: 0;
+}
+
+.hf-account-panel:not([data-state="ready"]) {
+  display: flex;
+  min-height: 260px;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+}
+
+.hf-account-panel #hf-account-state {
+  margin: 0 0 10px;
+  color: var(--colour-text);
+  font: 650 var(--type-size-body)/1.45 var(--font-family-sans);
+  text-transform: none;
+  overflow-wrap: anywhere;
+}
+
+.hf-account-panel #hf-account-state.is-success {
+  color: var(--colour-success);
+}
+
+.hf-account-panel #hf-account-note {
+  max-width: 30ch;
+  margin: 0 0 16px;
+  color: var(--colour-text-muted);
+  font-size: var(--type-size-label);
+  line-height: 1.5;
+}
+
+.hf-account-actions {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+}
+
+.hf-account-actions .toolbar-button {
+  min-width: 0;
+  height: auto;
+  min-height: 32px;
+  padding: 8px;
+  white-space: normal;
+  text-transform: none;
+}
+
+.hf-account-panel [hidden],
+#hf-destination-fields[hidden] {
+  display: none;
+}
+
+#hf-destination-fields {
+  display: grid;
+  gap: 12px;
+}
+
+#sidebar-export:not([hidden]):has(#export-panel-hugging-face:not([hidden]):not([data-hf-state="ready"])) {
+  display: flex;
+  flex-direction: column;
+}
+
+#sidebar-export:has(#export-panel-hugging-face:not([hidden]):not([data-hf-state="ready"])) > .export-destination-selector {
+  flex: 0 0 auto;
+}
+
+#export-panel-hugging-face:not([hidden]):not([data-hf-state="ready"]) {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+#export-panel-hugging-face:not([data-hf-state="ready"]) > .hf-account-panel {
+  flex: 1 1 auto;
+}
+
+#sidebar-export:has(#export-panel-hugging-face:not([hidden]):not([data-hf-state="ready"])) > #export-readiness,
+#sidebar-export:has(#export-panel-hugging-face:not([hidden]):not([data-hf-state="ready"])) > #job-log:has(.empty-row) {
+  display: none;
+}

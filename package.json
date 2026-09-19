@@ -1,6 +1,6 @@
 {
   "name": "ceres",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "releaseCodename": "Scirocco",
   "private": true,
   "type": "module",
@@ -47,7 +47,9 @@
     "yaml": "2.9.0",
     "zod": "^4.4.3",
     "@pmndrs/uikit": "1.0.75",
-    "@preact/signals-core": "1.14.4"
+    "@preact/signals-core": "1.14.4",
+    "hyparquet": "1.28.2",
+    "hyparquet-compressors": "1.1.1"
   },
   "devDependencies": {
     "iwer": "2.3.0",

@@ -1,0 +1,13 @@
+{
+  "repository": "https://github.com/hcltech-robotics/ceres",
+  "commit": "05a0a2cd39a749687507c2411f9f238444c261e4",
+  "path": "protocol/bridge/fixtures/poses.json",
+  "git_blob": "a5dda79af2ecf1fbef3ba9980c8b8feadcc772cc",
+  "licence": "MIT",
+  "local_fixture": "bridge-poses.json",
+  "reference_contract": [
+    "shared/bridge-protocol.ts",
+    "receiver/src/ceres_bridge/protocol.py",
+    "receiver/src/ceres_bridge/state.py"
+  ]
+}

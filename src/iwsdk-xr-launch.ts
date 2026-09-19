@@ -47,7 +47,16 @@ export async function launchIwsdkXrSession(
   const sessionMode = options.sessionMode ?? SessionMode.ImmersiveVR;
   const referenceSpace = normalizeReferenceSpec(options.referenceSpace);
   world.renderer.xr.enabled = true;
-  const session = await xr.requestSession(sessionMode, buildSessionInit(options));
+  const sessionInit = buildSessionInit(options);
+  if (options.features?.depthSensing) {
+    // IWSDK 0.4.2 accepts one preference. Bridge supports both access paths.
+    Object.assign(sessionInit, { depthSensing: {
+      usagePreference: ["cpu-optimized", "gpu-optimized"],
+      dataFormatPreference: ["float32", "luminance-alpha", "unsigned-short"],
+      matchDepthView: true,
+    } });
+  }
+  const session = await xr.requestSession(sessionMode, sessionInit);
 
   const onSessionEnd = () => {
     session.removeEventListener("end", onSessionEnd);

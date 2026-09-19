@@ -1,6 +1,7 @@
 import { isExportableEpisode } from "../../shared/lerobot-export.js";
 import type { Episode } from "../../shared/protocol.js";
 import { isWorkerErrorDetail, serialiseWorkerError } from "../worker-errors.js";
+import { validateStoredExportReference, type StoredExportReference } from "./stored-export-files.js";
 import type {
   MonitorExportErrorStage,
   MonitorExportStage,
@@ -16,6 +17,8 @@ export interface BrowserExportStartOptions {
   exportCapability?: string;
   source?: "server" | "monitor-opfs" | "solo-opfs";
   recorderRateHz?: number;
+  sourceEpisodeIds?: Record<string, string>;
+  storedExports?: StoredExportReference[];
   episodeIndexBase?: number;
   globalFrameIndexBase?: number;
   directoryHandle?: FileSystemDirectoryHandle;
@@ -204,7 +207,10 @@ export class BrowserExportAdapter {
 
   start(options: BrowserExportStartOptions): string {
     if (this.activeRequestId) throw new Error("An export is already running");
-    const exportableIds = new Set(eligibleEpisodeIds(options.episodes));
+    const storedExports = options.storedExports;
+    if (storedExports && (!storedExports.length || storedExports.length > 1000)) throw new Error("Select saved captures to upload");
+    storedExports?.forEach(validateStoredExportReference);
+    const exportableIds = new Set(storedExports ? storedExports.map((_, index) => `stored-transfer-${index}`) : eligibleEpisodeIds(options.episodes));
     const episodeIds = options.episodeIds ?? [...exportableIds];
     if (new Set(episodeIds).size !== episodeIds.length || episodeIds.some((episodeId) => !exportableIds.has(episodeId))) {
       throw new Error("Episode export selection contains an ineligible or duplicate episode");
@@ -227,7 +233,7 @@ export class BrowserExportAdapter {
       throw new Error("Hugging Face episode and frame allocation is invalid");
     }
     const browserOpfs = options.source === "monitor-opfs" || options.source === "solo-opfs";
-    if (!browserOpfs && !options.exportCapability) {
+    if (!browserOpfs && !storedExports && !options.exportCapability) {
       throw new Error("Server export authorisation is not available");
     }
     const requestId = options.requestId ?? crypto.randomUUID();
@@ -244,8 +250,10 @@ export class BrowserExportAdapter {
         episodeIds,
         exportCapability: browserOpfs ? undefined : options.exportCapability,
         source: options.source,
-        monitorEpisodes: browserOpfs ? structuredClone(options.episodes) : undefined,
+        monitorEpisodes: browserOpfs || options.sourceEpisodeIds ? structuredClone(options.episodes) : undefined,
         monitorRecorderRateHz: browserOpfs ? options.recorderRateHz : undefined,
+        sourceEpisodeIds: options.sourceEpisodeIds,
+        storedExports,
         episodeIndexBase: options.episodeIndexBase,
         globalFrameIndexBase: options.globalFrameIndexBase,
         directoryHandle: options.directoryHandle,

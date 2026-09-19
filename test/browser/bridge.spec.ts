@@ -4,6 +4,7 @@ interface CameraHarness {
   failLeft: boolean;
   holdLeft: boolean;
   includeLeft: boolean;
+  includeRight: boolean;
   requests: string[];
   tracks: Array<{ deviceId: string; track: MediaStreamTrack }>;
   releaseLeft: (() => void) | null;
@@ -16,11 +17,11 @@ declare global {
 test.beforeEach(async ({ context }) => {
   await context.addInitScript(() => {
     const nativeGetUserMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
-    const harness: CameraHarness = { failLeft: false, holdLeft: false, includeLeft: true, requests: [], tracks: [], releaseLeft: null };
+    const harness: CameraHarness = { failLeft: false, holdLeft: false, includeLeft: true, includeRight: true, requests: [], tracks: [], releaseLeft: null };
     window.__bridgeCameras = harness;
     Object.defineProperty(navigator, "userAgent", { value: `${navigator.userAgent} OculusBrowser/40.0` });
     Object.defineProperty(navigator.mediaDevices, "enumerateDevices", { value: async () => [
-      { deviceId: "camera-right", label: "camera2 0", kind: "videoinput", groupId: "quest" },
+      ...(harness.includeRight ? [{ deviceId: "camera-right", label: "camera2 0", kind: "videoinput", groupId: "quest" }] : []),
       ...(harness.includeLeft ? [{ deviceId: "camera-left", label: "camera2 1", kind: "videoinput", groupId: "quest" }] : []),
     ] });
     Object.defineProperty(navigator.mediaDevices, "getUserMedia", { value: async (constraints: MediaStreamConstraints) => {
@@ -58,49 +59,48 @@ const liveCameras = (page: Page) => page.evaluate(() => window.__bridgeCameras.t
   .filter(({ track }) => track.readyState === "live")
   .map(({ deviceId }) => deviceId));
 
-async function enableCameras(page: Page) {
+async function enableCamera(page: Page) {
   await page.goto("/bridge/");
   await page.getByRole("button", { name: "Enable camera", exact: true }).click();
   await expect(page.locator("#join-camera-state")).toHaveText("OK");
 }
 
-test("Bridge selects either camera or both and releases replaced streams", async ({ page }) => {
-  await enableCameras(page);
-  await expect(page.getByLabel("Cameras to stream")).toHaveValue("camera-right");
-  await expect(page.locator("#camera-select option")).toHaveText(["camera2 0/right", "camera2 1/left", "Both cameras"]);
+test("Bridge selects one camera and releases replaced streams", async ({ page }) => {
+  await enableCamera(page);
+  await expect(page.getByLabel("Camera to stream")).toHaveValue("camera-right");
+  await expect(page.locator("#camera-select option")).toHaveText(["camera2 0/right", "camera2 1/left"]);
   await expect.poll(() => liveCameras(page)).toEqual(["camera-right"]);
-  await page.getByLabel("Cameras to stream").selectOption("camera-left");
+  await page.evaluate(() => { window.__bridgeCameras.requests = []; });
+  await page.getByLabel("Camera to stream").selectOption("camera-left");
   await expect.poll(() => liveCameras(page)).toEqual(["camera-left"]);
-  await page.getByLabel("Cameras to stream").selectOption({ label: "Both cameras" });
-  await expect(page.locator("#app")).toHaveAttribute("data-bridge-camera-count", "2");
-  await expect(page.locator("#bridge-camera-preview-detail")).toHaveText("Both cameras selected. Preview shows the right camera.");
-  await expect.poll(() => liveCameras(page)).toEqual(["camera-right", "camera-left"]);
-  await page.screenshot({ path: test.info().outputPath("bridge-both-cameras.png"), fullPage: true });
-  await page.getByLabel("Cameras to stream").selectOption("camera-right");
+  await expect(page.locator("#app")).toHaveAttribute("data-bridge-camera-count", "1");
+  await expect(page.locator("#bridge-camera-preview-detail")).toHaveText("Left camera selected.");
+  expect(await page.evaluate(() => window.__bridgeCameras.requests)).toEqual(["camera-left"]);
+  await page.getByLabel("Camera to stream").selectOption("camera-right");
   await expect.poll(() => liveCameras(page)).toEqual(["camera-right"]);
   await expect(page.locator("#join-camera-state")).toHaveText("OK");
-  await page.getByLabel("Cameras to stream").selectOption({ label: "Both cameras" });
-  await expect(page.locator("#app")).toHaveAttribute("data-bridge-camera-count", "2");
+  await expect(page.locator("#app")).toHaveAttribute("data-bridge-camera-count", "1");
   await page.evaluate(() => window.dispatchEvent(new Event("pagehide")));
   await expect.poll(() => liveCameras(page)).toEqual([]);
 });
 
-test("second-camera failure releases both cameras and allows a single-camera retry", async ({ page }) => {
-  await enableCameras(page);
+test("selected-camera failure releases the previous stream and permits retry", async ({ page }) => {
+  await enableCamera(page);
   await page.evaluate(() => { window.__bridgeCameras.failLeft = true; });
-  await page.getByLabel("Cameras to stream").selectOption({ label: "Both cameras" });
+  await page.getByLabel("Camera to stream").selectOption("camera-left");
   await expect(page.locator("#join-camera-state")).toHaveText("ERR");
   await expect(page.locator("#camera-field-status")).toHaveText("Left camera is busy");
   await expect.poll(() => liveCameras(page)).toEqual([]);
-  await page.getByLabel("Cameras to stream").selectOption("camera-right");
+  await page.getByLabel("Camera to stream").selectOption("camera-right");
   await expect(page.locator("#join-camera-state")).toHaveText("OK");
   await expect.poll(() => liveCameras(page)).toEqual(["camera-right"]);
 });
 
-test("an ended secondary camera clears dual-camera readiness and releases the primary", async ({ page }) => {
-  await enableCameras(page);
-  await page.getByLabel("Cameras to stream").selectOption({ label: "Both cameras" });
-  await expect(page.locator("#app")).toHaveAttribute("data-bridge-camera-count", "2");
+test("an ended selected camera clears readiness and releases its stream", async ({ page }) => {
+  await enableCamera(page);
+  await page.getByLabel("Camera to stream").selectOption("camera-left");
+  await expect(page.locator("#app")).toHaveAttribute("data-bridge-camera-count", "1");
+  await expect(page.locator("#bridge-camera-preview-detail")).toHaveText("Left camera selected.");
   await page.evaluate(() => {
     const camera = window.__bridgeCameras.tracks.find(({ deviceId, track }) => deviceId === "camera-left" && track.readyState === "live")!;
     camera.track.stop();
@@ -112,9 +112,9 @@ test("an ended secondary camera clears dual-camera readiness and releases the pr
 });
 
 test("a late camera acquisition cannot replace a newer selection and disposal releases the active camera", async ({ page }) => {
-  await enableCameras(page);
+  await enableCamera(page);
   await page.evaluate(() => { window.__bridgeCameras.holdLeft = true; });
-  await page.getByLabel("Cameras to stream").selectOption({ label: "Both cameras" });
+  await page.getByLabel("Camera to stream").selectOption("camera-left");
   await expect.poll(() => page.evaluate(() => Boolean(window.__bridgeCameras.releaseLeft))).toBe(true);
   await page.evaluate(() => {
     const select = document.querySelector<HTMLSelectElement>("#camera-select")!;
@@ -137,3 +137,25 @@ test("Bridge offers a single camera when the other physical camera is unavailabl
   await expect(page.locator("#join-camera-state")).toHaveText("OK");
   await expect(page.locator("#camera-select option")).toHaveText(["camera2 0/right"]);
 });
+
+for (const rightAvailable of [true, false]) {
+  test(`a restored Both value falls back to one ${rightAvailable ? "right" : "left"} camera`, async ({ page }) => {
+    await page.goto("/bridge/");
+    await page.evaluate(available => { window.__bridgeCameras.includeRight = available; }, rightAvailable);
+    await page.getByRole("button", { name: "Enable camera", exact: true }).click();
+    await expect(page.locator("#join-camera-state")).toHaveText("OK");
+    await page.evaluate(() => {
+      window.__bridgeCameras.requests = [];
+      const select = document.querySelector<HTMLSelectElement>("#camera-select")!;
+      select.add(new Option("Old camera setting", "bridge-both-cameras"));
+      select.value = "bridge-both-cameras";
+      select.dispatchEvent(new Event("change"));
+    });
+    const selected = rightAvailable ? "camera-right" : "camera-left";
+    await expect(page.getByLabel("Camera to stream")).toHaveValue(selected);
+    await expect(page.locator("#join-camera-state")).toHaveText("OK");
+    await expect(page.locator("#app")).toHaveAttribute("data-bridge-camera-count", "1");
+    await expect.poll(() => liveCameras(page)).toEqual([selected]);
+    expect(await page.evaluate(() => window.__bridgeCameras.requests)).toEqual([selected]);
+  });
+}

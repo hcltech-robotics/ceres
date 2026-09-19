@@ -1,0 +1,131 @@
+.studio-shell { --monitor-left-pane-width: 244px; }
+.camera-panel.is-depth .camera-viewport { display: none; }
+.monitor-view-selector { display: flex; gap: 12px; }
+.monitor-view-selector button[aria-pressed="true"] { color: var(--colour-action); }
+#depth-viewport { min-height: 0; height: 100%; }
+#depth-viewport[hidden] { display: none; }
+.inspector-pane { display: flex; flex-direction: column; overflow: hidden; }
+.inspector-pane > .sidebar-selector { flex: 0 0 auto; }
+.inspector-pane > .sidebar-panel:not([hidden]) { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+#sidebar-run:not([hidden]) { display: flex; flex-direction: column; overflow: hidden; }
+#sidebar-run > .run-overview { flex: 0 0 auto; }
+#sidebar-run > .beam-control {
+  flex: 0 0 auto;
+  margin-top: auto;
+  border-top: 1px solid var(--colour-border-strong);
+  padding-top: 14px;
+  padding-bottom: 14px;
+}
+.studio-topbar {
+  grid-template-columns: minmax(max-content, 1fr) auto;
+  gap: 0;
+  padding-inline: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+.studio-run-centre { gap: 0; overflow: visible; }
+.top-run-controls {
+  width: max-content;
+  flex: 0 0 auto;
+  gap: 0;
+}
+.top-run-controls > .top-run-control {
+  position: relative;
+  width: auto;
+  min-width: 0;
+  height: 100%;
+  min-height: 0;
+  flex: 0 0 auto;
+  aspect-ratio: 1;
+  align-self: stretch;
+  justify-content: center;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+.top-run-controls > .recording-elapsed {
+  position: relative;
+  width: max-content;
+  min-width: calc(7ch + 16px);
+  height: 100%;
+  flex: 0 0 auto;
+  padding-inline: 8px;
+  justify-content: center;
+}
+.top-run-controls > .top-run-control::after,
+.top-run-controls > .recording-elapsed::after {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  right: 0;
+  width: 1px;
+  background: var(--colour-border-strong);
+  pointer-events: none;
+}
+.top-run-controls > .hud-flex-gap { display: none; }
+.top-run-control.control-run {
+  width: var(--monitor-left-pane-width);
+  min-width: var(--monitor-left-pane-width);
+  flex-basis: var(--monitor-left-pane-width);
+  aspect-ratio: auto;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border-block: 0;
+  border-left: 0;
+  border-radius: 0;
+  justify-content: center;
+}
+
+@media (max-width: 1150px) { .studio-shell { --monitor-left-pane-width: 178px; } }
+@media (max-width: 920px) { .studio-shell { --monitor-left-pane-width: 150px; } }
+
+.studio-topbar,
+.studio-run-centre,
+.top-run-controls,
+.studio-timing,
+.timing-metrics {
+  align-items: stretch;
+}
+
+.studio-run-centre,
+.top-run-controls,
+.studio-timing,
+.timing-metrics {
+  height: 100%;
+}
+
+.top-run-controls > *,
+.timing-metrics > span {
+  gap: 4px;
+  display: inline-flex;
+  align-items: center;
+}
+
+.timing-metrics > span {
+  padding-inline: 8px;
+  border-left: 1px solid var(--colour-border-strong);
+}
+
+.timing-clocks {
+  align-self: stretch;
+  justify-content: center;
+  padding-left: 8px;
+  border-left: 1px solid var(--colour-border-strong);
+}
+
+@media (max-width: 920px) {
+  .studio-topbar {
+    grid-template-columns: minmax(max-content, 1fr) auto;
+    gap: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+  }
+
+  .studio-run-centre { overflow: visible; }
+  .studio-timing { justify-self: start; overflow: visible; }
+}

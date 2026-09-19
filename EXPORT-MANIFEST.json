@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "packageVersion": "1.1.0",
+  "packageVersion": "1.1.1",
   "generator": "ceres-public-core/2",
-  "treeDigest": "661c42415c596ed282cbf094a3c8f016002fe60c3274a0de388ff3b4b8247396",
+  "treeDigest": "b9c4abbf3e4c23b63763aed0007fc403e1af8716ad35e62025fd9e63cbc58e81",
   "files": {
     ".dockerignore": {
       "sha256": "f4f0799e0c8f318b0d36a430909ba9dcb3eeca1d1b0ae8b3b7907b44cc2bedca",
@@ -14,14 +14,39 @@
       "bytes": 221,
       "mode": "100644"
     },
+    ".github/scripts/build-native-ffmpeg.sh": {
+      "sha256": "412afe7df0737cc9462aa662587e1877365a53b1366d7a38eae04d45076952b6",
+      "bytes": 2601,
+      "mode": "100644"
+    },
+    ".github/scripts/install-native-tools.py": {
+      "sha256": "7d1bdf2ca6fc8af990b9dedad92d14bf497b7c93a070d8e164fd81984603ee98",
+      "bytes": 2995,
+      "mode": "100644"
+    },
+    ".github/scripts/native-build-requirements.txt": {
+      "sha256": "94fd8be70efdf590e17bbaa52f1849bf71b8323fb0d7bfdf7556e6c31d0731f5",
+      "bytes": 366,
+      "mode": "100644"
+    },
+    ".github/scripts/native-viewer-inputs.py": {
+      "sha256": "4c7c95e0868709d841eafe930622ab0d4463cf4b8b3c8117ab0bfdefff4f10b7",
+      "bytes": 4247,
+      "mode": "100644"
+    },
     ".github/workflows/bridge-receiver.yml": {
       "sha256": "5fb6733bb5f55278f21d22926c61d2075db4237da7067541cfbbbe8a4fe515fe",
       "bytes": 2356,
       "mode": "100644"
     },
+    ".github/workflows/native-viewer.yml": {
+      "sha256": "efe0beccb7e5ce30dccfc38b6eb2d05f647eebcaabd21c99ab0a769ca2cbb60e",
+      "bytes": 16931,
+      "mode": "100644"
+    },
     ".github/workflows/release.yml": {
-      "sha256": "50a32f6a4e49b151f38e624842b55a9f99365a526fa710786fd556ec72cf85ab",
-      "bytes": 8395,
+      "sha256": "89fc3e5de40f6c037c1642a924454abb6257dad70fd946935d05113f8d7095a5",
+      "bytes": 13874,
       "mode": "100644"
     },
     ".gitignore": {
@@ -30,12 +55,12 @@
       "mode": "100644"
     },
     ".zenodo.json": {
-      "sha256": "62143b7a90feace05e0b2b239c028a8784b35497e7d7b020dca8ad5c64b74b02",
+      "sha256": "b63a8d0ba1fde0caced0bea458c336add57a95fb7786a601675aa48e0a84c103",
       "bytes": 993,
       "mode": "100644"
     },
     "CITATION.cff": {
-      "sha256": "9c4f9a215c599720aac7715806df9a153a765d1552fa7c083cd42a23f37e3fe4",
+      "sha256": "e821972b8abbe4fbdb533b7e9c896617f0fe73db6db64f3a96333495b9a19ee8",
       "bytes": 501,
       "mode": "100644"
     },
@@ -50,13 +75,13 @@
       "mode": "100644"
     },
     "README.md": {
-      "sha256": "436664464117d8d965e235c7b8d740a5bbbd436ff2f9f990a73bbef11df3a5cc",
-      "bytes": 10949,
+      "sha256": "7dd06740c1d8837d96ceb6f4e4e277e1396f4d69144e6ce06fab16906b25f447",
+      "bytes": 14885,
       "mode": "100644"
     },
     "RELEASE.md": {
-      "sha256": "26f5464eb56b611028a938c683306f2d690a39f1db681d87209721fb38d4570b",
-      "bytes": 725,
+      "sha256": "c9a3fd80868c7e193aee59049163ca85d791c66238889240bbf319ebc5739b73",
+      "bytes": 3042,
       "mode": "100644"
     },
     "bridge/index.html": {
@@ -65,7 +90,7 @@
       "mode": "100644"
     },
     "citation.bib": {
-      "sha256": "a1dad611d3e52d2433d4461511e810eb40219566bc216114723e4b68c0a8034c",
+      "sha256": "1892e6df8e9efdc0601f166b80edad92913f446260696d7384172c9a5dd14d9b",
       "bytes": 354,
       "mode": "100644"
     },
@@ -109,14 +134,859 @@
       "bytes": 371,
       "mode": "100644"
     },
+    "native/lerobot-exporter/.gitignore": {
+      "sha256": "306fd52e74fca6746e12acc750f232de15e71da917756a1270d74c91f5eb7368",
+      "bytes": 9,
+      "mode": "100644"
+    },
+    "native/lerobot-exporter/Cargo.lock": {
+      "sha256": "5980f010f3439a60187704a5b7d6b5c5e6aff982eb4b9968a6cffba533973ab6",
+      "bytes": 28394,
+      "mode": "100644"
+    },
+    "native/lerobot-exporter/Cargo.toml": {
+      "sha256": "9de0c589125eaaf692f6d2603c35aada8b08dc5d0b1acb529be88e8d831be9c4",
+      "bytes": 690,
+      "mode": "100644"
+    },
+    "native/lerobot-exporter/README.md": {
+      "sha256": "c9a3d326a50f81554f3164408f767aca393b61f3dd6713acfda838e8b2f80d0a",
+      "bytes": 12020,
+      "mode": "100644"
+    },
+    "native/lerobot-exporter/build.rs": {
+      "sha256": "87b04dc35080d3d408ec38543ffd57cd69e13c773bb0d5f8f7e58055b513587f",
+      "bytes": 831,
+      "mode": "100644"
+    },
+    "native/lerobot-exporter/src/compatibility.rs": {
+      "sha256": "7a7f3828cebf363f32ef7902826afb5bbd5b8717a8d7cedc47cb9a267d326279",
+      "bytes": 11308,
+      "mode": "100644"
+    },
+    "native/lerobot-exporter/src/dataset.rs": {
+      "sha256": "41d1c5e97be8d384192d5691110c1c59cbbcb107ff74bd491f0ecb61328f92f6",
+      "bytes": 30090,
+      "mode": "100644"
+    },
+    "native/lerobot-exporter/src/lib.rs": {
+      "sha256": "3faec14342b3811f670ab61866d467972ac30fbd591d3713e579c4573eb973c5",
+      "bytes": 7822,
+      "mode": "100644"
+    },
+    "native/lerobot-exporter/src/main.rs": {
+      "sha256": "eb5ea4da21de724b38952464e157993d8ce3af83918cd1995df6e81e20268256",
+      "bytes": 1378,
+      "mode": "100644"
+    },
+    "native/lerobot-exporter/src/session.rs": {
+      "sha256": "7b4769e811b9cb30a644a7bc60fd554fa83f6db6e89825f62e696b1c6eca1e0c",
+      "bytes": 27273,
+      "mode": "100644"
+    },
+    "native/lerobot-exporter/src/video.rs": {
+      "sha256": "9d06249eb8c8037c4c8135f1622692df0bf13962ef28af7480eea4eee047bab2",
+      "bytes": 8123,
+      "mode": "100644"
+    },
+    "native/lerobot-exporter/tests/release_version.rs": {
+      "sha256": "f748c52c7c58c01248e30fade4fbbc457d92773c88c1d985474bf0cc0cbad92a",
+      "bytes": 655,
+      "mode": "100644"
+    },
+    "native/lerobot-exporter/tests/session_export.rs": {
+      "sha256": "06667fc236589bed59f3c677b9a29dd8a8febc50be4b492f2d9a21202a735b59",
+      "bytes": 38656,
+      "mode": "100644"
+    },
+    "native/lerobot-exporter/tests/verify_ceres_lerobot.py": {
+      "sha256": "25f00432622cbac35e4d99dfc08c694f6bfce6911d6531fba3bdbf1b46e2bf42",
+      "bytes": 5269,
+      "mode": "100644"
+    },
+    "native/lerobot-exporter/tests/verify_ceres_loader.mjs": {
+      "sha256": "9fca8b9d3242607594665de2d7920d0c16460bbc5f48eadc6ca6300e29e93b55",
+      "bytes": 3602,
+      "mode": "100644"
+    },
+    "native/lerobot-exporter/tests/verify_lerobot.py": {
+      "sha256": "571be859d60e1d4fdfc6ac43af587ad0c4907f6ed8c8f5356845d94ba4824b3c",
+      "bytes": 1714,
+      "mode": "100644"
+    },
+    "native/viewer/.clang-format": {
+      "sha256": "0268ddecf5a7d7cc0840b4dd7b37975abc3a81353fe232ebe7a50dba46c87bf8",
+      "bytes": 239,
+      "mode": "100644"
+    },
+    "native/viewer/.gitattributes": {
+      "sha256": "63d68245abb9adf84022517e63ad40e36087e438e6f48a082f10bc605f206c10",
+      "bytes": 99,
+      "mode": "100644"
+    },
+    "native/viewer/.gitignore": {
+      "sha256": "43c56f14404fc55b71a9aa08d0bbd06ddcc491f50c7300f125117c6d5ac84ae9",
+      "bytes": 124,
+      "mode": "100644"
+    },
+    "native/viewer/CMakeLists.txt": {
+      "sha256": "3c9b820f62698e4e3c9c98012b8eadb66ed432077e4b9809d4c597b2dce25cf1",
+      "bytes": 10721,
+      "mode": "100644"
+    },
+    "native/viewer/LICENCE.md": {
+      "sha256": "b6a5ffc64ef3d805be9f40c1fc513e47f111c2406ba75af3243901a44455fd88",
+      "bytes": 1073,
+      "mode": "100644"
+    },
+    "native/viewer/README.md": {
+      "sha256": "1ce43953ea26ad59d24e5aefca5511b70913be3ed8ae15b0167c4a5b639d0172",
+      "bytes": 19097,
+      "mode": "100644"
+    },
+    "native/viewer/assets/README.md": {
+      "sha256": "5dfe578dd167643f28d7d98e1d8cc8af6758c075993c1f938095125ca38e4d03",
+      "bytes": 3508,
+      "mode": "100644"
+    },
+    "native/viewer/assets/fonts/Cousine-LICENCE.txt": {
+      "sha256": "9720aa5b3253605d95c3cd37d9f2b7031d4a3a4c2955db655b83bf2f24852aa5",
+      "bytes": 4357,
+      "mode": "100644"
+    },
+    "native/viewer/assets/fonts/Cousine-NOTICE.txt": {
+      "sha256": "34fe96ed2feef5a88d93d52d36b8f95db7a18607f749bba572fba953f5d17d22",
+      "bytes": 188,
+      "mode": "100644"
+    },
+    "native/viewer/assets/fonts/Cousine-Regular.ttf": {
+      "sha256": "0d5d5eeb6a342432bd63a3c0d16e8470160e019933ee5af3e159d06d665dacce",
+      "bytes": 43912,
+      "mode": "100644"
+    },
+    "native/viewer/assets/fonts/LICENCE.txt": {
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "bytes": 11358,
+      "mode": "100644"
+    },
+    "native/viewer/assets/fonts/Roboto-Medium.ttf": {
+      "sha256": "8559132c89ad51d8a2ba5b171887a44a7ba93776e205f553573de228e64b45f8",
+      "bytes": 162588,
+      "mode": "100644"
+    },
+    "native/viewer/assets/hands/LICENSE": {
+      "sha256": "d1a7d615ab8eff4de143b1456f46dabf232f54daf0fcf9a70442bb6f637a9e95",
+      "bytes": 11387,
+      "mode": "100644"
+    },
+    "native/viewer/assets/hands/NOTICE": {
+      "sha256": "6a2938d18cd872c08103ce94cd5d43677c5f753eab73aac9fb20fd0894e5eb1e",
+      "bytes": 651,
+      "mode": "100644"
+    },
+    "native/viewer/assets/hands/geometry.bin": {
+      "sha256": "a9da43ff9e7f48c6e48b977c4c57cd73f47d4d75a6103700e24ec80fd91eafc2",
+      "bytes": 1052108,
+      "mode": "100644"
+    },
+    "native/viewer/assets/hands/model.json": {
+      "sha256": "0046cf8f41cbac9b72c46e59a0ba9a761b40ef551f17ef1bf3d13e596b6bf4d3",
+      "bytes": 29720,
+      "mode": "100644"
+    },
+    "native/viewer/assets/quest3/FORMAT.md": {
+      "sha256": "1f0c71ad8b88e85ef9f30fbe987de5487cb9424b8604fa914b2bcbcc09978278",
+      "bytes": 1372,
+      "mode": "100644"
+    },
+    "native/viewer/assets/quest3/NOTICE": {
+      "sha256": "5ce5fbf8d1307fcbd54a31a72c32a679155ed587a1fd22cd9a4d9474667951ad",
+      "bytes": 779,
+      "mode": "100644"
+    },
+    "native/viewer/assets/quest3/base-colour.rgba": {
+      "sha256": "c8345ab0f271fad6afe8e7848073842fdd3eee4c758be62b1b5172ecba37a7e2",
+      "bytes": 16777216,
+      "mode": "100644"
+    },
+    "native/viewer/assets/quest3/checksums.json": {
+      "sha256": "7dbce0a6a639f5ab3fee4e39b57ec015af25bbf1d65a1132143ac152a1c5d7f9",
+      "bytes": 1218,
+      "mode": "100644"
+    },
+    "native/viewer/assets/quest3/indices.bin": {
+      "sha256": "af61e317fae6d476319dd8421479cf50cd149b4de5a862278ba88e4c4118928d",
+      "bytes": 915120,
+      "mode": "100644"
+    },
+    "native/viewer/assets/quest3/model.json": {
+      "sha256": "81ec05e4b5464b715d775d808376bd09192d57ec10ffc4e044e2ae279f0a746a",
+      "bytes": 11186,
+      "mode": "100644"
+    },
+    "native/viewer/assets/quest3/normal.rgba": {
+      "sha256": "1f56531cdd6f5ae87d52a6a945974c46f65b02e24f4cb072913773f7e10b4138",
+      "bytes": 16777216,
+      "mode": "100644"
+    },
+    "native/viewer/assets/quest3/orm.rgba": {
+      "sha256": "18b57dfda92914f447ac7ff586bb233c7375295f7c7a4dcf1d610d5d9b952fe4",
+      "bytes": 16777216,
+      "mode": "100644"
+    },
+    "native/viewer/assets/quest3/vertices.bin": {
+      "sha256": "225f22ed07e475cb54d560bd1b6ffd740e1046e33372286a594b5b1bbe2af392",
+      "bytes": 1523904,
+      "mode": "100644"
+    },
+    "native/viewer/assets/redistributable.json": {
+      "sha256": "82c27660e8dca06ff0399ad23268d74758ab310f82e28551c181bda4f082333b",
+      "bytes": 565,
+      "mode": "100644"
+    },
+    "native/viewer/cmake/Dependencies.cmake": {
+      "sha256": "7d36588f214a053a9231ac1199256865930a2656b0ab79048018651a32ba11a6",
+      "bytes": 7185,
+      "mode": "100644"
+    },
+    "native/viewer/docs/calibration.md": {
+      "sha256": "11803a9b450f5882e7186cc61fca0628a480df35464576bcda16d5122040deed",
+      "bytes": 1745,
+      "mode": "100644"
+    },
+    "native/viewer/docs/design-system.md": {
+      "sha256": "d1b9667b99e6ca6e5db04f194c936dc94a940df16bc3aab45dc0a45a54d66ee2",
+      "bytes": 9584,
+      "mode": "100644"
+    },
+    "native/viewer/docs/environment-depth.md": {
+      "sha256": "2805191d6199b66daf58a341fc87d8dc9de64db46c2f610f38134c7c38a840dd",
+      "bytes": 9304,
+      "mode": "100644"
+    },
+    "native/viewer/docs/export-compatibility.md": {
+      "sha256": "3648c588583aa1a2f3fb4ba95e7153451717d433fe374a07b5d7451790d74fc8",
+      "bytes": 9296,
+      "mode": "100644"
+    },
+    "native/viewer/docs/packaging.md": {
+      "sha256": "62a84fcdfe9624ce84a5f6a05454dafd95538debb640c01b34be6607f49b8000",
+      "bytes": 5475,
+      "mode": "100644"
+    },
+    "native/viewer/docs/qualification.md": {
+      "sha256": "bee8e6b79a77db266f0fc428b6a4543a019dc3972ffc933a78c167c0cb3af5de",
+      "bytes": 3454,
+      "mode": "100644"
+    },
+    "native/viewer/docs/session-format.md": {
+      "sha256": "0605a7ed51e00a204cc13611249beaa7d1032b38be76eb79dc2a83cd4865bcb4",
+      "bytes": 9240,
+      "mode": "100644"
+    },
+    "native/viewer/docs/stereo-calibration.md": {
+      "sha256": "3f2b6669eb52fba3eb81ff52ac8d004d5599448c8461371533306ab39f2c1d54",
+      "bytes": 8420,
+      "mode": "100644"
+    },
+    "native/viewer/docs/ui-design-review.md": {
+      "sha256": "5b1c2d69d50464259e86eecdf30de8522457fa6479e4f7f5ac086152ce744600",
+      "bytes": 6541,
+      "mode": "100644"
+    },
+    "native/viewer/include/ceres/app.hpp": {
+      "sha256": "2cb44cd0adbf3dc596346b78e1f1624a84d23b01c99abd4b5aeb6a94902cc83d",
+      "bytes": 511,
+      "mode": "100644"
+    },
+    "native/viewer/include/ceres/bridge.hpp": {
+      "sha256": "9aa1d77fa7fe81e5ebe5638d7133b4482c5ae7f1d76078bee564c1519b03ef35",
+      "bytes": 967,
+      "mode": "100644"
+    },
+    "native/viewer/include/ceres/calibration.hpp": {
+      "sha256": "3893d2ef44c1be4c65bb24833f04556ee4c4d1ce92108a5e946b057121992117",
+      "bytes": 812,
+      "mode": "100644"
+    },
+    "native/viewer/include/ceres/depth.hpp": {
+      "sha256": "08bd3299a19a1fee3bbf19659022eaab9d079facc7ead493558441c2ba07a3f6",
+      "bytes": 2082,
+      "mode": "100644"
+    },
+    "native/viewer/include/ceres/depth_display.hpp": {
+      "sha256": "30921f13c1943ed3d9163a7d57a5c7278ad10f7814f507f8cbc951dcdc1682b9",
+      "bytes": 1150,
+      "mode": "100644"
+    },
+    "native/viewer/include/ceres/depth_kernel.hpp": {
+      "sha256": "b7f59aef6b5034ba3a83765b1d2f7020859914b32230bde2c09adc78b45a6808",
+      "bytes": 723,
+      "mode": "100644"
+    },
+    "native/viewer/include/ceres/detail/accordion_motion.hpp": {
+      "sha256": "c76f6eb2b74ffbc9fbe6faf9332a65463decac1ca9679b02759bae34947f5779",
+      "bytes": 3314,
+      "mode": "100644"
+    },
+    "native/viewer/include/ceres/detail/recording_bar.hpp": {
+      "sha256": "a02bf743496d50ab7f30363099906eed9f634fca1d585eba20f3021d372beb72",
+      "bytes": 6426,
+      "mode": "100644"
+    },
+    "native/viewer/include/ceres/detail/stereo_cadence.hpp": {
+      "sha256": "c49c771a951a54d10f21ec21a563f8fe3979da331b89b096ef28729341e978b0",
+      "bytes": 2201,
+      "mode": "100644"
+    },
+    "native/viewer/include/ceres/detail/stereo_pairing.hpp": {
+      "sha256": "2aa7de506507adbe192140c4817a9441bbbc7e1f8687817bd277f4a95eb2c104",
+      "bytes": 3370,
+      "mode": "100644"
+    },
+    "native/viewer/include/ceres/detail/tracking_visibility.hpp": {
+      "sha256": "184a3c3c54304dd6622768fb3ccbd18eb7134be8ad9b64d0141ae31558998bcd",
+      "bytes": 2799,
+      "mode": "100644"
+    },
+    "native/viewer/include/ceres/detail/video_queue.hpp": {
+      "sha256": "858a536b49f8e8edd6c3082038721077860ac8ec1c64afacaa170c6de1ecebad",
+      "bytes": 6380,
+      "mode": "100644"
+    },
+    "native/viewer/include/ceres/export_job.hpp": {
+      "sha256": "f09fdecc4219623763ec5bfe6baa82c9cd0972e4489c421537c55a55d7fff235",
+      "bytes": 853,
+      "mode": "100644"
+    },
+    "native/viewer/include/ceres/hand_display.hpp": {
+      "sha256": "b1beda1c9c933c7a8bd2b420b2794c36186dd846df467ccc1d062fa69d2a9b15",
+      "bytes": 3754,
+      "mode": "100644"
+    },
+    "native/viewer/include/ceres/hand_mask.hpp": {
+      "sha256": "4a60810b68d300e5294c47dff79e22c566f288cbdfa262924be71b628bc6d89c",
+      "bytes": 1185,
+      "mode": "100644"
+    },
+    "native/viewer/include/ceres/hand_trails.hpp": {
+      "sha256": "fadb8f292ebe4b0aed5da7269b5d70d6d7fb44424fc79a8132d2acafa35d5b4e",
+      "bytes": 1890,
+      "mode": "100644"
+    },
+    "native/viewer/include/ceres/hugging_face.hpp": {
+      "sha256": "2e0d5abee9cd8bea37bc557e219d068062377e9121c16dacc44e4694118bd089",
+      "bytes": 2938,
+      "mode": "100644"
+    },
+    "native/viewer/include/ceres/image_kernel.hpp": {
+      "sha256": "5474501018e4b97d81f96c3d4d5b2250115c550296cb6433beda13232f350d10",
+      "bytes": 360,
+      "mode": "100644"
+    },
+    "native/viewer/include/ceres/mesh.hpp": {
+      "sha256": "23ad516d2a268eb0c09519b70b77c8f166cd558f6034856d01f71e7ecde46c29",
+      "bytes": 1722,
+      "mode": "100644"
+    },
+    "native/viewer/include/ceres/protocol.hpp": {
+      "sha256": "c788fb60988a48273eb01145147ba9026dace000a6e260dd5c896d720d106c79",
+      "bytes": 3657,
+      "mode": "100644"
+    },
+    "native/viewer/include/ceres/renderer.hpp": {
+      "sha256": "a433bba9ec58494456db7c573149ef2d2981eefee2166e51ca78fc53530a9601",
+      "bytes": 3535,
+      "mode": "100644"
+    },
+    "native/viewer/include/ceres/rtcp_clock.hpp": {
+      "sha256": "7ee00067b87b347412b7d96f610a657418df0ea8deab7de194de9f98fda92da4",
+      "bytes": 3862,
+      "mode": "100644"
+    },
+    "native/viewer/include/ceres/session.hpp": {
+      "sha256": "e255c418fb5033fd6e5e12b4b27b47f0a5fce3aa190e8bc11dd2959f58baa111",
+      "bytes": 3124,
+      "mode": "100644"
+    },
+    "native/viewer/include/ceres/spatial_observation.hpp": {
+      "sha256": "d77fa536941d67b2bf3f5881505626406f9f93c7bd3c472196043383fb0d2513",
+      "bytes": 8449,
+      "mode": "100644"
+    },
+    "native/viewer/include/ceres/static_model.hpp": {
+      "sha256": "a5b1cb0e0d678dc4f0ca5aed4e2d31e7ff0938ad1f4ab6ce1df7b358ffc835ba",
+      "bytes": 582,
+      "mode": "100644"
+    },
+    "native/viewer/include/ceres/stereo.hpp": {
+      "sha256": "7203cba7cee36d0a297cb625b3279420c3b0264677220d3de77294e311cf4045",
+      "bytes": 1994,
+      "mode": "100644"
+    },
+    "native/viewer/include/ceres/stereo_config.hpp": {
+      "sha256": "980d9a7d96eb8d57c3e04ae78534b0ffc571e01b02594f23d387ebb6b78c8ffd",
+      "bytes": 1086,
+      "mode": "100644"
+    },
+    "native/viewer/include/ceres/stereo_kernel.hpp": {
+      "sha256": "30de74762753e5dc6f63cd862d1203b4888b4474bc66cfd9229f69df034645a4",
+      "bytes": 1046,
+      "mode": "100644"
+    },
+    "native/viewer/include/ceres/task_specification.hpp": {
+      "sha256": "eb1e2349c655fef2bb904d452c24121f9ab80684a4c52c1b398840ea579372c1",
+      "bytes": 3415,
+      "mode": "100644"
+    },
+    "native/viewer/include/ceres/types.hpp": {
+      "sha256": "b2801d025d59d927e5793a6562a94cb93320eb782356536566b53c01de4f1e8c",
+      "bytes": 2703,
+      "mode": "100644"
+    },
+    "native/viewer/include/ceres/ui.hpp": {
+      "sha256": "9e2c5f341467c74a74dfc049198c7702645b9aaa485930fd55346aef2984e316",
+      "bytes": 2381,
+      "mode": "100644"
+    },
+    "native/viewer/include/ceres/video.hpp": {
+      "sha256": "c04114a0f14867848923a3b80a1fa51d134d5ab42b363a185bbf9bde36886856",
+      "bytes": 1346,
+      "mode": "100644"
+    },
+    "native/viewer/include/ceres/voxel_config.hpp": {
+      "sha256": "5f8f1c04d94fb819ccefdc55730a29abd0eff0986eebf5587a13df5e6efddf2c",
+      "bytes": 899,
+      "mode": "100644"
+    },
+    "native/viewer/include/ceres/voxel_kernel.hpp": {
+      "sha256": "e5d25690692c34316cd027ad71fdec92f1da214ecd890faadebe2b0a5de290b5",
+      "bytes": 3817,
+      "mode": "100644"
+    },
+    "native/viewer/qualification/linux-arm64.json": {
+      "sha256": "7134961238cb7d38c622169145cbff730d132016ca9e390ff4828519103e908c",
+      "bytes": 2345,
+      "mode": "100644"
+    },
+    "native/viewer/qualification/linux-x64.json": {
+      "sha256": "3e7d6afc5bf6e1f80b597ef3cfd2328c764a4ff78e1156dd6bc9a7978aa8466e",
+      "bytes": 2466,
+      "mode": "100644"
+    },
+    "native/viewer/qualification/windows-x64.json": {
+      "sha256": "f31e0d5ad6691fb79a83ad71bff6dd7d2cd4f4bb6271b8237307b396717de708",
+      "bytes": 2381,
+      "mode": "100644"
+    },
+    "native/viewer/scripts/build-windows.cmd": {
+      "sha256": "57bb3fdb49abf900602e4a4986a39a906beea59099fc80ed15ed78651aa89f86",
+      "bytes": 234,
+      "mode": "100644"
+    },
+    "native/viewer/scripts/configure-windows.cmd": {
+      "sha256": "7875362cf646f39e5d1e637be8515423b4b0a8d29cd68f8f172613fdbca9b74d",
+      "bytes": 371,
+      "mode": "100644"
+    },
+    "native/viewer/scripts/convert-quest-model.py": {
+      "sha256": "28358cf9d9261ae2b3e354f75b06bc2c80ffd70cd0406e2e7d9fecf7ea3ac60f",
+      "bytes": 19973,
+      "mode": "100644"
+    },
+    "native/viewer/scripts/convert-soma-hands.py": {
+      "sha256": "3d36f9f23fea192df8fe2bdc1c95ad3e0de7267b39cfee50005643c3027ebbd8",
+      "bytes": 10228,
+      "mode": "100644"
+    },
+    "native/viewer/scripts/msvc-environment.cmd": {
+      "sha256": "42522d9482ee5d8d1348caa07c6e57ceeaf3423d03f3afaa1e7199daaa21cd10",
+      "bytes": 819,
+      "mode": "100644"
+    },
+    "native/viewer/scripts/nvdec-reference.py": {
+      "sha256": "7bcc3dda1a20a3fd49b8e8a360d5aa323d9b25c8093ce868290869f1b0367cf5",
+      "bytes": 4005,
+      "mode": "100644"
+    },
+    "native/viewer/scripts/package-common.py": {
+      "sha256": "03d91992bb80ce7feed28797c73d84adcd5ac78e24651285db66f7375460b199",
+      "bytes": 11389,
+      "mode": "100644"
+    },
+    "native/viewer/scripts/package-linux.sh": {
+      "sha256": "6d09f312acc8da1980d8ef3232cbd8d730df795b25d8392764ca686a1fc52112",
+      "bytes": 1909,
+      "mode": "100644"
+    },
+    "native/viewer/scripts/package-windows.ps1": {
+      "sha256": "9aef6b1837df0e6d4b8d307905a1e993795ba2c37c33fa38b7e275f5d04f747d",
+      "bytes": 8574,
+      "mode": "100644"
+    },
+    "native/viewer/scripts/package.cmake": {
+      "sha256": "bad05d1fc5ec244e1f8b7f5f1154fbb8f2e247b65b5c05788976ce2b6b0aeadf",
+      "bytes": 14625,
+      "mode": "100644"
+    },
+    "native/viewer/scripts/qualification.py": {
+      "sha256": "c249c9dff1452cbed51804f6cee317fa472bf8c92d65bb162ae7bef37a289f00",
+      "bytes": 12753,
+      "mode": "100644"
+    },
+    "native/viewer/scripts/qualify-session.py": {
+      "sha256": "601822a266ed66236527c838a8cb3238e4ca76b73edeac24de84cced41c5c176",
+      "bytes": 6948,
+      "mode": "100644"
+    },
+    "native/viewer/scripts/qualify_hardware.py": {
+      "sha256": "d9ead19bcc07a6c066db9c7a1e032d08e2b25202011d4dfe83300eea61d2203b",
+      "bytes": 14101,
+      "mode": "100644"
+    },
+    "native/viewer/scripts/verify-dataset.py": {
+      "sha256": "2123d4eeeab5910886f7994d44bbad509b9e97a698bf3d3616d3d8975f66a600",
+      "bytes": 3563,
+      "mode": "100644"
+    },
+    "native/viewer/scripts/verify-package.py": {
+      "sha256": "cf53bcad1ab98e06716bce614f7aff5fc799eccdf6ad13a92bc8eea6028e4c68",
+      "bytes": 25202,
+      "mode": "100644"
+    },
+    "native/viewer/scripts/verify-recording.py": {
+      "sha256": "791b8d5d27171fefe2b146e625deb7cba218b23d57b4268fd88e6b7852b724f4",
+      "bytes": 3969,
+      "mode": "100644"
+    },
+    "native/viewer/src/app.cpp": {
+      "sha256": "864593ddc8406ab40ca2385c63c7f2087c80d5dec8bb27ffe5e0f2bfd6b77cca",
+      "bytes": 185192,
+      "mode": "100644"
+    },
+    "native/viewer/src/bridge.cpp": {
+      "sha256": "a5329168f662861cb17cf75e327b7d7b55c18084d69e266649c89393a1c1ba91",
+      "bytes": 68344,
+      "mode": "100644"
+    },
+    "native/viewer/src/calibration.cpp": {
+      "sha256": "f8e18c1ec0130e7accc5808d5e10ec980d8249f46f7635a7c836567358c3c14e",
+      "bytes": 2866,
+      "mode": "100644"
+    },
+    "native/viewer/src/depth.cpp": {
+      "sha256": "75ba8c507f831ecdaade9853b74d8a19cf6e96e50f3ff1b04ff14dee784f5abd",
+      "bytes": 11029,
+      "mode": "100644"
+    },
+    "native/viewer/src/depth.cu": {
+      "sha256": "e3bd5dfe78dd685a7ef46c1898d3dd7b9e05ef55418d3c2af973386495963ea5",
+      "bytes": 3293,
+      "mode": "100644"
+    },
+    "native/viewer/src/export_job.cpp": {
+      "sha256": "44ae4a271792deaa62fe3ea1c4b9013ae7fc73961440f5e98c415f1cf3ec250c",
+      "bytes": 24222,
+      "mode": "100644"
+    },
+    "native/viewer/src/hand_mask.cpp": {
+      "sha256": "6252887d2f9801f0b8012b6c0f16599cce6fdbd876899131a557c253a3eb0bae",
+      "bytes": 7517,
+      "mode": "100644"
+    },
+    "native/viewer/src/hand_trails.cpp": {
+      "sha256": "cca1d40952e87c17c1e3da1814a1aaeb9e4a678b4f8a94683a923966fcc35aae",
+      "bytes": 11588,
+      "mode": "100644"
+    },
+    "native/viewer/src/hugging_face.cpp": {
+      "sha256": "70e505c13f9eb86c81767263cc290b3c7dffab6b753e58f9e3d6030ed6408f22",
+      "bytes": 54426,
+      "mode": "100644"
+    },
+    "native/viewer/src/image.cu": {
+      "sha256": "6bedec4f0505a6496106288be243dba9c4890212cd8ed152acc0594b3a1247cb",
+      "bytes": 3159,
+      "mode": "100644"
+    },
+    "native/viewer/src/main.cpp": {
+      "sha256": "7c28d63d82a5b48b5fc45026fc150d2c7d4ece1f357dab3786598224e5e51f47",
+      "bytes": 3912,
+      "mode": "100644"
+    },
+    "native/viewer/src/mano.cpp": {
+      "sha256": "2d5d64a19c8412ff6567b08c2f290ed9436d83e96f3c170fa59a8cdd902cf7ab",
+      "bytes": 16379,
+      "mode": "100644"
+    },
+    "native/viewer/src/mesh.cpp": {
+      "sha256": "94f3067173a6adcf3384fa257ffe17ea27d4b7b7c472ab46184838576df76e23",
+      "bytes": 21152,
+      "mode": "100644"
+    },
+    "native/viewer/src/nvdec.cpp": {
+      "sha256": "e585e1345c9a103fdc6246b217e89eb153c83878280db8b1f45af4a2cdd87de5",
+      "bytes": 16794,
+      "mode": "100644"
+    },
+    "native/viewer/src/protocol.cpp": {
+      "sha256": "002faa02d157e6397361edf2da1a9e769b7dad82c445b68d9c5461fcaf374dc2",
+      "bytes": 24243,
+      "mode": "100644"
+    },
+    "native/viewer/src/renderer.cpp": {
+      "sha256": "a8007ca2aa92700415b85e117656d2730d9121d37bff1118f32b69c1ed54e72d",
+      "bytes": 86227,
+      "mode": "100644"
+    },
+    "native/viewer/src/session.cpp": {
+      "sha256": "9814cb8e010dcc3d9d3b6a9d935e52ddfd1e0d5b5bbf8c4ff88f1586cd0ff808",
+      "bytes": 47626,
+      "mode": "100644"
+    },
+    "native/viewer/src/static_model.cpp": {
+      "sha256": "1138b3cfdcfa092ccf98d07d7d9009735e5d43bc50c50ae97beea0adbfc1c452",
+      "bytes": 10387,
+      "mode": "100644"
+    },
+    "native/viewer/src/stereo.cpp": {
+      "sha256": "799d1c707e3016c2689accff0adf3e871114d30d2538c68196a1498785fb2460",
+      "bytes": 13547,
+      "mode": "100644"
+    },
+    "native/viewer/src/stereo.cu": {
+      "sha256": "19ce1bd70c3cb0582017da1aaa77cdb3df06270458c03721fafc696e2b9d65f7",
+      "bytes": 14617,
+      "mode": "100644"
+    },
+    "native/viewer/src/task_source.cpp": {
+      "sha256": "d8ca866eb0331b636885c9f21f7d5e4b2c764fa5eabe36905c9131a0de13af3a",
+      "bytes": 6197,
+      "mode": "100644"
+    },
+    "native/viewer/src/task_specification.cpp": {
+      "sha256": "622c83f3027a4b70632bf1283e75717dc358258ad4655f8b9f33f6628f61cb3e",
+      "bytes": 21266,
+      "mode": "100644"
+    },
+    "native/viewer/src/ui.cpp": {
+      "sha256": "368d3c0cfb83808c31476e996ef5dea114eadad4d34c6846ae12c18cb64364a7",
+      "bytes": 19423,
+      "mode": "100644"
+    },
+    "native/viewer/src/voxel.cu": {
+      "sha256": "9abe7b7d5d626a42d7717171a0cc9e25d8223c4dd26322181b7580b2e348c13e",
+      "bytes": 37695,
+      "mode": "100644"
+    },
+    "native/viewer/tests/depth_fixture.hpp": {
+      "sha256": "c58aa844d280616dcf9c22bb9cf048d1d0ff3dc8164caf4444d442c589b02929",
+      "bytes": 2778,
+      "mode": "100644"
+    },
+    "native/viewer/tests/fixtures/LICENCE.ceres.md": {
+      "sha256": "b6a5ffc64ef3d805be9f40c1fc513e47f111c2406ba75af3243901a44455fd88",
+      "bytes": 1073,
+      "mode": "100644"
+    },
+    "native/viewer/tests/fixtures/bridge-cameras.json": {
+      "sha256": "608d4e46739ab2b09c38abb1c232afe9d76c9f2655611404e9c8d7f386382d38",
+      "bytes": 2078,
+      "mode": "100644"
+    },
+    "native/viewer/tests/fixtures/bridge-depth-v1.json": {
+      "sha256": "b1c60e975cfb726c04c32cbf72f264d966fa9abb08efb88c647a0958c78a0f8e",
+      "bytes": 242770,
+      "mode": "100644"
+    },
+    "native/viewer/tests/fixtures/bridge-poses.json": {
+      "sha256": "757825e88bba3873c83da6cb5e06cad4228b0e9189b04432671efa0216e93d35",
+      "bytes": 7552,
+      "mode": "100644"
+    },
+    "native/viewer/tests/fixtures/bridge-upstream.json": {
+      "sha256": "41d74486d1574c1dafe944dde4752e0935ae1bc096da0bde3a03a4d2b277b01d",
+      "bytes": 437,
+      "mode": "100644"
+    },
+    "native/viewer/tests/fixtures/nvdec/README.md": {
+      "sha256": "0898ef423dce1692747ee52361407c8e022cfe33f1a98ad94737623bda7af3a8",
+      "bytes": 1258,
+      "mode": "100644"
+    },
+    "native/viewer/tests/fixtures/nvdec/nvdec-cpu-reference.json": {
+      "sha256": "d3f6521eb3f2dcc76e7b7a3b84980a44d1704952b3fedc0d05b3b70adc6b8a59",
+      "bytes": 1668,
+      "mode": "100644"
+    },
+    "native/viewer/tests/fixtures/nvdec/nvdec-resolution-1280x960-b.h264": {
+      "sha256": "14ef4e6ce0d8edc1d52211f0ac0dbbb01918ad28eba913353541f488c93ebad0",
+      "bytes": 287077,
+      "mode": "100644"
+    },
+    "native/viewer/tests/fixtures/nvdec/nvdec-resolution-640x480-a.h264": {
+      "sha256": "40e033c3a5f1a77ec4bc87898718f41d4de5cdbffc07f87dd48031350b5e59b0",
+      "bytes": 80313,
+      "mode": "100644"
+    },
+    "native/viewer/tests/fixtures/nvdec/nvdec-resolution-640x480-c.h264": {
+      "sha256": "24d009f1f0797ad3d330aedba92aaadcf76384772efa5c583f1faa49a7be4063",
+      "bytes": 80282,
+      "mode": "100644"
+    },
+    "native/viewer/tests/fixtures/stream-source.md": {
+      "sha256": "74d681afa5c01d0de730a163a581d2012f0b0d6b7c82472ce626992500e05581",
+      "bytes": 2175,
+      "mode": "100644"
+    },
+    "native/viewer/tests/hugging_face_cli.cpp": {
+      "sha256": "e63e970bcdba3940feb93f013bbb4b37dacf6cbd46c21ac6bb4ea26022947010",
+      "bytes": 3261,
+      "mode": "100644"
+    },
+    "native/viewer/tests/test_accordion_motion.cpp": {
+      "sha256": "ac0a1e15dfa8247d302dc3f4288a4d7cf1c69cb1ae8d72a77266adb9f0e92844",
+      "bytes": 8298,
+      "mode": "100644"
+    },
+    "native/viewer/tests/test_bridge.cpp": {
+      "sha256": "c446e70a9d0f02deac8d2eb80c25072809b4d63c052a30768400cd32952a0939",
+      "bytes": 67034,
+      "mode": "100644"
+    },
+    "native/viewer/tests/test_depth.cpp": {
+      "sha256": "95808a66ab486336dd9ef39ebb9257568aad4db64a16a781b441199295fe8cf5",
+      "bytes": 15643,
+      "mode": "100644"
+    },
+    "native/viewer/tests/test_depth_cuda.cu": {
+      "sha256": "c5350f3da3e69f9b922c920447c154746477a226921b908b939a2d5007d0904f",
+      "bytes": 8792,
+      "mode": "100644"
+    },
+    "native/viewer/tests/test_export_job.cpp": {
+      "sha256": "d2c17f848facaa254dda2382018a2ac4579511e7e9690d1c30ff83e8ec19a2ce",
+      "bytes": 9969,
+      "mode": "100644"
+    },
+    "native/viewer/tests/test_geometry.cpp": {
+      "sha256": "3668cf1984807eeff5deb2faec70a1f6690d065e3bc396fc535a9f0ac320b179",
+      "bytes": 1090,
+      "mode": "100644"
+    },
+    "native/viewer/tests/test_hand_mask.cpp": {
+      "sha256": "605085114e935fd74cd4339cf3795d06c4be50a4806f76075220deab414ec4a7",
+      "bytes": 14049,
+      "mode": "100644"
+    },
+    "native/viewer/tests/test_hand_trails.cpp": {
+      "sha256": "27d27a05446fbb19a9dde3c8dff1adf15ffba304710482ab5d33d46cd6b18cef",
+      "bytes": 29406,
+      "mode": "100644"
+    },
+    "native/viewer/tests/test_hugging_face.cpp": {
+      "sha256": "4ae744f0d59f6d2536d972e32cf529b8eca90353babbc1cedd8c57ab78a4dbd3",
+      "bytes": 20233,
+      "mode": "100644"
+    },
+    "native/viewer/tests/test_image.cu": {
+      "sha256": "a3024920cb2d19040b5def1e0a9775e1b0ab7c22ed40d28cec887dd6220e9c7d",
+      "bytes": 4385,
+      "mode": "100644"
+    },
+    "native/viewer/tests/test_mesh.cpp": {
+      "sha256": "4b581bd526084b98848715b95754419b03e0e6f1d8f7e6f6f1568395e7c2c9d4",
+      "bytes": 31496,
+      "mode": "100644"
+    },
+    "native/viewer/tests/test_nvdec.cpp": {
+      "sha256": "5a008edfaf80bc53fdde23f9647886ef64fa3e23eef8dda38736a3bdd11a960a",
+      "bytes": 15316,
+      "mode": "100644"
+    },
+    "native/viewer/tests/test_package.py": {
+      "sha256": "dc03db8251175c2c35f3cc567cd47fcbddfe261e33db259b0053e0ea1d07138a",
+      "bytes": 10359,
+      "mode": "100644"
+    },
+    "native/viewer/tests/test_protocol.cpp": {
+      "sha256": "e869d3d2130d8e3e4fd9af6a660797b6812288362679cd17ae1326d3cd8a3ae9",
+      "bytes": 15554,
+      "mode": "100644"
+    },
+    "native/viewer/tests/test_qualification.py": {
+      "sha256": "5d8252c460265be84e01cb9a44453ad8effecfcc4ee3eb2a89d136bba1df6a73",
+      "bytes": 16924,
+      "mode": "100644"
+    },
+    "native/viewer/tests/test_recording_bar.cpp": {
+      "sha256": "79c5fcf105d1873a3185d604c436f38904e18ae3d54813e0ab448f81487bec18",
+      "bytes": 10138,
+      "mode": "100644"
+    },
+    "native/viewer/tests/test_session.cpp": {
+      "sha256": "5bb310b640828b54b1c13ffdde65ab5d0580bc5f151aafed55bb52b3f434c1c2",
+      "bytes": 78238,
+      "mode": "100644"
+    },
+    "native/viewer/tests/test_static_model.cpp": {
+      "sha256": "6844655ae51611adb6694f9188c576dc19f31c3b921241b6875aee0a43c5bd2d",
+      "bytes": 4248,
+      "mode": "100644"
+    },
+    "native/viewer/tests/test_stereo.cpp": {
+      "sha256": "48e93d39c0404731e2570466e9482f3e9686f0d7945e70bdeb1d9e2c6a140613",
+      "bytes": 11347,
+      "mode": "100644"
+    },
+    "native/viewer/tests/test_stereo_cadence.cpp": {
+      "sha256": "a06eb8ebba3a7a8823f78144bbc78feca845e24663cf4805a300c355acd83688",
+      "bytes": 5491,
+      "mode": "100644"
+    },
+    "native/viewer/tests/test_stereo_cuda.cu": {
+      "sha256": "cc5d6c06c234145a561ed72f099daa25801823da9fa0d7a79776a705caca7983",
+      "bytes": 13085,
+      "mode": "100644"
+    },
+    "native/viewer/tests/test_stereo_pairing.cpp": {
+      "sha256": "28ca9604b00bfd0246b091d1b22a4d2fa918107a8ca17f3c27eea1fed9528f12",
+      "bytes": 2910,
+      "mode": "100644"
+    },
+    "native/viewer/tests/test_task_source.cpp": {
+      "sha256": "0d3522363c111c9682f83651b58d8ebb5d28a22f1cfd3880b396bc4ac5f04fb7",
+      "bytes": 11772,
+      "mode": "100644"
+    },
+    "native/viewer/tests/test_task_specification.cpp": {
+      "sha256": "a399f90ad4d11cb6aff04c2df0d7729d2162979204a42631dba0df2aaabab70f",
+      "bytes": 24797,
+      "mode": "100644"
+    },
+    "native/viewer/tests/test_tracking_visibility.cpp": {
+      "sha256": "6c6a343b6d9905cefba1014f44ff36933cc77a3b34fe1eda356e39aad0c0bbbe",
+      "bytes": 5751,
+      "mode": "100644"
+    },
+    "native/viewer/tests/test_video_queue.cpp": {
+      "sha256": "0d50c523fee007dc433a403736699689b89e100d6da862d67c5447661572e9b3",
+      "bytes": 7939,
+      "mode": "100644"
+    },
+    "native/viewer/tests/test_voxel_cuda.cu": {
+      "sha256": "a372b0902c2656220dcb5d9ee04401a9c82b9289cfadd1b5efbba3bffed964e7",
+      "bytes": 42951,
+      "mode": "100644"
+    },
     "package-lock.json": {
-      "sha256": "11c2cdd2beda9a201036a636287ef5344468239452db2f41e7a5c88461964f31",
-      "bytes": 172163,
+      "sha256": "ff934cfe7199f8c896a5bd89d2691475a83a6286fd30dff59314494a5851da0c",
+      "bytes": 173490,
       "mode": "100644"
     },
     "package.json": {
-      "sha256": "657587221acf2211a8da03f89aaee43787a1409f20dd0ef483a740a2d75b9f6c",
-      "bytes": 3211,
+      "sha256": "2138160f85c506bdfd12d28700abd0286bfb57ac3344ff19f4cc31b98a9648c0",
+      "bytes": 3276,
       "mode": "100644"
     },
     "playwright.config.ts": {
@@ -220,8 +1090,8 @@
       "mode": "100644"
     },
     "receiver/README.md": {
-      "sha256": "0f879bf0f83c1c2e06764089ac6faacbb470e16e35029d830ca2642ff97d3fcd",
-      "bytes": 2915,
+      "sha256": "24196266151a452da864455a346cc619d944e73f3932fe5aa52c0a0ef4057564",
+      "bytes": 3065,
       "mode": "100644"
     },
     "receiver/THIRD-PARTY.md": {
@@ -700,13 +1570,18 @@
       "mode": "100644"
     },
     "scripts/check-public-boundary.mjs": {
-      "sha256": "387725c6be6431f16a1dfb40edbf03aa306d384b1aa35c5a03c6e0e964e29ff3",
-      "bytes": 4366,
+      "sha256": "dc01d2a59f4908711070ca07f197d18a1f8e8adb9adac733e57c1eab50b91a06",
+      "bytes": 5820,
       "mode": "100644"
     },
     "scripts/check-release-sboms.mjs": {
-      "sha256": "5bc7bf9806ca277ca721e1882494766f11279b949ce65a646bccdf6ff947502e",
-      "bytes": 1073,
+      "sha256": "39f87ed959621b35c52a73748fe2b98ea2e09b8ff43b6842f4c7fe91784c3ba7",
+      "bytes": 2085,
+      "mode": "100644"
+    },
+    "scripts/collect-native-release.mjs": {
+      "sha256": "e008feac9c47f461cb0c71137871d7908e8ef50cab53c21de4433f835a683ef8",
+      "bytes": 5110,
       "mode": "100644"
     },
     "scripts/collect-notices.mjs": {
@@ -732,6 +1607,16 @@
     "scripts/package-public-core.py": {
       "sha256": "594536bac92fe4331abe7f1fca914f2f2faaaea9d70e60bb4e67cf66e66430d7",
       "bytes": 2420,
+      "mode": "100644"
+    },
+    "scripts/prepare-local-release.mjs": {
+      "sha256": "f5077b36abf795e36d37a7f49290b6146dc8db4d04aba0c82838fd47600615c2",
+      "bytes": 9212,
+      "mode": "100644"
+    },
+    "scripts/publish-public-release.mjs": {
+      "sha256": "6b21740b4c5189c2099c526da8b472d91eb201507363799882e8206bed9e7fef",
+      "bytes": 10677,
       "mode": "100644"
     },
     "server/asr.ts": {
@@ -780,8 +1665,8 @@
       "mode": "100644"
     },
     "server/session-store.ts": {
-      "sha256": "c38ffbd4a7c28c2ec8e60d3c8a66851e4bd850393bfefc6046c41a411da59478",
-      "bytes": 193754,
+      "sha256": "50d6f91269e64a325f6a881a26f2890b5a6ed2560d05d10e1622752c60bf599b",
+      "bytes": 193824,
       "mode": "100644"
     },
     "server/signalling-store.ts": {
@@ -804,9 +1689,14 @@
       "bytes": 2781,
       "mode": "100644"
     },
+    "shared/bridge-depth.ts": {
+      "sha256": "acec168f4e5625fafce633fbe33553e46a1a05a3c0bd0ee403b30655246f921a",
+      "bytes": 6012,
+      "mode": "100644"
+    },
     "shared/bridge-protocol.ts": {
-      "sha256": "b1ebe9f788baa7f6c82c8b5c2c083f29512b2db8d9c4438cd0bced426b755faf",
-      "bytes": 8427,
+      "sha256": "24c6006f45c0023bab6fc67eca7f77e86a44796c70c121b275303c267a45cc87",
+      "bytes": 8931,
       "mode": "100644"
     },
     "shared/bridge-signalling.ts": {
@@ -844,9 +1734,14 @@
       "bytes": 6561,
       "mode": "100644"
     },
+    "shared/directed-depth.ts": {
+      "sha256": "24cc98597ca36e6dab623d80ce498008a528922254c846cc5a41b315bd1c568c",
+      "bytes": 5214,
+      "mode": "100644"
+    },
     "shared/export-destination.ts": {
-      "sha256": "2cb98b44577da8060cc9542832ba22f22c1c6d0d3d213d60a9d589ace95da337",
-      "bytes": 14351,
+      "sha256": "942d387345732aa2ca74acfb4ede2adad8dec712d565f27a0c15e5366cdf2f0f",
+      "bytes": 14525,
       "mode": "100644"
     },
     "shared/hand-display.ts": {
@@ -865,8 +1760,8 @@
       "mode": "100644"
     },
     "shared/protocol.ts": {
-      "sha256": "4b2d8c0a0b2ce168a465e7fd83c0fbd20d11e4e5f0c42157ab9c35522c62b9ac",
-      "bytes": 52825,
+      "sha256": "12828e0e2bd19e79188d1be6ccabbab942c64e17861c36f1ead9029f7ca2b73d",
+      "bytes": 52822,
       "mode": "100644"
     },
     "shared/run-sequencing.ts": {
@@ -890,7 +1785,7 @@
       "mode": "100644"
     },
     "shared/software-citation.ts": {
-      "sha256": "aa6295e16a418a231b69c1c7483e8545154f21d4fa1678dd9cf797d5c69e74c6",
+      "sha256": "81a71e9aee7ab637487da6f4dc5ff149e3dba7f7f6ae03da33825366aea04d2e",
       "bytes": 1053,
       "mode": "100644"
     },
@@ -915,8 +1810,8 @@
       "mode": "100644"
     },
     "src/bridge-camera-selection.ts": {
-      "sha256": "df3478f2c2fb9888ada2833b2966a0f57ca0a1c7c9a45008bf9a6e90b51ce246",
-      "bytes": 2448,
+      "sha256": "29a186ffbcbe07ca4889b71bfd11e8298aa88f2ffab0745700ad15d4640b132a",
+      "bytes": 1801,
       "mode": "100644"
     },
     "src/bridge-runtime.ts": {
@@ -932,6 +1827,16 @@
     "src/bridge/config.ts": {
       "sha256": "e4cb2a105c436b761db6b38d46cfa1df8e083962b5feefca2d3f700435959b91",
       "bytes": 491,
+      "mode": "100644"
+    },
+    "src/bridge/depth-gpu.ts": {
+      "sha256": "d816ed7f8a0b180a8aed765dda45d8a43dc26de5494aab2e17487ad4ca9a8d57",
+      "bytes": 11840,
+      "mode": "100644"
+    },
+    "src/bridge/depth.ts": {
+      "sha256": "b32d1abb41e85f88a365d7dbc248e73b0ae0a6b0a7df418b101d461d3838f9a0",
+      "bytes": 12186,
       "mode": "100644"
     },
     "src/bridge/display.css": {
@@ -950,8 +1855,8 @@
       "mode": "100644"
     },
     "src/bridge/peer.ts": {
-      "sha256": "5ede5eb0c3a2b1336bd85d3c0aa296a439c5c4cf7abff4fa2d5b66be98bf45e3",
-      "bytes": 11588,
+      "sha256": "1065fc192ff69de4926458283da93bb7250bc2ec9467bd629ba4b948b222161e",
+      "bytes": 11554,
       "mode": "100644"
     },
     "src/bridge/qr.ts": {
@@ -965,8 +1870,8 @@
       "mode": "100644"
     },
     "src/bridge/sender.ts": {
-      "sha256": "b76b3d5702ee86e7649fa235c5b0ef34fcb7e8ce83c44f737ed6bf06511de4b0",
-      "bytes": 13411,
+      "sha256": "df19876ace595ee58a0adc6f7e5a16c1ee17d836867c65a59ea0432a60c9f7a1",
+      "bytes": 13668,
       "mode": "100644"
     },
     "src/camera-calibration-solver.ts": {
@@ -1000,8 +1905,8 @@
       "mode": "100644"
     },
     "src/capture-app.ts": {
-      "sha256": "61cc515abada022137db4f26d2b9a63dcbf5c92573d602fc1239ccc65d048ac9",
-      "bytes": 314668,
+      "sha256": "77fb6573d75f21413df3253c85e3d394212cd3da2dbf51b9dab4baf5bd9b6da4",
+      "bytes": 315139,
       "mode": "100644"
     },
     "src/capture-authority.ts": {
@@ -1040,8 +1945,8 @@
       "mode": "100644"
     },
     "src/capture-setup.ts": {
-      "sha256": "784ac2d15daa8c90d180e257ac66d5c3a9efc9114fd9f2ddcc0ff4d151e0c392",
-      "bytes": 4888,
+      "sha256": "b1eacc1ac522b4bc298ddf3b1bb020c88b70b2b41e21f62b9ce77303ad8c6459",
+      "bytes": 4983,
       "mode": "100644"
     },
     "src/connection-profile.ts": {
@@ -1064,6 +1969,11 @@
       "bytes": 92,
       "mode": "100644"
     },
+    "src/dataset-replay-zstd.ts": {
+      "sha256": "d51fc87f9a7b8ae8076ced9022fe78fa4b6c7df9aae4a3ab6b55f32bae96f346",
+      "bytes": 292,
+      "mode": "100644"
+    },
     "src/demonstrator-audio-cue-preference.ts": {
       "sha256": "24adb59c268186c7d564531baf0c44f1131245bfb6e8adeffd00da7a98e4b3c1",
       "bytes": 720,
@@ -1080,13 +1990,18 @@
       "mode": "100644"
     },
     "src/direct-session-reducer.ts": {
-      "sha256": "068f848e6eac2e1f8d510ff3650d4339e57abc544bebbcd697cd44d30368b5bb",
-      "bytes": 77572,
+      "sha256": "fc44943f0c3c4c7ec6a3b6282e93af201749590b491a6d58ceb3b732e2fbcb9e",
+      "bytes": 77440,
+      "mode": "100644"
+    },
+    "src/directed-capture-depth.ts": {
+      "sha256": "c9fe8d1aa8dfd02bf0873ff128a7c03e8b3290d3945d4402a09e08aef5e22b75",
+      "bytes": 7440,
       "mode": "100644"
     },
     "src/export-service.ts": {
-      "sha256": "f22eea957c16979bd20b350fb0e4657c2b66dfbf4e9a3ea071ff811c572fce3f",
-      "bytes": 5292,
+      "sha256": "905d2b139ccdced70312bd9d2163be3fe86abd20fbd8df574ee72493926cea11",
+      "bytes": 5487,
       "mode": "100644"
     },
     "src/hand-visualisation.ts": {
@@ -1095,8 +2010,8 @@
       "mode": "100644"
     },
     "src/iwsdk-xr-launch.ts": {
-      "sha256": "4e564e5eb0873a8bc28af0b6342bc8fd9d16591cc734037b313995168923f509",
-      "bytes": 3046,
+      "sha256": "c43dfdf73992dfa3ad6d0ce82106c110d3fbb3ecc6cccb4aa3ca42cc63afa51e",
+      "bytes": 3427,
       "mode": "100644"
     },
     "src/lerobot-export/allocation.ts": {
@@ -1110,8 +2025,8 @@
       "mode": "100644"
     },
     "src/lerobot-export/episode-source.ts": {
-      "sha256": "5d634a191e8f830dafd1eaaba3d961e3f73caa0c47cd3944f0bc15063bf53318",
-      "bytes": 19279,
+      "sha256": "c6b60f607ab9ba919ccd3de7c60322844d3f7ebf01803626fdd4436f7b23a2d6",
+      "bytes": 21630,
       "mode": "100644"
     },
     "src/lerobot-export/media.ts": {
@@ -1120,18 +2035,28 @@
       "mode": "100644"
     },
     "src/lerobot-export/monitor-export-adapter.ts": {
-      "sha256": "9f7073ca0fa67ad8856c7e93f96a339514d6a9315a0f77f498d0784bbe69a35f",
-      "bytes": 13832,
+      "sha256": "a442ab08a4bb51ebcb7c669f197f951a4282873454d7375d7feed9a520d0b5bd",
+      "bytes": 14462,
       "mode": "100644"
     },
     "src/lerobot-export/monitor-export.worker.ts": {
-      "sha256": "b70c29fd2a69b4e4356a1c1634bf01fb2c3c7ba2f87294c4bde50302ef514333",
-      "bytes": 12273,
+      "sha256": "c9fd787fb20da02653ac2688c6a3b9fe2609015f9d796756b3400f3551c5aa90",
+      "bytes": 13403,
       "mode": "100644"
     },
     "src/lerobot-export/storage.ts": {
-      "sha256": "c7818474e69284f1cf84ec920de6c082ae29b7141e2d860729fa4feae78bbf4d",
-      "bytes": 9528,
+      "sha256": "f87038670a5f41cd0f94b0bd7f87b0dc6f98479368afc3ac700bc9e6a6877ea2",
+      "bytes": 12562,
+      "mode": "100644"
+    },
+    "src/lerobot-export/stored-export-files.ts": {
+      "sha256": "3723d1ba3b1c62bb48c4479c16b2d588421b2ec89bba175bc515f76ba6bac379",
+      "bytes": 8271,
+      "mode": "100644"
+    },
+    "src/lerobot-export/stored-export.ts": {
+      "sha256": "bcb332bac1979f8f4ae5b7a17fb5a952ae5e889d321767cc74d588278e5c5073",
+      "bytes": 13481,
       "mode": "100644"
     },
     "src/lerobot-export/timeline.ts": {
@@ -1140,8 +2065,8 @@
       "mode": "100644"
     },
     "src/lerobot-export/types.ts": {
-      "sha256": "ee9b400612c6322271630659f9674554dbb42b144c95a9f4316bc443a2ef3ebc",
-      "bytes": 2292,
+      "sha256": "3f2d50ae78a8a99fc1d16d885a4027b5afeeb279244b11ff847e8f105156cf8a",
+      "bytes": 2451,
       "mode": "100644"
     },
     "src/local-signal-exchange.ts": {
@@ -1170,12 +2095,37 @@
       "mode": "100644"
     },
     "src/monitor-app.ts": {
-      "sha256": "0d9815c2d88bac3f36e758290e0fab9560758b06703e269efc349cfea4204e93",
-      "bytes": 249105,
+      "sha256": "08f7c71ef16b7bf0f4c093364ebdb55b3b398ffc51872b88392a47ea74b863a0",
+      "bytes": 285945,
+      "mode": "100644"
+    },
+    "src/monitor-capture-metadata.css": {
+      "sha256": "33ea09f1eaf3de00a9c91af4517b5a68f1185d6459f97939cf5ccf60b055d361",
+      "bytes": 3228,
+      "mode": "100644"
+    },
+    "src/monitor-capture-metadata.ts": {
+      "sha256": "87bfdd81ee720f338006e8c4e7a084c2bcdf8918f185cfd03a9dd6abb171a59f",
+      "bytes": 11843,
+      "mode": "100644"
+    },
+    "src/monitor-command-bar.css": {
+      "sha256": "fa88e7ebb8dddd8b631be05b92443465eb84a13d899776e14a23e08294c0a5f9",
+      "bytes": 3317,
+      "mode": "100644"
+    },
+    "src/monitor-depth.css": {
+      "sha256": "49b193a89a25b521ea1d4c9b91317335d0f43dec74b4a2005ad498c933618059",
+      "bytes": 744,
+      "mode": "100644"
+    },
+    "src/monitor-depth.ts": {
+      "sha256": "e99d7a8a19a5d7ce3bcd1949665eaf2e54dad9583ebe767fc66e1f99a10221f7",
+      "bytes": 10089,
       "mode": "100644"
     },
     "src/monitor-episode-presentation.ts": {
-      "sha256": "603607a7adb0e7d6a705aeeba538d195ed9c809a9d194b1bc3bdfb7ca97acf7e",
+      "sha256": "7d3effd40ce64dd061bcb2c31b5e8e4c782ffdbccf1dc1ee5a0b81f7263a08d7",
       "bytes": 1986,
       "mode": "100644"
     },
@@ -1187,6 +2137,26 @@
     "src/monitor-episode-sequence.ts": {
       "sha256": "0917dcc0f9ccbb58ab9eb739a8f0430d9224831c5e658ddc78c59e026412410f",
       "bytes": 793,
+      "mode": "100644"
+    },
+    "src/monitor-export-preference.css": {
+      "sha256": "2265ebc64887f2da51819c84ea4ab80e52538b57ed8be499402198dd7e43d307",
+      "bytes": 2209,
+      "mode": "100644"
+    },
+    "src/monitor-export-preference.ts": {
+      "sha256": "dc456ede08d668724bf5d33a052856fa1ad122c0bba0183803f0d1740b009f08",
+      "bytes": 3594,
+      "mode": "100644"
+    },
+    "src/monitor-hf-panel.css": {
+      "sha256": "f26501fdd773951edea3db4000d695b0426152fc71c9967ad44b7f708e39ba8f",
+      "bytes": 1823,
+      "mode": "100644"
+    },
+    "src/monitor-hf-panel.ts": {
+      "sha256": "d431eee15f8f8eb9ba2fe57c9b5ba678a98bc25db89f25c90ae13d235bfb41bc",
+      "bytes": 3829,
       "mode": "100644"
     },
     "src/monitor-load-controller.ts": {
@@ -1204,14 +2174,54 @@
       "bytes": 32983,
       "mode": "100644"
     },
+    "src/monitor-run-position.css": {
+      "sha256": "3eb2abf5a1eca141d4abb9941d2ed2b85d0b1bffba3ec4cada5ab8e7c0cc8582",
+      "bytes": 573,
+      "mode": "100644"
+    },
+    "src/monitor-run-position.ts": {
+      "sha256": "c3533479dfa9514a8bd2b11476c98453aa2006ea8125f5a561cd655ab3af40a3",
+      "bytes": 5589,
+      "mode": "100644"
+    },
+    "src/monitor-run-stack.css": {
+      "sha256": "47ed80889c016ebceafaaf399fea5076cd0c2c4f76621cfb86673bac441a60ec",
+      "bytes": 4464,
+      "mode": "100644"
+    },
+    "src/monitor-run-stack.ts": {
+      "sha256": "096355e4baceee7811f610784092ba142d74847cb654c807dc5d7d00b6e7809a",
+      "bytes": 23482,
+      "mode": "100644"
+    },
+    "src/monitor-run-timeline.css": {
+      "sha256": "3c2c48b947630d5794e095bf268920f266e477bfedfd10aaf8cda173a808d59f",
+      "bytes": 1786,
+      "mode": "100644"
+    },
+    "src/monitor-run-timeline.ts": {
+      "sha256": "a9a75bfbcb63051aedb3c4c810c2a9a8313e2c40fc28f1c022bb4f50123d068f",
+      "bytes": 19442,
+      "mode": "100644"
+    },
     "src/monitor-runtime.ts": {
-      "sha256": "1eb31d3db74cf93f4adba88be4672aa4afa654b386055be918bea84252f7988a",
-      "bytes": 634,
+      "sha256": "67069a4a541411b6adcb17ebc927f120a06d74557af8f8e6b67fc77f5230e01e",
+      "bytes": 924,
       "mode": "100644"
     },
     "src/monitor-session-persistence.ts": {
       "sha256": "f51173e39fe18c7193470a475b01862c12778dc8f317ff5c434c729e6938599a",
       "bytes": 7317,
+      "mode": "100644"
+    },
+    "src/monitor-stored-exports.ts": {
+      "sha256": "d8a00bb167af6727fbd5a011ef528f2c7dc087fb0d23e9d95b9b0b84ead4ce06",
+      "bytes": 11965,
+      "mode": "100644"
+    },
+    "src/monitor-task-export.ts": {
+      "sha256": "156ea44adc85b1aa8d0aa07d057aad3070b243bb4b0f26537d24cebdb9b63258",
+      "bytes": 4155,
       "mode": "100644"
     },
     "src/monitor-worker-session.ts": {
@@ -1350,8 +2360,8 @@
       "mode": "100644"
     },
     "src/solo-app.ts": {
-      "sha256": "b6742c72adff1c5e8033979fca8c98febebb873a5434fd6e2ecb5d6dd01a7feb",
-      "bytes": 266748,
+      "sha256": "5ed2b386793a03b77347912542205b9e357d10b9c08a68c84753209261e30a91",
+      "bytes": 266732,
       "mode": "100644"
     },
     "src/solo-automatic-local-export.ts": {
@@ -1370,8 +2380,8 @@
       "mode": "100644"
     },
     "src/solo-export-controller.ts": {
-      "sha256": "c733d5fb0412ad8fa62b6440219fca2ce326b0500013f040c5544856773bcc06",
-      "bytes": 32769,
+      "sha256": "7b86384fb977e337b81a400292affd6da99d2c474c8f8bc1f368a430540ba218",
+      "bytes": 32763,
       "mode": "100644"
     },
     "src/solo-hf-credential.ts": {
@@ -1465,7 +2475,7 @@
       "mode": "100644"
     },
     "src/solo-upload-adapter.ts": {
-      "sha256": "91aadc5587bd830b7d78cc207af827a94701451a1faa6dbf10edfd02bda81dc2",
+      "sha256": "5af1759d3b39078a73897a57c0d85f9cf3269c4b028960fe336a8f1d0d85e78e",
       "bytes": 22633,
       "mode": "100644"
     },
@@ -1475,13 +2485,13 @@
       "mode": "100644"
     },
     "src/solo-xr-console-presentation.ts": {
-      "sha256": "dba46348bde30092227fd606dff2598764f3e9ae873b083aa0fe116cc95c4281",
-      "bytes": 37486,
+      "sha256": "5b55ae3fb72b0131ac18867862170d1a1115d7ab316f8b040e52d3ce9abc3e76",
+      "bytes": 37664,
       "mode": "100644"
     },
     "src/solo-xr-console.ts": {
-      "sha256": "56adbf8d696e46547566a546ecc59dc4ab09b042c95aa617b9ae6cfaac04b4cf",
-      "bytes": 41532,
+      "sha256": "f87794a511e9bb171ea6b0eb95da1b8fa595d528af6adb4a9d05243b347cf296",
+      "bytes": 41522,
       "mode": "100644"
     },
     "src/solo-xr-workspace.ts": {
@@ -1600,8 +2610,8 @@
       "mode": "100644"
     },
     "src/xr-session-options.ts": {
-      "sha256": "39613826f8315348a0fa608c6cf9acd46059c39b654cc11ae6650e482d830a78",
-      "bytes": 7385,
+      "sha256": "b4b4254e35f45d903ad02fc2cafd17416e88c730a949086dc519de891ddc594b",
+      "bytes": 8038,
       "mode": "100644"
     },
     "src/xr-startup-intro.ts": {
@@ -1625,13 +2635,18 @@
       "mode": "100644"
     },
     "test/bridge-camera-selection.test.ts": {
-      "sha256": "6ff486ab68408bab232bd5c58c98af652df1ae9a0c3fcce12065bbc00044da27",
-      "bytes": 3173,
+      "sha256": "69a0e359798a129fc9ec9d18215f18c442769ba729f18a842ae8522e9f1ffc25",
+      "bytes": 3693,
+      "mode": "100644"
+    },
+    "test/bridge-depth.test.ts": {
+      "sha256": "18c6139967767d3dd207b9406a402fa2bc1e4b8bbc496d56246bada6dd4add97",
+      "bytes": 16549,
       "mode": "100644"
     },
     "test/bridge-peer.test.ts": {
-      "sha256": "f309b8742204b255001d295539bc5348e69b410fcf585b4e93ca78d207a58bcc",
-      "bytes": 7544,
+      "sha256": "0eff088118394f08dabe9673b4dee5f2a76653cddb1b9aea7922ff564d2b2075",
+      "bytes": 8397,
       "mode": "100644"
     },
     "test/bridge-protocol.test.ts": {
@@ -1640,8 +2655,8 @@
       "mode": "100644"
     },
     "test/browser/bridge.spec.ts": {
-      "sha256": "1895bc6deea31b7e00d14ebaf5474d388fb10155cde53f54fae64ba9607443bc",
-      "bytes": 7853,
+      "sha256": "5a280476b6226331595f8d67682ea202c9c8fed2f5599416d9cd39e3865f5b74",
+      "bytes": 8979,
       "mode": "100644"
     },
     "test/browser/selfhost.spec.ts": {
@@ -1690,8 +2705,8 @@
       "mode": "100644"
     },
     "test/direct-session-reducer.test.ts": {
-      "sha256": "eae37a6a4b347639ef38a5a574903c03a7e0a8ad453fe6480d24b7c83f3905ab",
-      "bytes": 47898,
+      "sha256": "b52bdaebcb5685843e916d6a2cfa9ec22cd0f52ef708e3f306086af3835e2720",
+      "bytes": 50718,
       "mode": "100644"
     },
     "test/durable-opfs-write.test.ts": {
@@ -1707,6 +2722,11 @@
     "test/fixed-rate-clock.test.ts": {
       "sha256": "d7b2b092f0b2d5e300808d36518a41cc246658b1e4adba920a2b7debbf87dc87",
       "bytes": 2752,
+      "mode": "100644"
+    },
+    "test/fixtures/bridge-depth-v1.json": {
+      "sha256": "b1c60e975cfb726c04c32cbf72f264d966fa9abb08efb88c647a0958c78a0f8e",
+      "bytes": 242770,
       "mode": "100644"
     },
     "test/lerobot-export-segments.test.ts": {
@@ -1764,6 +2784,11 @@
       "bytes": 5927,
       "mode": "100644"
     },
+    "test/native-release.test.mjs": {
+      "sha256": "9a49e18e4e75f34ada46c39972c485da9e380cdf53335878accd5608748ae6be",
+      "bytes": 16060,
+      "mode": "100644"
+    },
     "test/network-policy.test.ts": {
       "sha256": "af9b5b19889eef4c6a5582e4b4a9559a51c0109b4f8387b3d0aa2f30b199b201",
       "bytes": 534,
@@ -1780,8 +2805,8 @@
       "mode": "100644"
     },
     "test/public-boundary.test.ts": {
-      "sha256": "4c21a62b92b9bb8527683b78e2501fb04b5182cd171cd54d8ddd79c60ba38b1f",
-      "bytes": 1962,
+      "sha256": "5c68937dadf099afbfa14063bd59e8c9a782f83c8d8a2541a91723bb9cb94f7a",
+      "bytes": 6748,
       "mode": "100644"
     },
     "test/quest-camera.test.ts": {
@@ -1855,13 +2880,13 @@
       "mode": "100644"
     },
     "test/session-store.test.ts": {
-      "sha256": "82242cd58a33175b94b9ade7260130a7c2e17da928cf88daef4b5e14fb16adbd",
-      "bytes": 205677,
+      "sha256": "493b4ccc53bd477c758d0b0d1cd25683c528a0ccc77948ab4a990d946e0fe185",
+      "bytes": 207898,
       "mode": "100644"
     },
     "test/solo-export-controller.test.ts": {
-      "sha256": "7e8c64ea4b4a4e795f3a222ef3d8a1bafd0a824d42d17262094fe17b29c4057d",
-      "bytes": 24845,
+      "sha256": "a7ee29ec4dfb6b8b5e89c05304dafae8f27d93739c76ba83bbaab7fb76e5f5d8",
+      "bytes": 24843,
       "mode": "100644"
     },
     "test/solo-local-export-destination.test.ts": {
@@ -1960,8 +2985,8 @@
       "mode": "100644"
     },
     "ui/solo-console.uikitml": {
-      "sha256": "28f6d537b75d0437a29eb77f220102ea4277c7b15389a1829c67e77c8b06ddc9",
-      "bytes": 15783,
+      "sha256": "a81593d6e2af7397d1cca7b831bac91c6815219b7d61e3873ba6f4c1e55b2aac",
+      "bytes": 15773,
       "mode": "100644"
     },
     "ui/status-projection.uikitml": {
@@ -2050,8 +3075,8 @@
       "mode": "100644"
     },
     "wasm/lerobot-exporter/ts/loader.test.ts": {
-      "sha256": "c5f26bf4265a58b2125c6cdec42bd521e70c80dfa3db2adb30d1c3c710abb5b1",
-      "bytes": 6936,
+      "sha256": "6937a13720a7dca5d6f5ebe918e0c040c2675d872ab685c3694d5a2141fcbe7d",
+      "bytes": 7018,
       "mode": "100644"
     },
     "wasm/lerobot-exporter/ts/loader.ts": {
@@ -2060,8 +3085,8 @@
       "mode": "100644"
     },
     "wasm/lerobot-exporter/ts/oracle.test.ts": {
-      "sha256": "52745167beb1961dee8c0b1f9d8e71d4e409620841376a6864c13945c2cbe5f4",
-      "bytes": 2290,
+      "sha256": "06ce7be668a2207ccf95403c8512414c27c086a47b56387b44e629b77744b0ed",
+      "bytes": 2374,
       "mode": "100644"
     },
     "wasm/lerobot-exporter/ts/wasm-build.test.ts": {

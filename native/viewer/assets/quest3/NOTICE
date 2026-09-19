@@ -1,0 +1,14 @@
+Meta Quest 3
+3D model and textures by Elin (https://sketchfab.com/ElinHohler).
+Source: https://sketchfab.com/3d-models/meta-quest-3-65a813833dc04eeeb7d33bdca58c184c
+Licence: Creative Commons Attribution 4.0 International (CC-BY-4.0).
+https://creativecommons.org/licenses/by/4.0/
+
+Changes: converted the USDZ geometry into native float32/uint32 buffers,
+baked its transforms, removed its outer presentation scale, converted
+textures to bottom-up RGBA8, packed occlusion/roughness/metallic channels
+and added a geometric lens-midpoint alignment in WebXR coordinates.
+Triangle topology and UV coordinates are preserved.
+
+Supplied USDZ SHA256: d8a19a3eed3edad501b1199aaa2a8b55e9aebf0952201324becc93565937deb3
+The source author and Meta do not endorse this conversion or application.

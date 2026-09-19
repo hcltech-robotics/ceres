@@ -1,0 +1,279 @@
+name: Native viewer
+
+on:
+  workflow_call:
+    outputs:
+      artifact-prefix:
+        description: Prefix of the three qualified native package artefacts
+        value: ${{ jobs.identity.outputs.artifact-prefix }}
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - native/**
+      - .github/workflows/native-viewer.yml
+      - .github/scripts/native-viewer-inputs.py
+      - .github/scripts/build-native-ffmpeg.sh
+      - .github/scripts/install-native-tools.py
+      - .github/scripts/native-build-requirements.txt
+  push:
+    branches: [main]
+    paths:
+      - native/**
+      - .github/workflows/native-viewer.yml
+      - .github/scripts/native-viewer-inputs.py
+      - .github/scripts/build-native-ffmpeg.sh
+      - .github/scripts/install-native-tools.py
+      - .github/scripts/native-build-requirements.txt
+
+permissions:
+  contents: read
+
+jobs:
+  identity:
+    name: Native release identity
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.identity.outputs.version }}
+      revision: ${{ steps.identity.outputs.revision }}
+      epoch: ${{ steps.identity.outputs.epoch }}
+      artifact-prefix: ${{ steps.identity.outputs.artifact-prefix }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: identity
+        name: Resolve the package version and source commit
+        shell: bash
+        run: |
+          version=$(python3 -c 'import json; print(json.load(open("package.json"))["version"])')
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then test "$GITHUB_REF_NAME" = "v$version"; fi
+          revision=$(git rev-parse HEAD)
+          test "$revision" = "$GITHUB_SHA"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "revision=$revision" >> "$GITHUB_OUTPUT"
+          echo "epoch=$(git show -s --format=%ct HEAD)" >> "$GITHUB_OUTPUT"
+          echo "artifact-prefix=ceres-native-$revision" >> "$GITHUB_OUTPUT"
+
+  windows:
+    name: Windows x64 CUDA package
+    needs: identity
+    runs-on: windows-2022
+    timeout-minutes: 90
+    env:
+      CERES_RELEASE_VERSION: ${{ needs.identity.outputs.version }}
+      CERES_SOURCE_REVISION: ${{ needs.identity.outputs.revision }}
+      SOURCE_DATE_EPOCH: ${{ needs.identity.outputs.epoch }}
+      CMAKE_BUILD_PARALLEL_LEVEL: '2'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - name: Install pinned build tools
+        shell: pwsh
+        run: |
+          python .github/scripts/install-native-tools.py --platform windows-x64 --directory "$env:RUNNER_TEMP/native-tools"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python -m pip install --require-hashes --only-binary=:all: -r .github/scripts/native-build-requirements.txt
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          rustup toolchain install 1.91.0 --profile minimal
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          rustup default 1.91.0
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Extract the standalone release source
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Path "$env:RUNNER_TEMP/native-source" | Out-Null
+          git archive --format=tar --output="$env:RUNNER_TEMP/native-source.tar" HEAD
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          tar -xf "$env:RUNNER_TEMP/native-source.tar" -C "$env:RUNNER_TEMP/native-source"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          if (Test-Path "$env:RUNNER_TEMP/native-source/.git") { throw 'Source contains Git metadata' }
+      - name: Prepare CUDA 12.4.1
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $cudaRoot = Join-Path $env:RUNNER_TEMP 'cuda-12.4.1'
+          New-Item -ItemType Directory -Path $cudaRoot | Out-Null
+          $components = @(
+            @{ Path = 'cuda_nvcc/windows-x86_64/cuda_nvcc-windows-x86_64-12.4.131-archive.zip'; Sha256 = '3b14cf8dd9dda4a3b1a9682270d46eef775f018e17650187a8a448a06111f2b8' },
+            @{ Path = 'cuda_cudart/windows-x86_64/cuda_cudart-windows-x86_64-12.4.127-archive.zip'; Sha256 = '6a1c32e68ee1a95ca17334691ff9ad1ffe7f352c24a083d55e4c96b8063b2bcb' },
+            @{ Path = 'cuda_cccl/windows-x86_64/cuda_cccl-windows-x86_64-12.4.127-archive.zip'; Sha256 = '908742d8f3c6fdd6d1d6316a7b919b5c506474f9551f491aa7335cb4f50bffbd' }
+          )
+          foreach ($component in $components) {
+            $archive = Join-Path $env:RUNNER_TEMP ([IO.Path]::GetFileName($component.Path))
+            Invoke-WebRequest ('https://developer.download.nvidia.com/compute/cuda/redist/' + $component.Path) -OutFile $archive
+            if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $component.Sha256) { throw 'CUDA archive checksum differs' }
+            $unpacked = Join-Path $env:RUNNER_TEMP ([IO.Path]::GetFileNameWithoutExtension($archive))
+            Expand-Archive -LiteralPath $archive -DestinationPath $unpacked
+            $componentRoot = Get-ChildItem -LiteralPath $unpacked -Directory | Select-Object -First 1
+            Get-ChildItem -LiteralPath $componentRoot.FullName | Copy-Item -Destination $cudaRoot -Recurse -Force
+          }
+          "CUDA_PATH=$cudaRoot" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          (Join-Path $cudaRoot 'bin') | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+      - name: Download pinned FFmpeg 8.0
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $archive = Join-Path $env:RUNNER_TEMP 'ffmpeg-8.0-full_build.zip'
+          Invoke-WebRequest 'https://github.com/GyanD/codexffmpeg/releases/download/8.0/ffmpeg-8.0-full_build.zip' -OutFile $archive
+          if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne '48ca5e824d2660a94f89fd55287b7c35129b55bbe680c4330efeed5269c4820f') { throw 'FFmpeg archive checksum differs' }
+          Expand-Archive -LiteralPath $archive -DestinationPath (Join-Path $env:RUNNER_TEMP 'ffmpeg')
+          $sourceLock = @{
+            schema = 'ceres-ffmpeg-sources'; version = 1
+            ffmpeg = @{
+              repository = 'https://github.com/GyanD/codexffmpeg'; release = '8.0'
+              archive_url = 'https://github.com/GyanD/codexffmpeg/releases/download/8.0/ffmpeg-8.0-full_build.zip'
+              archive_sha256 = '48ca5e824d2660a94f89fd55287b7c35129b55bbe680c4330efeed5269c4820f'
+            }
+          }
+          $sourceLock | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath "$env:RUNNER_TEMP/ffmpeg/ffmpeg-8.0-full_build/ffmpeg-source-lock.json" -Encoding utf8
+          "FFMPEG=$env:RUNNER_TEMP/ffmpeg/ffmpeg-8.0-full_build/bin/ffmpeg.exe" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Build the standalone viewer source and native tests
+        shell: cmd
+        run: |
+          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat" -vcvars_ver=14.44
+          if errorlevel 1 exit /b %errorlevel%
+          cmake -S "%RUNNER_TEMP%/native-source/native/viewer" -B "%RUNNER_TEMP%/build-native" -G Ninja -DCMAKE_BUILD_TYPE=Release -DCERES_BUILD_TESTS=ON -DPython_EXECUTABLE="%pythonLocation%\python.exe" -DPython3_EXECUTABLE="%pythonLocation%\python.exe" -DCMAKE_CUDA_COMPILER="%CUDA_PATH%\bin\nvcc.exe" -DCMAKE_CUDA_FLAGS="-allow-unsupported-compiler -D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH"
+          if errorlevel 1 exit /b %errorlevel%
+          cmake --build "%RUNNER_TEMP%/build-native" --parallel 2
+          if errorlevel 1 exit /b %errorlevel%
+          ctest --test-dir "%RUNNER_TEMP%/build-native" -C Release -LE gpu --output-on-failure
+          if errorlevel 1 exit /b %errorlevel%
+          cargo test --locked --manifest-path "%RUNNER_TEMP%/native-source/native/lerobot-exporter/Cargo.toml"
+      - name: Assemble and verify the Windows download
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $output = Join-Path $env:GITHUB_WORKSPACE 'release/native'
+          $packageName = "ceres-viewer-$env:CERES_RELEASE_VERSION-windows-x64"
+          $ffmpegRoot = Join-Path $env:RUNNER_TEMP 'ffmpeg/ffmpeg-8.0-full_build'
+          & "$env:RUNNER_TEMP/native-source/native/viewer/scripts/package-windows.ps1" -BuildDirectory "$env:RUNNER_TEMP/build-native" -OutputDirectory $output -PackageName $packageName -Platform windows-x64 -FfmpegRoot $ffmpegRoot -SkipViewerStartupCheck
+          python "$env:RUNNER_TEMP/native-source/native/viewer/scripts/verify-package.py" --archive "$output/$packageName.zip" --platform windows-x64 --version $env:CERES_RELEASE_VERSION --output "$env:RUNNER_TEMP/verified-windows-x64"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          Copy-Item -LiteralPath "$env:RUNNER_TEMP/verified-windows-x64/report.json" -Destination "$output/$packageName.verification.json"
+          python "$env:RUNNER_TEMP/native-source/.github/scripts/native-viewer-inputs.py" --root "$env:RUNNER_TEMP/native-source" --build "$env:RUNNER_TEMP/build-native" --platform windows-x64 --runner windows-2022 --cuda 12.4.1 --ffmpeg "$ffmpegRoot/bin/ffmpeg.exe" --package-manifest "$output/$packageName.zip.manifest.json" --output "$output/workflow-inputs.json"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $tests = Join-Path $env:GITHUB_WORKSPACE 'release-tests'
+          New-Item -ItemType Directory -Path $tests | Out-Null
+          foreach ($name in 'test_image', 'test_stereo_cuda', 'test_voxel_cuda', 'test_depth_cuda', 'test_nvdec') {
+            Copy-Item -LiteralPath "$env:RUNNER_TEMP/build-native/$name.exe" -Destination $tests
+          }
+          Get-ChildItem -LiteralPath "$output/$packageName" -Filter '*.dll' | Copy-Item -Destination $tests
+          Copy-Item -LiteralPath "$output/workflow-inputs.json" -Destination $tests
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ needs.identity.outputs.artifact-prefix }}-windows-x64
+          path: |
+            release/native/*.zip
+            release/native/*.sha256
+            release/native/*.json
+          compression-level: 0
+          retention-days: 14
+          if-no-files-found: error
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ceres-native-tests-${{ needs.identity.outputs.revision }}-windows-x64
+          path: release-tests/
+          retention-days: 14
+          if-no-files-found: error
+
+  linux:
+    name: ${{ matrix.platform }} CUDA package
+    needs: identity
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-x64
+            runner: ubuntu-24.04
+            image: nvidia/cuda:12.9.1-devel-ubuntu22.04@sha256:38804006c937a83f28f63a959abcee688042072319c8614ad57b350958a30bd3
+            cuda: 12.9.1
+            rust-target: x86_64-unknown-linux-gnu
+            rustup-sha256: 20a06e644b0d9bd2fbdbfd52d42540bdde820ea7df86e92e533c073da0cdd43c
+          - platform: linux-arm64
+            runner: ubuntu-24.04-arm
+            image: nvidia/cuda:13.0.2-devel-ubuntu24.04@sha256:450d11555d20ac8ebbbc13ebf17589c2bd42869171a90179ce7098b4a5e64c6a
+            cuda: 13.0.2
+            rust-target: aarch64-unknown-linux-gnu
+            rustup-sha256: e3853c5a252fca15252d07cb23a1bdd9377a8c6f3efa01531109281ae47f841c
+    container: ${{ matrix.image }}
+    env:
+      CERES_RELEASE_VERSION: ${{ needs.identity.outputs.version }}
+      CERES_SOURCE_REVISION: ${{ needs.identity.outputs.revision }}
+      SOURCE_DATE_EPOCH: ${{ needs.identity.outputs.epoch }}
+      CMAKE_BUILD_PARALLEL_LEVEL: '2'
+    steps:
+      - name: Install system build dependencies
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates curl git g++ make nasm python3 python3-venv pkg-config libssl-dev libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libgl1-mesa-dev libwayland-dev wayland-protocols libxkbcommon-dev
+          curl --proto '=https' --tlsv1.2 -fsSL "https://static.rust-lang.org/rustup/archive/1.28.2/${{ matrix.rust-target }}/rustup-init" -o /tmp/ceres-rustup-init
+          echo '${{ matrix.rustup-sha256 }}  /tmp/ceres-rustup-init' | sha256sum --check
+          chmod +x /tmp/ceres-rustup-init
+          /tmp/ceres-rustup-init -y --profile minimal --default-toolchain 1.91.0
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - name: Install pinned CMake and Ninja
+        run: |
+          python .github/scripts/install-native-tools.py --platform '${{ matrix.platform }}' --directory "$RUNNER_TEMP/native-tools"
+          python -m pip install --require-hashes --only-binary=:all: -r .github/scripts/native-build-requirements.txt
+      - name: Extract the standalone release source
+        run: |
+          mkdir "$RUNNER_TEMP/native-source"
+          git archive --format=tar HEAD | tar -xf - -C "$RUNNER_TEMP/native-source"
+          test ! -e "$RUNNER_TEMP/native-source/.git"
+      - name: Build pinned FFmpeg 8.0 and x264
+        run: |
+          bash "$RUNNER_TEMP/native-source/.github/scripts/build-native-ffmpeg.sh" "$RUNNER_TEMP/ffmpeg-build" "$RUNNER_TEMP/ffmpeg-runtime"
+          echo "FFMPEG=$RUNNER_TEMP/ffmpeg-runtime/bin/ffmpeg" >> "$GITHUB_ENV"
+      - name: Build the standalone viewer source and native tests
+        run: |
+          cmake -S "$RUNNER_TEMP/native-source/native/viewer" -B "$RUNNER_TEMP/build-native" -G Ninja -DCMAKE_BUILD_TYPE=Release -DCERES_BUILD_TESTS=ON -DPython_EXECUTABLE="$(command -v python)" -DPython3_EXECUTABLE="$(command -v python)"
+          cmake --build "$RUNNER_TEMP/build-native" --parallel 2
+          ctest --test-dir "$RUNNER_TEMP/build-native" -C Release -LE gpu --output-on-failure
+          cargo test --locked --manifest-path "$RUNNER_TEMP/native-source/native/lerobot-exporter/Cargo.toml"
+      - name: Assemble and verify the Linux download
+        shell: bash
+        env:
+          PACKAGE_PLATFORM: ${{ matrix.platform }}
+        run: |
+          export BUILD_DIRECTORY="$RUNNER_TEMP/build-native"
+          export OUTPUT_DIRECTORY="$GITHUB_WORKSPACE/release/native"
+          export PACKAGE_NAME="ceres-viewer-$CERES_RELEASE_VERSION-$PACKAGE_PLATFORM"
+          export FFMPEG_ROOT="$RUNNER_TEMP/ffmpeg-runtime"
+          bash "$RUNNER_TEMP/native-source/native/viewer/scripts/package-linux.sh"
+          python "$RUNNER_TEMP/native-source/native/viewer/scripts/verify-package.py" --archive "$OUTPUT_DIRECTORY/$PACKAGE_NAME.tar.gz" --platform "$PACKAGE_PLATFORM" --version "$CERES_RELEASE_VERSION" --output "$RUNNER_TEMP/verified-$PACKAGE_PLATFORM"
+          cp "$RUNNER_TEMP/verified-$PACKAGE_PLATFORM/report.json" "$OUTPUT_DIRECTORY/$PACKAGE_NAME.verification.json"
+          python "$RUNNER_TEMP/native-source/.github/scripts/native-viewer-inputs.py" --root "$RUNNER_TEMP/native-source" --build "$RUNNER_TEMP/build-native" --platform "$PACKAGE_PLATFORM" --runner '${{ matrix.runner }}' --image '${{ matrix.image }}' --cuda '${{ matrix.cuda }}' --ffmpeg "$FFMPEG_ROOT/bin/ffmpeg" --package-manifest "$OUTPUT_DIRECTORY/$PACKAGE_NAME.tar.gz.manifest.json" --output "$OUTPUT_DIRECTORY/workflow-inputs.json"
+          mkdir release-tests
+          for name in test_image test_stereo_cuda test_voxel_cuda test_depth_cuda test_nvdec; do cp "$BUILD_DIRECTORY/$name" release-tests/; done
+          cp -a "$OUTPUT_DIRECTORY/$PACKAGE_NAME/lib" release-tests/
+          cp "$OUTPUT_DIRECTORY/workflow-inputs.json" release-tests/
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ needs.identity.outputs.artifact-prefix }}-${{ matrix.platform }}
+          path: |
+            release/native/*.tar.gz
+            release/native/*.sha256
+            release/native/*.json
+          compression-level: 0
+          retention-days: 14
+          if-no-files-found: error
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ceres-native-tests-${{ needs.identity.outputs.revision }}-${{ matrix.platform }}
+          path: release-tests/
+          retention-days: 14
+          if-no-files-found: error

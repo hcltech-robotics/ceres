@@ -128,7 +128,7 @@ export class SoloExportController {
   private readonly listeners = new Set<SoloExportStateListener>();
   private sessionIdValue: string | null = null;
   private episodeOperationBlockerValue: string | null =
-    "Solo session is not available for episode review";
+    "Solo session is not available for capture review";
   private episodeValues: EpisodeValue[] = [];
   private jobValues: CaptureJob[] = [];
   private readonly selectedEpisodeIds = new Set<string>();
@@ -171,7 +171,7 @@ export class SoloExportController {
   updateSession(snapshot: SessionSnapshot | null) {
     if (!snapshot) {
       this.sessionIdValue = null;
-      this.episodeOperationBlockerValue = "Solo session is not available for episode review";
+      this.episodeOperationBlockerValue = "Solo session is not available for capture review";
       this.episodeValues = [];
       this.jobValues = [];
       this.selectedEpisodeIds.clear();
@@ -375,7 +375,7 @@ export class SoloExportController {
 
   requestDelete(episodeId: string) {
     this.assertSelectionAvailable();
-    if (this.deletingEpisodeIdValue) throw new Error("A Solo episode deletion is already active");
+    if (this.deletingEpisodeIdValue) throw new Error("A Solo capture deletion is already active");
     const value = this.requireEpisode(episodeId);
     this.deleteConfirmationValue = {
       episodeId,
@@ -386,17 +386,17 @@ export class SoloExportController {
   }
 
   cancelDelete() {
-    if (this.deletingEpisodeIdValue) throw new Error("The active Solo episode deletion cannot be cancelled");
+    if (this.deletingEpisodeIdValue) throw new Error("The active Solo capture deletion cannot be cancelled");
     this.deleteConfirmationValue = null;
     this.publish();
   }
 
   async confirmDelete() {
     const confirmation = this.deleteConfirmationValue;
-    if (!confirmation) throw new Error("No Solo episode is awaiting deletion");
+    if (!confirmation) throw new Error("No Solo capture is awaiting deletion");
     this.assertSelectionAvailable();
     this.requireEpisode(confirmation.episodeId);
-    if (this.deletingEpisodeIdValue) throw new Error("A Solo episode deletion is already active");
+    if (this.deletingEpisodeIdValue) throw new Error("A Solo capture deletion is already active");
     this.deletingEpisodeIdValue = confirmation.episodeId;
     this.lastErrorValue = null;
     this.publish();
@@ -515,14 +515,14 @@ export class SoloExportController {
     }
     if (!allowBlockedSelection) this.assertSelectionAvailable();
     const episodeIds = [...new Set(value.episodeIds)];
-    if (episodeIds.length === 0) throw new Error("No exportable Solo episodes are selected");
+    if (episodeIds.length === 0) throw new Error("No exportable Solo captures are selected");
     if (episodeIds.length !== value.episodeIds.length) {
-      throw new Error("Solo export episode selection contains duplicates");
+      throw new Error("Solo export capture selection contains duplicates");
     }
     for (const episodeId of episodeIds) {
       const episodeValue = this.requireEpisode(episodeId);
       if (!isExportableEpisode(episodeValue.episode)) {
-        throw new Error(`Solo episode ${episodeId} is not exportable`);
+        throw new Error(`Solo capture ${episodeId} is not exportable`);
       }
     }
     if (value.destination !== "hugging-face") {
@@ -593,7 +593,7 @@ export class SoloExportController {
 
   private requireEpisode(episodeId: string) {
     const value = this.episodeValues.find(({ episode }) => episode.id === episodeId);
-    if (!value) throw new Error(`Episode ${episodeId} is not in the Solo catalogue`);
+    if (!value) throw new Error(`Capture ${episodeId} is not in the Solo catalogue`);
     return value;
   }
 
@@ -705,7 +705,7 @@ export class SoloExportController {
       const account = this.accountSessionValue!;
       return {
         state: "connected",
-        label: `Hugging Face connected / ${account.huggingFace.username ?? "account"}`,
+        label: `Hugging Face connected/${account.huggingFace.username ?? "account"}`,
         action: "manage",
         actionLabel: "Manage connection",
         username: account.huggingFace.username,
@@ -715,7 +715,7 @@ export class SoloExportController {
     if (this.headsetHuggingFaceUsernameValue) {
       return {
         state: "connected",
-        label: `Hugging Face connected / ${this.headsetHuggingFaceUsernameValue}`,
+        label: `Hugging Face connected/${this.headsetHuggingFaceUsernameValue}`,
         action: "manage",
         actionLabel: "Reauthorise",
         username: this.headsetHuggingFaceUsernameValue,
@@ -775,7 +775,7 @@ export class SoloExportController {
     }
     return {
       state: "connected",
-      label: `Hugging Face connected / ${account.huggingFace.username ?? "account"}`,
+      label: `Hugging Face connected/${account.huggingFace.username ?? "account"}`,
       action: "manage",
       actionLabel: "Manage connection",
       username: account.huggingFace.username,
@@ -859,19 +859,19 @@ export class SoloExportController {
 
 function soloEpisodeOperationBlocker(snapshot: SessionSnapshot): string | null {
   if (snapshot.run.recordingState === "stopping") {
-    return "Solo episode review and export are unavailable while finalising";
+    return "Solo capture review and export are unavailable while finalising";
   }
   if (snapshot.run.status === "running") {
-    return "Solo episode review and export are unavailable during an active run";
+    return "Solo capture review and export are unavailable during an active run";
   }
   if (snapshot.solo?.startCountdownDeadlineMs != null) {
-    return "Solo episode review and export are unavailable during the start countdown";
+    return "Solo capture review and export are unavailable during the start countdown";
   }
   if (snapshot.currentEpisode !== null || snapshot.pendingEpisode !== null) {
-    return "Solo episode review and export are unavailable during an active episode boundary";
+    return "Solo capture review and export are unavailable during an active capture boundary";
   }
   if (snapshot.recording || snapshot.run.recordingState !== "idle") {
-    return "Solo episode review and export are unavailable while recording";
+    return "Solo capture review and export are unavailable while recording";
   }
   return null;
 }

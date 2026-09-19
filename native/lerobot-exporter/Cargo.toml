@@ -1,0 +1,29 @@
+[package]
+name = "ceres-native-exporter"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Native observation-only LeRobot v3 export from Ceres session MCAP files"
+publish = false
+
+[dependencies]
+anyhow = "1.0"
+arrow-array = "=59.2.0"
+arrow-schema = "=59.2.0"
+ceres-lerobot-exporter = { path = "../../wasm/lerobot-exporter" }
+mcap = "=0.25.0"
+memmap2 = "0.9"
+parquet = { version = "=59.2.0", default-features = false, features = ["arrow", "snap"] }
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.151"
+tempfile = "3.23"
+
+[dev-dependencies]
+
+[build-dependencies]
+serde_json = "=1.0.151"
+
+[profile.release]
+codegen-units = 1
+lto = true
+strip = true

@@ -480,9 +480,6 @@ export class DirectSessionReducer {
       return this.cancelSoloStart();
     }
     if (action === "stop") return this.stopRun();
-    if (action === "finish" && actor !== "demonstrator") {
-      throw new Error("Only the demonstrator can finish the run");
-    }
     const normalisedAction = action === "next" ? "next-task" : action;
     if (isStateBoundRunControlAction(normalisedAction)
       && nextCursor !== nextRunControlCursor(this.snapshotValue, normalisedAction)) {

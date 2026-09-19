@@ -1,0 +1,57 @@
+{
+  "schema": "ceres-viewer-nvdec-cpu-reference",
+  "version": 2,
+  "ffmpeg": "ffmpeg version 6.1.1-3ubuntu5 Copyright (c) 2000-2023 the FFmpeg developers",
+  "gpu_executed": false,
+  "method": "Software H.264 decode to packed NV12 and FNV1a64 over every byte",
+  "sources": [
+    {
+      "file": "nvdec-resolution-640x480-a.h264",
+      "sha256": "40e033c3a5f1a77ec4bc87898718f41d4de5cdbffc07f87dd48031350b5e59b0",
+      "input_fnv1a64": "511467b7e082c2aa",
+      "width": 640,
+      "height": 480,
+      "input_bytes": 80313,
+      "cpu_nv12_fnv1a64": [
+        "df93f0063e904be8",
+        "bdb5edb30ed81103",
+        "0f981bdbe349668a",
+        "961683e6597fbc53",
+        "560820fc583d5566",
+        "5da14e52392f3a49"
+      ]
+    },
+    {
+      "file": "nvdec-resolution-1280x960-b.h264",
+      "sha256": "14ef4e6ce0d8edc1d52211f0ac0dbbb01918ad28eba913353541f488c93ebad0",
+      "input_fnv1a64": "688bcda3302c617d",
+      "width": 1280,
+      "height": 960,
+      "input_bytes": 287077,
+      "cpu_nv12_fnv1a64": [
+        "882d70f3c054770d",
+        "24e69ea930ae25f7",
+        "b9f7ac38318b2167",
+        "5aaa1c28e3252f79",
+        "a56d2044d577c712",
+        "6ec1ae70c83e261c"
+      ]
+    },
+    {
+      "file": "nvdec-resolution-640x480-c.h264",
+      "sha256": "24d009f1f0797ad3d330aedba92aaadcf76384772efa5c583f1faa49a7be4063",
+      "input_fnv1a64": "95dc0c56b6117b82",
+      "width": 640,
+      "height": 480,
+      "input_bytes": 80282,
+      "cpu_nv12_fnv1a64": [
+        "4a17773e27b455c1",
+        "176b10a29addb0ae",
+        "df5a5d5eee76e7dd",
+        "c7dc583a67a24cad",
+        "8333b423f2b19fc1",
+        "cc88ddd0f3d76a83"
+      ]
+    }
+  ]
+}

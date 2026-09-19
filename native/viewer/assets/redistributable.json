@@ -1,0 +1,25 @@
+{
+  "schema": "ceres-viewer-assets",
+  "version": 1,
+  "files": [
+    "README.md",
+    "fonts/Cousine-Regular.ttf",
+    "fonts/Cousine-LICENCE.txt",
+    "fonts/Cousine-NOTICE.txt",
+    "fonts/Roboto-Medium.ttf",
+    "fonts/LICENCE.txt",
+    "hands/geometry.bin",
+    "hands/model.json",
+    "hands/LICENSE",
+    "hands/NOTICE",
+    "quest3/base-colour.rgba",
+    "quest3/checksums.json",
+    "quest3/FORMAT.md",
+    "quest3/indices.bin",
+    "quest3/model.json",
+    "quest3/normal.rgba",
+    "quest3/NOTICE",
+    "quest3/orm.rgba",
+    "quest3/vertices.bin"
+  ]
+}

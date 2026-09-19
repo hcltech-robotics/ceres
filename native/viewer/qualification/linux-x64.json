@@ -1,0 +1,47 @@
+{
+  "schema": "ceres-native-hardware-qualification",
+  "version": 1,
+  "status": "passed",
+  "platform": "linux-x64",
+  "input_sha256": "5fa0df27972a57b8b52cfa9d4b81d132167231607ea175382b974970a3d7efc0",
+  "source_revision": "931a899ce55692650bbc3de8847187495e3bc786",
+  "archive_name": "ceres-viewer-1.1.1-linux-x64.tar.gz",
+  "archive_sha256": "04c9078f8b590e2fbd057e1af5ee2aeb1754dba93d59eba9e6faf18c3e44f9d5",
+  "build_inputs_sha256": "0bfdf59e5747787c21d769122a08389c82ca323ede6c75e4bb784f7117762f05",
+  "completed_at": "2026-09-19T13:10:46.182003+00:00",
+  "gpu": "NVIDIA RTX PRO 6000 Blackwell Workstation Edition",
+  "driver": "NVIDIA RTX PRO 6000 Blackwell Workstation Edition, 580.178.04",
+  "graphics": {
+    "vendor": "NVIDIA Corporation",
+    "renderer": "NVIDIA RTX PRO 6000 Blackwell Workstation Edition/PCIe/SSE2",
+    "version": "4.5.0 NVIDIA 580.178.04"
+  },
+  "checks": {
+    "cuda": true,
+    "depth": true,
+    "dual_camera": true,
+    "export": true,
+    "nvdec": true,
+    "package": true,
+    "record": true,
+    "render": true,
+    "replay": true
+  },
+  "evidence_sha256": {
+    "nvdec.json": "2cb66f60af0598611c15402972846178d0bf660fbeed364fa845e57039f3341b",
+    "nvdec.log": "e6c78e27b7bca6d733e938d607b6f931097878b3548d03085c9b2621836b9af2",
+    "record.json": "ce2bb29a0d63f5536aac34024408f2332cb47b6f45997140e9c48a8cf041a69e",
+    "record.log": "75b01ec8c76f0c68900d104a01c1ae661e5fb483989dab6f6fd5a03ba01fdfc3",
+    "record.ppm": "a20b36f642267c71dcb02b539cf8c61b88ace0a6892351c24117602b820e1f12",
+    "recording-check.log": "5c374650ff76a0c37478aa2184c59f082e209697a06945f6f7dabb5181d9c0d3",
+    "recording-report.json": "5bc18c10c42f8455d49919334dd27565c7d34c63326a7b0f134b821f4d003850",
+    "recording.mcap.episodes.json": "7303be2de41028dac05df71615595be0f48fc2d4520807d10e6fc5588cb9bb87",
+    "replay.json": "7041bae7878f367bfd798c64875efe2742be8573b1a5438248d2ae407eb9aa14",
+    "replay.log": "096b71b2fd3afb0d322cbc76d72b6a295b7646808ed9e8fa44839b902aa62bda",
+    "replay.ppm": "196bce142ae48776317dd2fb274ba2f7fb45ceba2bdde1237208b90db859dbb4",
+    "test_depth_cuda.log": "5ae801789689f46f8685744643f9ef5786bfc9f0934c00c9464961e4cf1cd16c",
+    "test_image.log": "4599ef326fd180542262391935fe00643c3655e881aaa1083882b8938a3f516b",
+    "test_stereo_cuda.log": "0f64470d0641d73d8ebb8c9f0d4297bd4de8a5764fb688c4c27b5f6b712c9e04",
+    "test_voxel_cuda.log": "0eeec53cdbedbfcad04caa3f279a957d69c19de93e1681f604cc73405308f78a"
+  }
+}

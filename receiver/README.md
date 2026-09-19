@@ -38,9 +38,11 @@ shows the robot, acquisition view, live video, wrist and joint waveforms and
 process performance. Follow the [demo guide](https://ceres.cam/documentation/dual-arm-demo/)
 for installation and use.
 
-In Bridge, choose **Both cameras** to stream the left and right cameras together.
-Python clients can select either stream with `Receiver(camera="left")` or
+In Bridge, choose one outward camera, left or right. Optional WebXR environment
+depth is independent of that selection and can stream without RGB video.
+Python clients read the selected feed with `Receiver(camera="left")` or
 `Receiver(camera="right")`. The default `Receiver()` keeps the primary camera.
+The receiver retains its side-specific subscriptions for earlier stereo sources.
 
 ```python
 from ceres_bridge import Receiver

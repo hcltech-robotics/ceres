@@ -204,7 +204,7 @@ test("blocks selection and delete confirmation while episode review is unavailab
   assert.equal(controller.snapshot.selectionAvailable, false);
   assert.throws(() => controller.toggleEpisodeSelection("one"), /unavailable while recording/);
   assert.throws(() => controller.requestDelete("one"), /unavailable while recording/);
-  await assert.rejects(controller.confirmDelete(), /No Solo episode is awaiting deletion/);
+  await assert.rejects(controller.confirmDelete(), /No Solo capture is awaiting deletion/);
   assert.deepEqual(ports.deletions, []);
 });
 
@@ -230,7 +230,7 @@ test("derives episode operation authority from countdown and episode boundaries"
   assert.throws(() => controller.toggleEpisodeSelection("one"), /countdown/);
   await assert.rejects(controller.start("opfs"), /countdown/);
   await assert.rejects(controller.retry(), /countdown/);
-  await assert.rejects(controller.confirmDelete(), /No Solo episode is awaiting deletion/);
+  await assert.rejects(controller.confirmDelete(), /No Solo capture is awaiting deletion/);
   assert.deepEqual(ports.starts, []);
   assert.deepEqual(ports.retries, []);
   assert.deepEqual(ports.deletions, []);
@@ -243,7 +243,7 @@ test("derives episode operation authority from countdown and episode boundaries"
   });
   controller.updateSession(current);
   assert.equal(controller.snapshot.selectionAvailable, false);
-  await assert.rejects(controller.start("opfs"), /episode boundary/);
+  await assert.rejects(controller.start("opfs"), /capture boundary/);
 
   const pending = snapshot("idle", [episode("one")]);
   pending.pendingEpisode = episode("pending", {
@@ -253,7 +253,7 @@ test("derives episode operation authority from countdown and episode boundaries"
   });
   controller.updateSession(pending);
   assert.equal(controller.snapshot.selectionAvailable, false);
-  assert.throws(() => controller.requestDelete("one"), /episode boundary/);
+  assert.throws(() => controller.requestDelete("one"), /capture boundary/);
 
   controller.updateSession(snapshot("stopping", [episode("one")]));
   assert.equal(controller.snapshot.selectionAvailable, false);
@@ -308,7 +308,7 @@ test("derives headset-local account presentation and repository settings", () =>
   controller.updateHeadsetHuggingFaceAccount("headset-researcher");
   assert.deepEqual(controller.snapshot.account, {
     state: "connected",
-    label: "Hugging Face connected / headset-researcher",
+    label: "Hugging Face connected/headset-researcher",
     action: "manage",
     actionLabel: "Reauthorise",
     username: "headset-researcher",
@@ -528,7 +528,7 @@ test("rejects starts without an idle exportable selection or while a job is acti
   await assert.rejects(controller.start("opfs"), /Solo session is not available/);
 
   controller.updateSession(snapshot("idle", [episode("empty", { frameCount: 0 })]));
-  await assert.rejects(controller.start("opfs"), /No exportable Solo episodes/);
+  await assert.rejects(controller.start("opfs"), /No exportable Solo captures/);
 
   controller.updateSession(snapshot("recording", [episode("one")]));
   await assert.rejects(controller.start("opfs"), /unavailable while recording/);

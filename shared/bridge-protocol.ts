@@ -1,4 +1,5 @@
 import { XR_HAND_JOINTS } from "./xr-hand-joints.js";
+import { validDepthFeature, validDepthStatus, type DepthFeature, type DepthStatus } from "./bridge-depth.js";
 
 export { XR_HAND_JOINTS };
 export const BRIDGE_VERSION = 1;
@@ -131,11 +132,13 @@ export interface BridgeDescription {
   units: "metres";
   quaternion: "xyzw";
   joints: readonly string[];
-  camera: BridgeCameraDescription;
+  camera?: BridgeCameraDescription;
   cameras?: (BridgeCameraDescription & { mid: string })[];
+  environment_depth?: DepthFeature;
 }
 
 export type BridgeMetadata = BridgeDescription
+  | DepthStatus
   | { type: "ack"; version: 1; epoch: number }
   | { type: "ping"; version: 1; epoch: number; id: number; t0: number }
   | { type: "pong"; version: 1; epoch: number; id: number; t0: number; t1: number; t2: number };
@@ -154,6 +157,10 @@ export function parseMetadata(text: string): BridgeMetadata {
   const value = JSON.parse(text);
   if (!value || value.version !== 1 || !uint32(value.epoch)) throw new Error("Incompatible Bridge metadata");
   if (value.type === "ack") return value;
+  if (value.type === "depth-status") {
+    if (!validDepthStatus(value)) throw new Error("Invalid Bridge depth status");
+    return value;
+  }
   if (value.type === "ping" || value.type === "pong") {
     if (!uint32(value.id) || !microseconds(value.t0)
       || (value.type === "pong" && (!microseconds(value.t1) || !microseconds(value.t2) || value.t2 < value.t1))) {
@@ -168,10 +175,13 @@ export function parseMetadata(text: string): BridgeMetadata {
     || typeof value.clock.id !== "string" || value.clock.id.length > 128
     || !Array.isArray(value.joints) || value.joints.length !== 25
     || !XR_HAND_JOINTS.every((name, index) => value.joints[index] === name)
-    || !validCamera(value.camera)) throw new Error("Invalid Bridge stream description");
+    || (value.environment_depth !== undefined && !validDepthFeature(value.environment_depth))
+    || (value.camera === undefined ? !validDepthFeature(value.environment_depth) : !validCamera(value.camera))) {
+    throw new Error("Invalid Bridge stream description");
+  }
   if (value.cameras !== undefined) {
     const cameras: unknown[] = value.cameras;
-    if (!Array.isArray(cameras) || cameras.length < 1 || cameras.length > 2
+    if (!value.camera || !Array.isArray(cameras) || cameras.length < 1 || cameras.length > 2
       || !cameras.every(camera => validCamera(camera) && "mid" in camera
         && typeof camera.mid === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(camera.mid))) {
       throw new Error("Invalid Bridge camera tracks");

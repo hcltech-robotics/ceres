@@ -46,7 +46,9 @@ import { canvasFont } from "./typography.js";
 import { CaptureRecorder, type DurableRecorderStatus } from "./recorder/capture-recorder.js";
 import type { BridgeSender } from "./bridge/sender.js";
 import type { BridgeCamera } from "./bridge/camera.js";
-import { BRIDGE_BOTH_CAMERAS, bridgeStereoCameraChoices, bridgeSelectedCameraChoices, openBridgeCameraSelection } from "./bridge-camera-selection.js";
+import { DirectedCaptureDepth } from "./directed-capture-depth.js";
+import { DEPTH_CHANNEL } from "../shared/bridge-depth.js";
+import { bridgeSelectedCameraChoice, openBridgeCamera } from "./bridge-camera-selection.js";
 import { installCaptureSetup, renderCaptureSetup } from "./capture-setup.js";
 import { drawXrBridgeAttitude, drawXrBridgeReticle } from "./xr-task-hud.js";
 import { fragmentPeerRecorderBlock } from "./recorder/peer-recorder-framing.js";
@@ -58,8 +60,9 @@ import { iwerRuntimeDetected, syntheticSensorSourceRequested } from "./sensor-so
 import { alignManagedSimulatorHandState } from "./simulator-hand-visual-alignment.js";
 import { XrHandVisualisation } from "./xr-hand-visualisation.js";
 import {
+  CERES_BRIDGE_XR_SESSION_OPTIONS,
+  CERES_DIRECTED_XR_SESSION_OPTIONS,
   CERES_SOLO_XR_SESSION_OPTIONS,
-  CERES_XR_SESSION_OPTIONS,
   captureIgnoresControllers,
   configureCaptureControllerInputPolicy,
   configureCaptureHandRayVisuals,
@@ -424,7 +427,7 @@ export function recorderFinalisationProgress(
   if (start === null || target === null) {
     return {
       stage: "closing-media",
-      label: queued > 0 ? `CLOSING MEDIA / ${queued} QUEUED` : "CLOSING MEDIA",
+      label: queued > 0 ? `CLOSING MEDIA/${queued} QUEUED` : "CLOSING MEDIA",
       value: null,
       completed: 0,
       total: queued,
@@ -436,7 +439,7 @@ export function recorderFinalisationProgress(
   if (acknowledgement >= target) {
     return {
       stage: "validating",
-      label: "VALIDATING EPISODE",
+      label: "VALIDATING CAPTURE",
       value: 1,
       completed: total,
       total,
@@ -683,7 +686,7 @@ export class CaptureApp {
   private selectedCamera: CameraChoice | null = null;
   private cameraRegistration: CameraRegistration | null = null;
   private cameraStream: MediaStream | null = null;
-  private bridgeCameras: BridgeCamera[] = [];
+  private bridgeCamera: BridgeCamera | null = null;
   private bridgeCameraAcquisition: AbortController | null = null;
   private cameraCaptureComposer: CameraCaptureComposer | null = null;
   private cameraSelectionGeneration = 0;
@@ -734,6 +737,7 @@ export class CaptureApp {
   private readonly signalledLocalDescriptions = new Set<string>();
   private readonly peerTelemetryChannels = new Map<string, RTCDataChannel>();
   private readonly peerControlChannels = new Map<string, RTCDataChannel>();
+  private readonly directedDepth = new DirectedCaptureDepth();
   private readonly taskPresentationByChannel = new WeakMap<RTCDataChannel, string>();
   private readonly pendingTaskPresentationByChannel = new Map<RTCDataChannel, {
     acknowledgement: DirectTaskPresentationAcknowledgement;
@@ -967,7 +971,7 @@ export class CaptureApp {
               <div class="capture-video-empty"><span id="camera-field-status" hidden></span><button id="prepare-camera" class="camera-enable-button" type="button">Enable camera</button></div>
             </div>
             <div class="camera-settings">
-              <label for="camera-select">${this.bridge ? "Cameras to stream" : "Current camera"}</label>
+              <label for="camera-select">${this.bridge ? "Camera to stream" : "Current camera"}</label>
               <select id="camera-select" disabled><option>No camera available</option></select>
             </div>
             ${this.bridge ? '<p id="bridge-camera-preview-detail" class="capture-status" role="status" hidden></p>' : ""}
@@ -995,7 +999,7 @@ export class CaptureApp {
             <header class="join-heading">
               <span class="eyebrow">CERES XR</span>
               <h1 id="join-title">${this.bridge ? "Bridge" : "Demonstrator capture"}</h1>
-              <p>${this.bridge ? "Enable the camera and pair your receiver before entering XR." : soloMode
+              <p>${this.bridge ? "Pair your receiver before entering XR. Camera video is optional." : soloMode
                 ? "Enable the camera and configure the run before entering XR. Hugging Face is optional until upload."
                 : "Enter the capture director's join code, scan their QR code or open their invitation link."}</p>
             </header>
@@ -1084,7 +1088,8 @@ export class CaptureApp {
     if (soloMode) {
       this.wireAuthority(root, this.authority);
       void Promise.resolve(this.authority.connect()).catch((error) => {
-        if (!this.disposed) {          this.reportError(root, directRecorderError(error, "Solo capture could not start"));
+        if (!this.disposed) {
+          this.reportError(root, directRecorderError(error, "Solo capture could not start"));
         }
       });
     } else if (this.sessionKey) {
@@ -1184,7 +1189,7 @@ export class CaptureApp {
     this.audioRecorder = null;
     this.recordingRecorder?.dispose();
     this.cameraSelectionGeneration += 1;
-    this.releaseBridgeCameras(root);
+    this.releaseBridgeCamera(root);
     this.cameraCaptureComposer?.dispose();
     this.cameraCaptureComposer = null;
     if (root) {
@@ -1453,7 +1458,8 @@ export class CaptureApp {
       ...snapshot,
       configuration: this.configuration,
       handDisplay: this.handDisplaySettings,
-    };    this.reconcileXrExitPause(this.snapshot);
+    };
+    this.reconcileXrExitPause(this.snapshot);
     this.syncCaptureControllerInputPolicy();
     this.reconcileLocalVoiceCommands();
   }
@@ -1462,7 +1468,7 @@ export class CaptureApp {
     if (this.disposed || this.captureAuthorityRevoked) return;
     if (this.bridge && (this.xrSession || this.captureStatus.xr === "requesting")) return;
     let generation = ++this.cameraSelectionGeneration;
-    this.releaseBridgeCameras(root);
+    this.releaseBridgeCamera(root);
     this.requestCaptureIntent();
     delete root.dataset.cameraCaptureFrame;
     delete root.dataset.cameraCaptureOutput;
@@ -1495,9 +1501,7 @@ export class CaptureApp {
       select.innerHTML = this.cameraChoices.map((camera) => {
         const side = camera.side === "unknown" ? "" : `/${camera.side}`;
         return `<option value="${escapeHtml(camera.deviceId)}">${escapeHtml(camera.label + side)}</option>`;
-      }).join("") + (this.bridge && bridgeStereoCameraChoices(this.cameraChoices).length === 2
-        ? `<option value="${BRIDGE_BOTH_CAMERAS}">Both cameras</option>`
-        : "");
+      }).join("");
       select.onchange = () => {
         void this.selectCamera(root, select.value).catch((error) => {
           this.reportError(
@@ -1762,7 +1766,8 @@ export class CaptureApp {
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = navigator.language || "en-GB";
     utterance.onerror = () => {
-      const error = new Error("Text to speech could not play this beam");      this.reportError(root, error.message);
+      const error = new Error("Text to speech could not play this beam");
+      this.reportError(root, error.message);
     };
     window.speechSynthesis.cancel();
     window.speechSynthesis.resume();
@@ -1799,7 +1804,8 @@ export class CaptureApp {
       this.setStatus(root, "Prompt audio ready");
     } catch (error) {
       this.promptAudioReady = false;
-      const detail = error instanceof Error ? error.message : "Prompt audio setup failed";      this.authority.publishPromptAudioStatus({ state: "error", detail });
+      const detail = error instanceof Error ? error.message : "Prompt audio setup failed";
+      this.authority.publishPromptAudioStatus({ state: "error", detail });
       this.reportError(root, detail);
     } finally {
       button.disabled = this.captureAuthorityRevoked;
@@ -1861,7 +1867,8 @@ export class CaptureApp {
       this.authority.acknowledgePrompt(delivery.id, "completed");
       this.setStatus(root, `Prompt played: ${delivery.transition}`);
     } catch (error) {
-      const detail = error instanceof Error ? error.message : "Prompt playback failed";      this.authority.acknowledgePrompt(delivery.id, "failed", detail);
+      const detail = error instanceof Error ? error.message : "Prompt playback failed";
+      this.authority.acknowledgePrompt(delivery.id, "failed", detail);
       this.reportError(root, detail);
     }
   }
@@ -2068,11 +2075,13 @@ export class CaptureApp {
 
   private beginPairingJourney(key: string) {
     if (this.pairingJourneyKey === key) return;
-    this.pairingJourneyKey = key;  }
+    this.pairingJourneyKey = key;
+  }
 
   private finishPairingJourney(outcome: "succeeded" | "failed") {
     if (!this.pairingJourneyKey) return;
-    this.pairingJourneyKey = null;  }
+    this.pairingJourneyKey = null;
+  }
 
   private joinSession(root: HTMLElement, rawKey: string, options: { syncLocation?: boolean; force?: boolean } = {}) {
     if (this.disposed || this.captureAuthorityRevoked || !this.authority.supportsPairing) return;
@@ -2317,7 +2326,7 @@ export class CaptureApp {
         ? `Sequence complete - ${this.configuration.totalCycles} cycle${this.configuration.totalCycles === 1 ? "" : "s"}`
       : task.type === "pause"
         ? `Cycle ${snapshot.run.cycle}/${this.configuration.totalCycles} - pause ${taskIndex + 1}/${this.configuration.tasks.length}`
-        : `Cycle ${snapshot.run.cycle}/${this.configuration.totalCycles} - task ${taskIndex + 1}/${this.configuration.tasks.length} - rep ${snapshot.run.repetition}/${repetitions} - take ${snapshot.run.take}`;
+        : `Cycle ${snapshot.run.cycle}/${this.configuration.totalCycles} - task ${taskIndex + 1}/${this.configuration.tasks.length} - rep ${snapshot.run.repetition}/${repetitions} - attempt ${snapshot.run.take}`;
     root.querySelector("#task-setup-title")!.textContent = isPlaceholder
       ? this.authority.kind === "solo" ? "Preparing local task workspace" : "Waiting for the capture director"
       : task.label;
@@ -2410,32 +2419,32 @@ export class CaptureApp {
     };
   }
 
-  private bridgeCamerasReady() {
-    return this.bridgeCameras.length > 0
-      && this.bridgeCameras.every((camera) => camera.track.readyState === "live"
+  private bridgeCameraReady() {
+    const camera = this.bridgeCamera;
+    return Boolean(camera && camera.track.readyState === "live"
         && Number.isFinite(camera.width) && camera.width > 0
         && Number.isFinite(camera.height) && camera.height > 0);
   }
 
-  private releaseBridgeCameras(root: HTMLElement | null) {
+  private releaseBridgeCamera(root: HTMLElement | null) {
     if (!this.bridge) return;
     this.bridgeCameraAcquisition?.abort();
     this.bridgeCameraAcquisition = null;
-    const cameras = this.bridgeCameras;
-    this.bridgeCameras = [];
-    this.bridge.setCameras([]);
-    for (const camera of cameras) stopStream(camera.stream);
-    if (cameras.some((camera) => camera.stream === this.cameraStream)) this.cameraStream = null;
+    const camera = this.bridgeCamera;
+    this.bridgeCamera = null;
+    this.bridge.setCamera(null);
+    if (camera) stopStream(camera.stream);
+    if (camera?.stream === this.cameraStream) this.cameraStream = null;
     const preview = root?.querySelector<HTMLVideoElement>("#camera-preview");
-    if (preview && cameras.some((camera) => camera.stream === preview.srcObject)) preview.srcObject = null;
+    if (preview && camera?.stream === preview.srcObject) preview.srcObject = null;
     const detail = root?.querySelector<HTMLElement>("#bridge-camera-preview-detail");
     if (detail) detail.hidden = true;
     if (root) root.dataset.bridgeCameraCount = "0";
   }
 
-  private async selectBridgeCameras(root: HTMLElement, selection: string) {
+  private async selectBridgeCamera(root: HTMLElement, selection: string) {
     const generation = ++this.cameraSelectionGeneration;
-    this.releaseBridgeCameras(root);
+    this.releaseBridgeCamera(root);
     const acquisition = new AbortController();
     this.bridgeCameraAcquisition = acquisition;
     const current = () => !this.disposed && !this.captureAuthorityRevoked
@@ -2455,48 +2464,45 @@ export class CaptureApp {
       selectedCameraSide: "unknown",
       lastError: null,
     });
-    this.setStatus(root, selection === BRIDGE_BOTH_CAMERAS ? "Opening both cameras" : "Opening camera");
+    this.setStatus(root, "Opening camera");
     const preview = root.querySelector<HTMLVideoElement>("#camera-preview")!;
     try {
-      const choices = bridgeSelectedCameraChoices(this.cameraChoices, selection);
-      const acquired = await openBridgeCameraSelection(choices, acquisition.signal);
+      const choice = bridgeSelectedCameraChoice(this.cameraChoices, selection);
+      const select = root.querySelector<HTMLSelectElement>("#camera-select");
+      if (select) select.value = choice.deviceId;
+      const acquired = await openBridgeCamera(choice, acquisition.signal);
       if (!acquired || !current()) {
-        acquired?.forEach((camera) => stopStream(camera.stream));
+        if (acquired) stopStream(acquired.stream);
         return;
       }
-      this.bridgeCameras = acquired.map(({ choice, stream, track }) => ({
-        stream,
-        track,
-        side: choice.side,
-        width: track.getSettings().width ?? 0,
-        height: track.getSettings().height ?? 0,
-      }));
-      const primary = this.bridgeCameras[0];
-      this.cameraStream = primary.stream;
-      this.selectedCamera = acquired[0].choice;
-      preview.srcObject = primary.stream;
+      const camera = this.bridgeCamera = {
+        stream: acquired.stream,
+        track: acquired.track,
+        side: acquired.choice.side,
+        width: acquired.track.getSettings().width ?? 0,
+        height: acquired.track.getSettings().height ?? 0,
+      };
+      this.cameraStream = camera.stream;
+      this.selectedCamera = acquired.choice;
+      preview.srcObject = camera.stream;
       await preview.play();
       if (!current()) return;
-      primary.width ||= preview.videoWidth;
-      primary.height ||= preview.videoHeight;
-      if (!this.bridgeCamerasReady()) throw new Error("Every selected camera must provide live video and camera geometry");
-      for (const camera of this.bridgeCameras) {
-        camera.track.contentHint = "motion";
-        camera.track.addEventListener("ended", () => {
-          if (!current() || !this.bridgeCameras.includes(camera)) return;
-          this.releaseBridgeCameras(root);
-          this.selectedCamera = null;
-          const message = `The ${camera.side === "unknown" ? "selected" : camera.side} camera stopped. Enable the camera to reconnect.`;
-          this.updateCaptureStatus(root, { camera: "error", lastError: message });
-          this.reportError(root, message);
-        }, { once: true });
-      }
-      this.bridge!.setCameras(this.bridgeCameras);
-      root.dataset.bridgeCameraCount = String(this.bridgeCameras.length);
+      camera.width ||= preview.videoWidth;
+      camera.height ||= preview.videoHeight;
+      if (!this.bridgeCameraReady()) throw new Error("The selected camera must provide live video and camera geometry");
+      camera.track.contentHint = "motion";
+      camera.track.addEventListener("ended", () => {
+        if (!current() || this.bridgeCamera !== camera) return;
+        this.releaseBridgeCamera(root);
+        this.selectedCamera = null;
+        const message = `The ${camera.side === "unknown" ? "selected" : camera.side} camera stopped. Enable the camera to reconnect.`;
+        this.updateCaptureStatus(root, { camera: "error", lastError: message });
+        this.reportError(root, message);
+      }, { once: true });
+      this.bridge!.setCamera(camera);
+      root.dataset.bridgeCameraCount = "1";
       const detail = root.querySelector<HTMLElement>("#bridge-camera-preview-detail")!;
-      detail.textContent = this.bridgeCameras.length === 2
-        ? "Both cameras selected. Preview shows the right camera."
-        : primary.side === "unknown" ? "One camera selected." : `${primary.side === "right" ? "Right" : "Left"} camera selected.`;
+      detail.textContent = camera.side === "unknown" ? "One camera selected." : `${camera.side === "right" ? "Right" : "Left"} camera selected.`;
       detail.hidden = false;
       root.querySelector(".capture-video-empty")!.classList.add("is-hidden");
       root.querySelector(".capture-video-empty")!.classList.remove("has-error");
@@ -2504,24 +2510,25 @@ export class CaptureApp {
       this.updateCaptureStatus(root, {
         camera: "ready",
         selectedCameraDeviceId: this.selectedCamera.deviceId,
-        selectedCameraLabel: this.bridgeCameras.length === 2 ? "Both cameras" : this.selectedCamera.label,
-        selectedCameraWidth: primary.width,
-        selectedCameraHeight: primary.height,
+        selectedCameraLabel: this.selectedCamera.label,
+        selectedCameraWidth: camera.width,
+        selectedCameraHeight: camera.height,
         selectedCameraFrame: null,
-        selectedCameraFrameRate: primary.track.getSettings().frameRate ?? null,
-        selectedCameraSide: primary.side,
+        selectedCameraFrameRate: camera.track.getSettings().frameRate ?? null,
+        selectedCameraSide: camera.side,
         lastError: null,
       });
-      this.setStatus(root, this.bridgeCameras.length === 2 ? "Both cameras ready" : "Camera ready");
+      this.setStatus(root, "Camera ready");
       void this.composeCaptureStream();
     } catch (error) {
       if (!current()) return;
-      this.releaseBridgeCameras(root);
+      this.releaseBridgeCamera(root);
       this.selectedCamera = null;
       this.updateCaptureStatus(root, {
         camera: "error",
-        lastError: error instanceof Error ? error.message : "The selected cameras could not be opened",
-      });      throw error;
+        lastError: error instanceof Error ? error.message : "The selected camera could not be opened",
+      });
+      throw error;
     } finally {
       if (!this.disposed && generation === this.cameraSelectionGeneration) this.renderCaptureDiagnostics(root);
     }
@@ -2531,7 +2538,7 @@ export class CaptureApp {
     if (this.disposed || this.captureAuthorityRevoked) return;
     if (this.bridge) {
       if (this.xrSession || this.captureStatus.xr === "requesting") throw new Error("Exit XR before changing the camera");
-      return this.selectBridgeCameras(root, deviceId);
+      return this.selectBridgeCamera(root, deviceId);
     }
     if ((this.mediaRecorder && this.mediaRecorder.state !== "inactive")
       || (this.snapshot?.run.recordingState !== undefined && this.snapshot.run.recordingState !== "idle")
@@ -2677,7 +2684,8 @@ export class CaptureApp {
     root.dataset.xrCameraEdgesPhase = "hidden";
     this.lastXrReticleRenderAt = Number.NEGATIVE_INFINITY;
     this.renderXrReticleOverlay();
-    const message = failure.message || "The composed camera recording track failed";    this.updateCaptureStatus(root, {
+    const message = failure.message || "The composed camera recording track failed";
+    this.updateCaptureStatus(root, {
       camera: "error",
       selectedCameraDeviceId: null,
       selectedCameraLabel: null,
@@ -2744,12 +2752,14 @@ export class CaptureApp {
         await this.acquireMicrophoneStream();
       } catch (error) {
         if (!this.disposed && !this.captureAuthorityRevoked && this.microphoneRequired()) {
-          const detail = error instanceof Error ? error.message : "Microphone access is unavailable";          if (this.localVoiceCommandRecognitionEnabled()) {
+          const detail = error instanceof Error ? error.message : "Microphone access is unavailable";
+          if (this.localVoiceCommandRecognitionEnabled()) {
             this.localVoiceCommandStatus = "error";
             this.reportLocalVoiceCommandFailure(detail);
             this.showLocalVoiceCommandOverlay("error", detail);
             this.renderXrTaskHud();
-          } else {          }
+          } else {
+          }
           if (this.mountedRoot) this.setStatus(this.mountedRoot, detail, true);
         }
       }
@@ -2920,7 +2930,8 @@ export class CaptureApp {
     const message = detail ?? "Local voice commands are unavailable";
     if (message === this.localVoiceCommandErrorDetail) return;
     this.localVoiceCommandErrorDetail = message;
-    const kind = localVoiceCommandFailureKind(message);  }
+    const kind = localVoiceCommandFailureKind(message);
+  }
 
   private showLocalVoiceCommandOverlay(
     status = this.localVoiceCommandStatus,
@@ -3049,8 +3060,8 @@ export class CaptureApp {
   private enterXr(root: HTMLElement): Promise<boolean> {
     if (this.disposed || this.captureAuthorityRevoked) return Promise.resolve(false);
     if (this.xrSession || this.world?.renderer.xr.getSession()) return Promise.resolve(true);
-    if (this.bridge && (!this.bridge.ready || this.captureStatus.camera !== "ready" || !this.bridgeCamerasReady())) {
-      this.setStatus(root, "Pair a receiver and enable the camera before entering XR");
+    if (this.bridge && (!this.bridge.ready || (this.bridgeCamera !== null && !this.bridgeCameraReady()))) {
+      this.setStatus(root, "Pair a receiver and reconnect the selected camera before entering XR");
       return Promise.resolve(false);
     }
     if (this.demonstratorAudioCuesEnabled()) this.demonstratorAudioCuePlayer?.prepare();
@@ -3085,8 +3096,8 @@ export class CaptureApp {
       if (!world) {
         createdWorld = await World.create(root.querySelector<HTMLDivElement>("#xr-stage")!, {
           xr: this.bridge
-            ? { ...CERES_SOLO_XR_SESSION_OPTIONS, referenceSpace: { type: "local-floor", required: true } }
-            : this.authority.kind === "solo" ? CERES_SOLO_XR_SESSION_OPTIONS : CERES_XR_SESSION_OPTIONS,
+            ? CERES_BRIDGE_XR_SESSION_OPTIONS
+            : this.authority.kind === "solo" ? CERES_SOLO_XR_SESSION_OPTIONS : CERES_DIRECTED_XR_SESSION_OPTIONS,
           features: {
             spatialUI: {
               kits: CERES_HORIZON_UI_KIT,
@@ -3139,7 +3150,8 @@ export class CaptureApp {
       }
       if (!this.xrLaunch.isCurrent(launch)) return;
       const message = error instanceof Error ? error.message : "Immersive AR could not be initialised";
-      this.xrLaunch.settle(launch, false);      this.reportError(root, message);
+      this.xrLaunch.settle(launch, false);
+      this.reportError(root, message);
     }
   }
 
@@ -3796,7 +3808,7 @@ export class CaptureApp {
       ?? hud?.timing
       ?? (timing?.leftMs !== null && timing?.leftMs !== undefined
         ? `Left ${formatDuration(timing.leftMs)}`
-        : `Take ${formatDuration(timing?.takeMs ?? 0)}`);
+        : `Rep ${formatDuration(timing?.takeMs ?? 0)}`);
 
     return {
       identity: snapshot?.operatingMode === "solo" ? "Solo capture" : "Demonstrator",
@@ -4100,7 +4112,7 @@ export class CaptureApp {
     context.fillText(`${runLabel}  ${metrics}`, 48, buttonTop - 22);
     context.textAlign = "right";
     context.fillStyle = XR_HUD_COLOURS.textSoft;
-    context.fillText(`LEFT ${remaining}  SESS ${formatDuration(timing?.sessionMs ?? 0)}  TAKE ${formatDuration(takeElapsed)}`, width - 48, buttonTop - 22);
+    context.fillText(`LEFT ${remaining}  SESS ${formatDuration(timing?.sessionMs ?? 0)}  REP ${formatDuration(takeElapsed)}`, width - 48, buttonTop - 22);
 
     const gap = TASK_HUD_CONTROL_GAP_PX;
     const controlsLeft = TASK_HUD_CONTROL_INSET_PX;
@@ -4622,7 +4634,7 @@ export class CaptureApp {
     const cameraWidth = this.captureStatus.selectedCameraWidth;
     const cameraHeight = this.captureStatus.selectedCameraHeight;
     const cameraFrameReady = (this.bridge
-      ? this.bridgeCamerasReady()
+      ? this.bridgeCameraReady()
       : this.liveComposedVideoTrack() !== null)
       && typeof cameraWidth === "number"
       && Number.isFinite(cameraWidth)
@@ -4826,6 +4838,7 @@ export class CaptureApp {
       if (!this.xrSession || !this.xrReferenceSpace) {
         return;
       }
+      if (!this.bridge && this.authority.kind !== "solo") this.directedDepth.startSession(this.xrSession, world.renderer);
       this.bindSoloHandRecognition(root);
       this.stopSensorLoop();
       if (!this.bridge && usesSyntheticSensorSource() && usesHeadlessTestRendering()) world.renderer.setAnimationLoop(null);
@@ -4852,10 +4865,12 @@ export class CaptureApp {
       this.captureAuthorityGranted = false;
       this.captureXrAuthorityRequested = false;
       this.markCaptureXrActive();
-      if (!this.bridge) this.setStatus(root, "XR opened. Securing capture authority before data collection starts.");    };
+      if (!this.bridge) this.setStatus(root, "XR opened. Securing capture authority before data collection starts.");
+    };
     const sessionEndHandler = () => {
       if (this.disposed) return;
       this.bridge?.stop();
+      this.directedDepth?.stopSession();
       this.pauseActiveCaptureForXrExit(root);
       this.stopSensorLoop();
       this.stopXrStartupIntroClock();
@@ -4894,7 +4909,8 @@ export class CaptureApp {
         rightHandTracked: false,
         sensorRateHz: 0,
       });
-      this.setStatus(root, "XR session ended");    };
+      this.setStatus(root, "XR session ended");
+    };
     this.xrEventSource = xr;
     this.xrSessionStartHandler = sessionStartHandler;
     this.xrSessionEndHandler = sessionEndHandler;
@@ -4903,6 +4919,7 @@ export class CaptureApp {
   }
 
   private unbindXrEvents() {
+    this.directedDepth?.stopSession();
     if (this.xrEventSource && this.xrSessionStartHandler) this.xrEventSource.removeEventListener("sessionstart", this.xrSessionStartHandler);
     if (this.xrEventSource && this.xrSessionEndHandler) this.xrEventSource.removeEventListener("sessionend", this.xrSessionEndHandler);
     this.unbindXrSessionVisibility();
@@ -5144,6 +5161,8 @@ export class CaptureApp {
           sourceTimestampUs,
           this.selectedCamera?.side ?? "unknown",
         );
+        this.bridge?.publishDepth(xrFrame, xrReferenceSpace, displayTime);
+        if (!this.bridge) this.directedDepth.publish(xrFrame, xrReferenceSpace, displayTime);
         this.xrSoloPostAcquisitionHud?.advanceXrFrame(_time);
         this.captureStatus.xrFrameCount = (this.captureStatus.xrFrameCount ?? 0) + 1;
         const hands = this.readXrHands(xrFrame, xrReferenceSpace);
@@ -5361,7 +5380,7 @@ export class CaptureApp {
 
   private claimInitialRecorderRunEvent(episodeId: string, episode: Episode | undefined) {
     if (!episode || episode.id !== episodeId) {
-      throw new Error("The recorder arming command does not identify the authoritative episode");
+      throw new Error("The recorder arming command does not identify the authoritative capture");
     }
     const segment = episode.segments?.[0];
     if (!segment) throw new Error("The recorder arming command has no initial task segment");
@@ -5440,7 +5459,8 @@ export class CaptureApp {
     if (workflowEpisode && this.activeRecorderEpisode?.id === workflowEpisode.id) {
       this.activeRecorderDurableAckBaseline = this.captureStatus.recorderDurableAckSequence;
     }
-    if (episodeId && recorderArmed && initialRunEvent) {    }
+    if (episodeId && recorderArmed && initialRunEvent) {
+    }
     const recorderStarted = episodeId && recorderArmed && initialRunEvent
       ? await this.recorder.startEpisode(episodeId, initialRunEvent.event)
       : false;
@@ -5475,7 +5495,8 @@ export class CaptureApp {
       if (kind === "video") this.mediaChunkFailure ??= failure;
       else this.audioChunkFailure ??= failure;
       if (!firstFailure) return;
-      this.failRecorderWorkflow(this.activeRecorderEpisode);      this.reportError(root, failure.message);
+      this.failRecorderWorkflow(this.activeRecorderEpisode);
+      this.reportError(root, failure.message);
       if (kind === "video" || this.configuration.recordAudio) {
         this.sendDemonstratorControl(root, "stop");
       }
@@ -5559,11 +5580,13 @@ export class CaptureApp {
       }
       this.mediaRecorder?.start(2_000);
     } catch (error) {
-      const startFailure = error instanceof Error ? error : new Error("Media recorders could not start");      try {
+      const startFailure = error instanceof Error ? error : new Error("Media recorders could not start");
+      try {
         await this.stopRecorders(root);
       } catch (rollbackError) {
         const rollbackFailure = directRecorderError(rollbackError, "The durable recorder could not roll back the failed media start");
-        const failure = new Error(`${startFailure.message}; recorder rollback failed: ${rollbackFailure}`);        this.failRecorderFinalisation(root, failure);
+        const failure = new Error(`${startFailure.message}; recorder rollback failed: ${rollbackFailure}`);
+        this.failRecorderFinalisation(root, failure);
         if (stopRunOnFailure) this.sendDemonstratorControl(root, "stop");
         throw failure;
       }
@@ -5572,16 +5595,19 @@ export class CaptureApp {
       this.clearRecorderWorkflow(workflowEpisode);
       if (stopRunOnFailure) this.sendDemonstratorControl(root, "stop");
       return false;
-    }    root.querySelector(".join-card")!.classList.add("is-recording");
+    }
+    root.querySelector(".join-card")!.classList.add("is-recording");
     this.setStatus(root, "Recording started");
     return true;
   }
 
   private stopRecorders(root: HTMLElement) {
-    if (this.recordingFinalising) return this.recordingFinalise;    this.recordingFinalising = true;
+    if (this.recordingFinalising) return this.recordingFinalise;
+    this.recordingFinalising = true;
     this.recorderFinalisationStartedAt = performance.now();
     this.recorderFinalisationTelemetrySignatures = new Set();
-    this.recorderFinalisationTerminalReported = false;    this.recordingFinalise = Promise.resolve().then(async () => {
+    this.recorderFinalisationTerminalReported = false;
+    this.recordingFinalise = Promise.resolve().then(async () => {
       try {
         this.recorder.stopEpisode();
       } catch (error) {
@@ -5615,7 +5641,8 @@ export class CaptureApp {
         const failure = combinedRecorderFinalisationFailure(mediaStopFailures);
         this.signalRecorderFinalisationFailure(failure);
         throw failure;
-      }      let mediaTailResults: PromiseSettledResult<void>[];
+      }
+      let mediaTailResults: PromiseSettledResult<void>[];
       try {
         mediaTailResults = await promiseWithinRecorderFinalisationDeadline(
           Promise.allSettled([this.mediaChunkTail, this.audioChunkTail]),
@@ -5640,14 +5667,19 @@ export class CaptureApp {
       if (this.mediaChunkFailure) failures.push(this.mediaChunkFailure);
       if (this.audioChunkFailure) failures.push(this.audioChunkFailure);
 
-      if (failures.length === 0) {      }      try {        await this.recorder.finishEpisode();      } catch (error) {
+      if (failures.length === 0) {
+      }
+      try {
+        await this.recorder.finishEpisode();
+      } catch (error) {
         failures.push(error instanceof Error ? error : new Error("The durable recorder did not finish cleanly"));
       }
       if (failures.length > 0) {
         const failure = combinedRecorderFinalisationFailure(failures);
         this.signalRecorderFinalisationFailure(failure);
         throw failure;
-      }    })
+      }
+    })
       .catch((error) => {
         const stage = error instanceof RecorderFinalisationTimeoutError
           ? error.finalisationStage
@@ -5655,7 +5687,8 @@ export class CaptureApp {
         this.failRecorderWorkflow(
           this.activeRecorderEpisode,
           recorderFinalisationTimedOut(error),
-        );        throw error;
+        );
+        throw error;
       })
       .finally(() => {
         this.mediaRecorder = null;
@@ -5694,7 +5727,8 @@ export class CaptureApp {
       }
       throw error;
     }
-    this.setStatus(root, "Recording paused");  }
+    this.setStatus(root, "Recording paused");
+  }
 
   private resumeRecorders(root: HTMLElement) {
     if (this.mediaRecorder && this.mediaRecorder.state !== "paused") {
@@ -5719,9 +5753,11 @@ export class CaptureApp {
       }
       throw error;
     }
-    this.setStatus(root, "Recording resumed");  }
+    this.setStatus(root, "Recording resumed");
+  }
 
   private closeVideoPeers() {
+    this.directedDepth?.clearPeers();
     for (const peer of this.peers.values()) peer.close();
     this.peers.clear();
     this.peerNegotiationIds.clear();
@@ -5768,7 +5804,7 @@ export class CaptureApp {
     this.audioRecorder = null;
     this.recorder.dispose();
     this.cameraSelectionGeneration += 1;
-    this.releaseBridgeCameras(root);
+    this.releaseBridgeCamera(root);
     this.cameraCaptureComposer?.dispose();
     this.cameraCaptureComposer = null;
     delete root.dataset.cameraCaptureFrame;
@@ -5914,6 +5950,11 @@ export class CaptureApp {
       this.wirePeerTelemetryChannel(peerId, peer, peer.createDataChannel("ceres-telemetry", { ordered: false, maxRetransmits: 0 }));
       this.wirePeerControlChannel(peerId, peer, peer.createDataChannel("ceres-control", capturePeerControlChannelOptions));
       this.wirePeerRecorderChannel(peerId, peer, peer.createDataChannel("ceres-recorder", { ordered: true }));
+      try {
+        this.directedDepth.addPeer(peerId, peer.createDataChannel(DEPTH_CHANNEL, { ordered: false, maxRetransmits: 0 }));
+      } catch {
+        // Optional depth setup cannot interrupt the recorder or control peer.
+      }
     }
     peer.addEventListener("connectionstatechange", () => {
       if (this.disposed) return;
@@ -5957,6 +5998,7 @@ export class CaptureApp {
     this.peerTelemetryChannels.delete(peerId);
     this.peerControlChannels.delete(peerId);
     this.peerRecorderChannels.delete(peerId);
+    this.directedDepth?.removePeer(peerId);
     peer.close();
     return true;
   }
@@ -6036,7 +6078,7 @@ export class CaptureApp {
     if (this.bridge) {
       const root = this.mountedRoot;
       if (!root || !this.xrSession || !this.xrReferenceSpace) return false;
-      this.bridge.start(this.xrSession, this.xrReferenceSpace, "local-floor");
+      this.bridge.start(this.xrSession, this.xrReferenceSpace, "local-floor", this.world?.renderer);
       this.acceptCaptureXrAuthority(root);
       return true;
     }
@@ -6188,6 +6230,7 @@ export class CaptureApp {
     channel.addEventListener("close", () => {
       if (this.peerControlChannels.get(peerId) !== channel) return;
       this.peerControlChannels.delete(peerId);
+      this.directedDepth?.removePeer(peerId);
       this.pendingTaskPresentationByChannel.delete(channel);
       this.pendingBeamPresentationByChannel.delete(channel);
       this.refreshPeerControlAvailability();
@@ -6317,7 +6360,8 @@ export class CaptureApp {
     const taskSignature = xrTaskHudChangeSignature(next);
     const taskChanged = Boolean(taskSignature && taskSignature !== this.lastXrTaskSignature);
     this.lastXrTaskSignature = taskSignature;
-    this.snapshot = next;    this.playDemonstratorAudioCues(this.demonstratorAudioCueScheduler?.observeRunTransition(previous, next) ?? []);
+    this.snapshot = next;
+    this.playDemonstratorAudioCues(this.demonstratorAudioCueScheduler?.observeRunTransition(previous, next) ?? []);
     this.reconcileXrExitPause(next);
     this.syncCaptureControllerInputPolicy();
     this.renderSpeechFeature(root);
@@ -6375,7 +6419,8 @@ export class CaptureApp {
   }
 
   private beginRecorderWorkflow(episode: Episode) {
-    this.adoptRecorderWorkflowEpisode(episode);  }
+    this.adoptRecorderWorkflowEpisode(episode);
+  }
 
   private clearRecorderWorkflow(episode: Episode | null | undefined) {
     if (!episode || this.activeRecorderEpisode?.id !== episode.id) return;
@@ -6391,12 +6436,15 @@ export class CaptureApp {
     if (this.recorderWorkflowTerminalEpisodeId === episode.id) return false;
     this.recorderWorkflowTerminalEpisodeId = episode.id;
     const startedAt = Date.parse(episode.startedAt);
-    const elapsedMs = Number.isFinite(startedAt) ? Math.max(0, Date.now() - startedAt) : null;    return false;
+    const elapsedMs = Number.isFinite(startedAt) ? Math.max(0, Date.now() - startedAt) : null;
+    return false;
   }
 
   private completeRecorderWorkflow(episode?: Episode) {
-    const workflowEpisode = episode ?? this.activeRecorderEpisode;    if (workflowEpisode && this.recorderWorkflowTerminalEpisodeId !== workflowEpisode.id) {
-      this.recorderWorkflowTerminalEpisodeId = workflowEpisode.id;    }
+    const workflowEpisode = episode ?? this.activeRecorderEpisode;
+    if (workflowEpisode && this.recorderWorkflowTerminalEpisodeId !== workflowEpisode.id) {
+      this.recorderWorkflowTerminalEpisodeId = workflowEpisode.id;
+    }
     if (episode) this.clearRecorderWorkflow(episode);
     else {
       this.activeRecorderEpisode = null;
@@ -6477,7 +6525,8 @@ export class CaptureApp {
       if (published
         && result.type === "recording-finalised"
         && !result.error
-        && this.activeRecorderEpisode?.id === result.episodeId) {      }
+        && this.activeRecorderEpisode?.id === result.episodeId) {
+      }
       if (result.type === "recording-rejected") {
         this.clearRecorderWorkflow(episode);
         this.reportError(root, result.error);
@@ -6492,7 +6541,8 @@ export class CaptureApp {
     channel.send(JSON.stringify(result));
     if (result.type === "recording-finalised"
       && !result.error
-      && this.activeRecorderEpisode?.id === result.episodeId) {    }
+      && this.activeRecorderEpisode?.id === result.episodeId) {
+    }
     return true;
   }
 
@@ -6642,16 +6692,19 @@ export class CaptureApp {
       recorderFinaliseTargetSequence: status.finaliseTargetSequence,
       lastError: status.error ?? this.captureStatus.lastError,
     };
-    if (status.state !== previousRecorderState) {    }
+    if (status.state !== previousRecorderState) {
+    }
     const finalisationSignature = recorderFinalisationProgress(
       this.captureStatus,
       finalising,
     )?.signature ?? "";
     const finalisationProgress = recorderFinalisationProgress(this.captureStatus, finalising);
-    if (finalisationProgress) {    }
+    if (finalisationProgress) {
+    }
     if (this.activeRecorderEpisode
       && this.activeRecorderDurableAckBaseline !== null
-      && status.durableAckSequence > this.activeRecorderDurableAckBaseline) {      this.activeRecorderDurableAckBaseline = null;
+      && status.durableAckSequence > this.activeRecorderDurableAckBaseline) {
+      this.activeRecorderDurableAckBaseline = null;
     }
     if (status.state === "failed") {
       this.failRecorderWorkflow(this.activeRecorderEpisode);
@@ -6683,7 +6736,8 @@ export class CaptureApp {
     const detail = error instanceof Error ? error.message : "The recorder did not finish cleanly";
     const message = `Recorder finalisation failed: ${detail}`.slice(0, 512);
     if (!this.recorderFinalisationFailureReported) {
-      this.recorderFinalisationFailureReported = true;    }
+      this.recorderFinalisationFailureReported = true;
+    }
     this.updateCaptureStatus(root, { recorder: "failed", lastError: message });
     this.renderXrTaskHud();
     this.setStatus(root, message, true);
@@ -6693,7 +6747,8 @@ export class CaptureApp {
   private reportSensorCaptureFailure(root: HTMLElement, error: unknown, fallback: string) {
     const message = error instanceof Error ? error.message : fallback;
     if (!this.sensorLoopFailureReported) {
-      this.sensorLoopFailureReported = true;    }
+      this.sensorLoopFailureReported = true;
+    }
     this.reportError(root, message, false);
   }
 
@@ -6719,7 +6774,7 @@ export class CaptureApp {
 
   private renderCaptureDiagnostics(root: HTMLElement) {
     if (this.bridge) {
-      const camerasReady = this.captureStatus.camera === "ready" && this.bridgeCamerasReady();
+      const camerasReady = this.captureStatus.camera === "ready" && this.bridgeCameraReady();
       this.setStatusPill(root, "#join-camera-state", camerasReady ? "OK" : this.captureStatus.camera === "requesting" ? "WAIT" : this.captureStatus.camera === "error" || this.captureStatus.camera === "ready" ? "ERR" : "IDLE");
       this.setStatusPill(root, "#join-key-state", this.bridge.ready ? "OK" : "WAIT");
       this.setStatusPill(root, "#join-session-state", this.bridge.streaming ? "OK" : this.xrSession ? "WAIT" : "IDLE");
@@ -6727,8 +6782,11 @@ export class CaptureApp {
       this.renderCaptureModeSelector(root);
       const active = Boolean(this.xrSession) || this.captureStatus.xr === "requesting";
       const button = root.querySelector<HTMLButtonElement>("#enter-xr")!;
-      button.disabled = active || !this.bridge.ready || !camerasReady;
-      button.title = button.disabled ? "Pair a receiver and enable the camera before entering XR" : "Launch Bridge XR";
+      button.disabled = active || !this.bridge.ready || (this.bridgeCamera !== null && !camerasReady);
+      button.title = active ? "Bridge XR is starting or active"
+        : !this.bridge.ready ? "Pair a receiver before entering XR"
+        : this.bridgeCamera !== null && !camerasReady ? "Reconnect the selected camera before entering XR"
+        : "Launch Bridge XR";
       root.querySelector<HTMLSelectElement>("#camera-select")!.disabled = active || this.captureStatus.camera === "requesting" || !this.cameraChoices.length;
       root.querySelector<HTMLButtonElement>("#prepare-camera")!.disabled = active || this.captureStatus.camera === "requesting" || !cameraAccessCapability().available;
       renderCaptureSetup(root, this.bridge.ready, camerasReady, this.captureStatus.xr === "active");

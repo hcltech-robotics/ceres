@@ -7,7 +7,7 @@ export const softwareCitation = {
     { family: "Unni Krishnan", given: "Achyuthan" },
   ],
   year: 2026,
-  version: "1.1.0",
+  version: "1.1.1",
   licence: "MIT",
   repository: "https://github.com/hcltech-robotics/ceres",
   documentation: "https://ceres.cam/documentation/",

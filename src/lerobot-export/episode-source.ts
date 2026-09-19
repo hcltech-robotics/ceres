@@ -16,6 +16,7 @@ import {
   type SensorFrame,
 } from "../../shared/protocol.js";
 import { RECORDER_JOURNAL_FILE_PATTERN } from "../recorder/recorder-journal.js";
+import { taskExportCheckpoint } from "../monitor-task-export.js";
 
 const maximumSensorLineBytes = 2 * 1024 * 1024;
 const maximumConcurrentRecorderReads = 4;
@@ -32,6 +33,7 @@ export interface MonitorOpfsEpisodeSourceOptions {
   episodes: Episode[];
   recorderRateHz: number;
   storageRoot?: BrowserRecordingStorageRoot;
+  sourceEpisodeIds?: Record<string, string>;
 }
 
 export interface BrowserEpisodeSensorSample {
@@ -94,6 +96,30 @@ export async function fetchEpisodeExportManifest(
   if (!isExportableEpisode(manifest.episode)) throw new Error("Only episodes with at least one durable sensor frame may be exported");
   if (!manifest.blobs.some((blob) => blob.id === "sensors")) throw new Error("Episode export manifest has no sensor rows");
   return manifest;
+}
+
+export async function fetchMonitorEpisodeExportManifest(
+  options: Pick<MonitorOpfsEpisodeSourceOptions, "sessionId" | "episodes" | "sourceEpisodeIds">,
+  episodeId: string,
+  signal: AbortSignal,
+  exportCapability?: string,
+): Promise<EpisodeExportManifest> {
+  const sourceId = options.sourceEpisodeIds?.[episodeId];
+  if (sourceId === undefined) return fetchEpisodeExportManifest(options.sessionId, episodeId, signal, exportCapability);
+  const requested = options.episodes.find((episode) => episode.id === episodeId);
+  if (!requested?.taskId) throw new Error("The requested task capture is unavailable");
+  const manifest = await fetchEpisodeExportManifest(options.sessionId, sourceEpisodeId(options, episodeId), signal, exportCapability);
+  // Project the authoritative completed capture. Its blob URLs, raw frame and
+  // media bounds remain intact while the timeline selects the requested task.
+  const episode = taskExportCheckpoint({ key: episodeId, episode: manifest.episode, taskId: requested.taskId }, manifest.episode);
+  if (!episode) throw new Error("The requested task capture cannot be exported before finalisation");
+  const labels = episodeTaskTexts(episode);
+  const tasks = manifest.tasks.filter((task) => labels.includes(task.text));
+  const task = tasks.find((entry) => entry.text === labels[0]);
+  if (!task || labels.some((label) => !tasks.some((entry) => entry.text === label))) {
+    throw new Error("The requested task is missing from the server export catalogue");
+  }
+  return { ...manifest, episode, task, tasks };
 }
 
 export async function* streamSensorRows(
@@ -162,7 +188,7 @@ export async function loadMonitorOpfsEpisodeExportManifest(
     task,
     tasks,
   } = await loadMonitorOpfsEpisodeBlocks(options, episodeId, signal);
-  const baseUrl = browserOpfsUrl(storageRoot, options.sessionId, episodeId);
+  const baseUrl = browserOpfsUrl(storageRoot, options.sessionId, sourceEpisodeId(options, episodeId));
   const blobs: EpisodeExportManifest["blobs"] = [{
     id: "sensors",
     path: "recorder/*.crb",
@@ -217,7 +243,7 @@ async function loadMonitorOpfsEpisodeBlocks(
   const blocks = await readBrowserEpisodeBlocks(
     storageRoot,
     options.sessionId,
-    episodeId,
+    sourceEpisodeId(options, episodeId),
     signal,
     episodeRecorderSequenceBounds(episode),
   );
@@ -247,7 +273,7 @@ export async function readMonitorOpfsEpisodeVideo(manifest: EpisodeExportManifes
   const blocks = await readBrowserEpisodeBlocks(
     browserOpfsStorageRoot(descriptor.url),
     manifest.sessionId,
-    manifest.episode.id,
+    browserOpfsEpisodeId(descriptor.url),
     signal,
     episodeRecorderSequenceBounds(manifest.episode),
   );
@@ -299,7 +325,7 @@ async function* streamBrowserSensorRows(
   const blocks = await readBrowserEpisodeBlocks(
     browserOpfsStorageRoot(descriptor.url),
     manifest.sessionId,
-    manifest.episode.id,
+    browserOpfsEpisodeId(descriptor.url),
     signal,
     episodeRecorderSequenceBounds(manifest.episode),
   );
@@ -464,6 +490,20 @@ function recorderMetadata(block: RecorderBlock) {
 
 function browserOpfsUrl(storageRoot: BrowserRecordingStorageRoot, sessionId: string, episodeId: string) {
   return `${browserOpfsScheme}//${storageRoot}/${encodeURIComponent(sessionId)}/${encodeURIComponent(episodeId)}`;
+}
+
+function sourceEpisodeId(options: Pick<MonitorOpfsEpisodeSourceOptions, "sourceEpisodeIds">, episodeId: string) {
+  const id = options.sourceEpisodeIds?.[episodeId] ?? episodeId;
+  if (!/^[A-Za-z0-9_-]{8,128}$/.test(id)) throw new Error("Recorder capture identifier is invalid");
+  return id;
+}
+
+function browserOpfsEpisodeId(url: string) {
+  const parsed = new URL(url);
+  const parts = parsed.pathname.split("/").filter(Boolean);
+  const id = decodeURIComponent(parts.at(-2) ?? "");
+  if (!/^[A-Za-z0-9_-]{8,128}$/.test(id)) throw new Error("Recorder capture identifier is invalid");
+  return id;
 }
 
 export function isMonitorOpfsUrl(url: string) {

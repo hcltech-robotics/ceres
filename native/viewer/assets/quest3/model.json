@@ -1,0 +1,405 @@
+{
+  "schema": "ceres-static-model",
+  "version": 1,
+  "name": "Meta Quest 3",
+  "vertex_count": 47622,
+  "index_count": 228780,
+  "triangle_count": 76260,
+  "vertex_file": "vertices.bin",
+  "index_file": "indices.bin",
+  "vertex_stride_bytes": 32,
+  "vertex_attributes": [
+    {
+      "name": "position",
+      "type": "float32",
+      "count": 3,
+      "offset_bytes": 0
+    },
+    {
+      "name": "normal",
+      "type": "float32",
+      "count": 3,
+      "offset_bytes": 12
+    },
+    {
+      "name": "uv",
+      "type": "float32",
+      "count": 2,
+      "offset_bytes": 24
+    }
+  ],
+  "byte_order": "little_endian",
+  "index_type": "uint32",
+  "topology": "triangles",
+  "front_face": "counter_clockwise",
+  "double_sided": true,
+  "units": "metres",
+  "base_colour_factor": [
+    1.0,
+    1.0,
+    1.0,
+    1.0
+  ],
+  "metallic_factor": 1.0,
+  "roughness_factor": 1.0,
+  "normal_scale": 1.0,
+  "occlusion_strength": 1.0,
+  "emissive_factor": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "textures": {
+    "base_colour": {
+      "file": "base-colour.rgba",
+      "bytes": 16777216,
+      "sha256": "c8345ab0f271fad6afe8e7848073842fdd3eee4c758be62b1b5172ecba37a7e2",
+      "width": 2048,
+      "height": 2048,
+      "format": "rgba8",
+      "colour_space": "srgb",
+      "row_order": "bottom_up",
+      "wrap_s": "repeat",
+      "wrap_t": "repeat"
+    },
+    "normal": {
+      "file": "normal.rgba",
+      "bytes": 16777216,
+      "sha256": "1f56531cdd6f5ae87d52a6a945974c46f65b02e24f4cb072913773f7e10b4138",
+      "width": 2048,
+      "height": 2048,
+      "format": "rgba8",
+      "colour_space": "linear",
+      "row_order": "bottom_up",
+      "wrap_s": "repeat",
+      "wrap_t": "repeat"
+    },
+    "orm": {
+      "file": "orm.rgba",
+      "bytes": 16777216,
+      "sha256": "18b57dfda92914f447ac7ff586bb233c7375295f7c7a4dcf1d610d5d9b952fe4",
+      "width": 2048,
+      "height": 2048,
+      "format": "rgba8",
+      "colour_space": "linear",
+      "row_order": "bottom_up",
+      "wrap_s": "repeat",
+      "wrap_t": "repeat"
+    }
+  },
+  "normal_map": {
+    "space": "tangent",
+    "decode_scale": 2.0,
+    "decode_bias": -1.0
+  },
+  "orm_channels": {
+    "r": "occlusion",
+    "g": "roughness",
+    "b": "metallic",
+    "a": "one"
+  },
+  "model_to_head": [
+    -1.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    1.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    -1.0,
+    0.0,
+    0.0,
+    0.038560110406582734,
+    0.07653218697577094,
+    1.0
+  ],
+  "bounds_metres": [
+    [
+      -0.09717714092484543,
+      -0.08470288985860629,
+      -0.13158504417207587
+    ],
+    [
+      0.09706976673596125,
+      0.08580517596596503,
+      0.12807295823156148
+    ]
+  ],
+  "head_bounds_metres": [
+    [
+      -0.09706976673596125,
+      -0.04614277945202355,
+      -0.05154077125579054
+    ],
+    [
+      0.09717714092484543,
+      0.12436528637254776,
+      0.2081172311478468
+    ]
+  ],
+  "alignment": {
+    "method": "lens_surface_midpoint",
+    "calibrated_to_device": false,
+    "source_forward": "+Z",
+    "source_up": "+Y",
+    "head_forward": "-Z",
+    "head_up": "+Y",
+    "rotation": "180 degrees about +Y",
+    "origin_model_metres": [
+      0.0,
+      -0.038560110406582734,
+      0.07653218697577094
+    ],
+    "eye_relief_offset_metres": 0.0,
+    "origin_evidence": "Midpoint of the axis-aligned bounds centres of the two source lens surfaces. The USDZ contains no eye or tracking-origin calibration. No unmeasured eye-relief offset is added.",
+    "orientation_evidence": "CPU orthographic source projection identifies the three front sensor pills on +Z and the arching top strap on +Y.",
+    "webxr_axes_source": "https://www.w3.org/TR/webxr/#xrreferencespace",
+    "lens_surface_vertex_seeds": [
+      18528,
+      18767
+    ],
+    "lens_surface_vertex_counts": [
+      241,
+      241
+    ],
+    "lens_surface_bounds_metres": [
+      [
+        [
+          0.011029624692433517,
+          -0.06516470399222676,
+          0.07305881031288759
+        ],
+        [
+          0.06161777358611431,
+          -0.0119555168209387,
+          0.08000556363865428
+        ]
+      ],
+      [
+        [
+          -0.06161777358611431,
+          -0.06516470399222676,
+          0.07305881031288759
+        ],
+        [
+          -0.011029624692433517,
+          -0.0119555168209387,
+          0.08000556363865428
+        ]
+      ]
+    ],
+    "lens_surface_centres_metres": [
+      [
+        0.03632369913927391,
+        -0.038560110406582734,
+        0.07653218697577094
+      ],
+      [
+        -0.03632369913927391,
+        -0.038560110406582734,
+        0.07653218697577094
+      ]
+    ],
+    "lens_surface_centre_spacing_metres": 0.07264739827854783
+  },
+  "source": {
+    "file": "Meta_Quest_3.usdz",
+    "sha256": "d8a19a3eed3edad501b1199aaa2a8b55e9aebf0952201324becc93565937deb3",
+    "bytes": 4954732,
+    "mesh": "/scene/Meshes/Sketchfab_model/root/GLTF_SceneRootNode/Quest3HMD_0/Object_4/Object_0",
+    "material": "/scene/Materials/Quest3HMD",
+    "stage_metres_per_unit": 0.01,
+    "stage_up_axis": "Y",
+    "mesh_to_stage_row_major": [
+      [
+        1.9758568560513057,
+        0.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        -6.66209109689416e-07,
+        1.9758568560513057,
+        0.0
+      ],
+      [
+        0.0,
+        -1.9758568560513057,
+        -6.66209109689416e-07,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    ],
+    "original_bounds_metres": [
+      [
+        -0.19200812443953577,
+        -0.16736078939529098,
+        -0.25999321749251125
+      ],
+      [
+        0.19179596840752397,
+        0.16953874900652705,
+        0.2530538382527973
+      ]
+    ],
+    "scene_scale_prim": "/scene/Meshes/Sketchfab_model",
+    "original_scene_scale": 1.975856900215149,
+    "baked_scale_correction": 0.5061095263989569,
+    "scale_basis": "Remove the uniform outer Sketchfab scene scale while retaining source model proportions. This changes the main shell height from 193.37 mm to 97.86 mm and lens-surface centre spacing from 143.54 mm to 72.65 mm. The artist model does not encode a physical scale calibration. Meta specifies mechanical lens spacing of 58-70 mm.",
+    "physical_lens_spacing_reference_metres": [
+      0.058,
+      0.07
+    ],
+    "physical_lens_spacing_source": "https://www.meta.com/quest/quest-3/#specs",
+    "main_shell_vertex_seed": 29852,
+    "main_shell_vertex_count": 2541,
+    "main_shell_bounds_metres": [
+      [
+        -0.08353290371150734,
+        -0.08240462093941978,
+        0.02703350792625409
+      ],
+      [
+        0.08353290371150734,
+        0.015459405633976601,
+        0.11063933305145533
+      ]
+    ],
+    "layer_metadata": {
+      "author": "Elin (https://sketchfab.com/ElinHohler)",
+      "copyright": "CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)",
+      "generator": "Sketchfab-15.65.0",
+      "title": "Meta Quest 3",
+      "url": "https://sketchfab.com/3d-models/meta-quest-3-65a813833dc04eeeb7d33bdca58c184c"
+    },
+    "texture_sources": {
+      "base_colour": {
+        "archive_entry": "0/Quest3HMD_baseColor.jpg",
+        "shader": "/scene/Materials/Quest3HMD/tex_base",
+        "encoded_sha256": "9df5fb4401779d67b88496a253726de2cca39f8542491a9cec2626cea433e9f2",
+        "encoded_bytes": 213459,
+        "encoded_format": "JPEG",
+        "encoded_mode": "RGB",
+        "width": 2048,
+        "height": 2048,
+        "source_colour_space": "auto",
+        "source_channel": "rgb",
+        "wrap_s": "repeat",
+        "wrap_t": "repeat"
+      },
+      "normal": {
+        "archive_entry": "0/Quest3HMD_normal.jpg",
+        "shader": "/scene/Materials/Quest3HMD/tex_normal",
+        "encoded_sha256": "55cab89bd5388d47e1092c66c3208aa7c642837acef662f00a4cf606d8a86588",
+        "encoded_bytes": 1962441,
+        "encoded_format": "JPEG",
+        "encoded_mode": "RGB",
+        "width": 2048,
+        "height": 2048,
+        "source_colour_space": "raw",
+        "source_channel": "rgb",
+        "wrap_s": "repeat",
+        "wrap_t": "repeat"
+      },
+      "occlusion": {
+        "archive_entry": "0/Quest3HMD_metallicRoughness_occl.jpg",
+        "shader": "/scene/Materials/Quest3HMD/tex_occlusion",
+        "encoded_sha256": "86607ebd1e50497bf717550d5af0359fdedf4709b89f4bbc9db6d8a17acc464b",
+        "encoded_bytes": 268906,
+        "encoded_format": "JPEG",
+        "encoded_mode": "L",
+        "width": 2048,
+        "height": 2048,
+        "source_colour_space": "auto",
+        "source_channel": "r",
+        "wrap_s": "repeat",
+        "wrap_t": "repeat"
+      },
+      "roughness": {
+        "archive_entry": "0/Quest3HMD_metallicRoughness_rough.jpg",
+        "shader": "/scene/Materials/Quest3HMD/tex_roughness",
+        "encoded_sha256": "f05fdfc35c869059af11ca1f41e4560edad57bcbca186292d7506763d614dde8",
+        "encoded_bytes": 670425,
+        "encoded_format": "JPEG",
+        "encoded_mode": "L",
+        "width": 2048,
+        "height": 2048,
+        "source_colour_space": "auto",
+        "source_channel": "r",
+        "wrap_s": "repeat",
+        "wrap_t": "repeat"
+      },
+      "metallic": {
+        "archive_entry": "0/Quest3HMD_metallicRoughness_metal.jpg",
+        "shader": "/scene/Materials/Quest3HMD/tex_metallic",
+        "encoded_sha256": "eeadb5342f377772d64fc48d632fa65bcbee3394b353b6bada62ce1a8ea89a4a",
+        "encoded_bytes": 68987,
+        "encoded_format": "JPEG",
+        "encoded_mode": "L",
+        "width": 2048,
+        "height": 2048,
+        "source_colour_space": "auto",
+        "source_channel": "r",
+        "wrap_s": "repeat",
+        "wrap_t": "repeat"
+      }
+    }
+  },
+  "conversion": {
+    "script": "scripts/convert-quest-model.py",
+    "usd_version": [
+      0,
+      26,
+      5
+    ],
+    "numpy_version": "2.5.2",
+    "pillow_version": "12.2.0",
+    "changes": [
+      "Bake the complete USD transform hierarchy and metres-per-unit conversion",
+      "Remove the inspected outer uniform scene scale",
+      "Transform and normalise authored vertex normals",
+      "Retain every source triangle index and UV coordinate",
+      "Decode the source JPEG maps without resizing",
+      "Pack source red channels as occlusion, roughness and metallic",
+      "Reverse texture row order for OpenGL sampling without changing UV coordinates",
+      "Describe a rigid lens-midpoint alignment in WebXR axes"
+    ]
+  },
+  "files": {
+    "vertices.bin": {
+      "file": "vertices.bin",
+      "bytes": 1523904,
+      "sha256": "225f22ed07e475cb54d560bd1b6ffd740e1046e33372286a594b5b1bbe2af392"
+    },
+    "indices.bin": {
+      "file": "indices.bin",
+      "bytes": 915120,
+      "sha256": "af61e317fae6d476319dd8421479cf50cd149b4de5a862278ba88e4c4118928d"
+    },
+    "base-colour.rgba": {
+      "file": "base-colour.rgba",
+      "bytes": 16777216,
+      "sha256": "c8345ab0f271fad6afe8e7848073842fdd3eee4c758be62b1b5172ecba37a7e2"
+    },
+    "normal.rgba": {
+      "file": "normal.rgba",
+      "bytes": 16777216,
+      "sha256": "1f56531cdd6f5ae87d52a6a945974c46f65b02e24f4cb072913773f7e10b4138"
+    },
+    "orm.rgba": {
+      "file": "orm.rgba",
+      "bytes": 16777216,
+      "sha256": "18b57dfda92914f447ac7ff586bb233c7375295f7c7a4dcf1d610d5d9b952fe4"
+    }
+  },
+  "payload_bytes": 52770672
+}
