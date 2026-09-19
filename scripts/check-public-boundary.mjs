@@ -10,7 +10,8 @@ const viewerDocument = /^native\/viewer\/docs\/[A-Za-z0-9_-]+\.md$/;
 const nativeGenerated = /^native\/(?:viewer|lerobot-exporter)\/(?:build[^/]*|cmake-build[^/]*|out|stage|deps|target|artifacts|release|\.cache|\.venv)(?:\/|$)/i;
 const nativePrivate = /^native\/viewer\/(?:assets\/(?:local|mano)(?:\/|$)|import-provenance\.json$)|^native\/.*\.(?:mcap(?:\.partial)?|pkl|npz|npy)$/i;
 const privateNativeQualification = /^\.github\/(?:workflows\/native-viewer-hardware\.yml|scripts\/run-native-qualification\.py)$/i;
-const isExcludedPath = file => (file !== "src/dataset-replay-zstd.ts" && excluded.test(file)) || nativeGenerated.test(file) || nativePrivate.test(file)
+const isExcludedPath = file => (file !== "src/dataset-replay-zstd.ts" && excluded.test(file))
+  || (file !== "native/lerobot-exporter/build.rs" && nativeGenerated.test(file)) || nativePrivate.test(file)
   || privateNativeQualification.test(file)
   || (/(?:^|\/)docs(?:\/|$)/i.test(file) && !viewerDocument.test(file))
   || /\.(?:pem|key|pfx|p12|pyc|har)$/i.test(file);
@@ -39,7 +40,8 @@ for (const file of inventory) {
     const map = JSON.parse(content);
     for (const source of map.sources ?? []) {
       const resolved = path.posix.normalize(path.posix.join(path.posix.dirname(file), source));
-      if (isExcludedPath(source) && isExcludedPath(resolved)) problems.push(`Excluded source map entry: ${file}`);
+      const publicHelper = /^dist\/assets\/[^/]+\.map$/.test(file) && source === "../src/dataset-replay-zstd.ts";
+      if (!publicHelper && isExcludedPath(source) && isExcludedPath(resolved)) problems.push(`Excluded source map entry: ${file}`);
     }
   }
 }

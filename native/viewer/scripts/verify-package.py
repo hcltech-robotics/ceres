@@ -340,6 +340,9 @@ def export_fixture(root, workspace):
     suffix = ".exe" if os.name == "nt" else ""
     ffmpeg, ffprobe = root / ("ffmpeg" + suffix), root / ("ffprobe" + suffix)
     helper = root / ("ceres-native-exporter" + suffix)
+    release_version = json.loads((root / "provenance/package.json").read_text(encoding="utf-8"))["version"]
+    require(run_tool([helper, "--version"], environment, workspace).strip() == "ceres-native-exporter " + release_version,
+            "Compiled exporter version differs")
     capabilities = json.loads(run_tool([helper, "--capabilities"], environment, workspace))
     require(capabilities.get("schema") == "ceres-native-export-capabilities" and capabilities.get("default_profile") == "ceres-bridge-lerobot3-v1"
             and capabilities.get("action_dimension") == 2 and capabilities.get("ceres_episode_shards") is True,

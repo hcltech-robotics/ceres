@@ -28,6 +28,7 @@ test("native product docs pass while private docs and local model assets fail", 
   const fixture = await boundaryFixture(context);
   await fixture.write("native/viewer/docs/packaging.md", "# Packaging\n\nPortable viewer packages.\n");
   await fixture.write("native/viewer/src/mano.cpp", "// Optional local model support.\n");
+  await fixture.write("native/lerobot-exporter/build.rs", "fn main() {}\n");
   await fixture.write("native/viewer/build-native/CMakeCache.txt", "Local build output.\n");
   await fixture.write("src/dataset-replay-zstd.ts", "export const compressors = {};\n");
   const accepted = fixture.run();
@@ -35,7 +36,7 @@ test("native product docs pass while private docs and local model assets fail", 
   for (const file of [
     "docs/private.md", "native/lerobot-exporter/docs/private.md", "native/viewer/docs/private/note.md",
     "native/viewer/AGENTS.md", "native/viewer/import-provenance.json", "native/viewer/assets/local/mano-left.bin",
-    "native/viewer/MANO_RIGHT.pkl", "native/viewer/artifacts/recording.json", "native/viewer/secret.key",
+    "native/viewer/MANO_RIGHT.pkl", "native/viewer/artifacts/recording.json", "native/viewer/secret.key", "native/lerobot-exporter/build-output.json",
     "src/dataset-replay-app.ts", "src/private/dataset-replay-zstd.ts",
     ".github/workflows/native-viewer-hardware.yml", ".github/scripts/run-native-qualification.py",
   ]) {
@@ -50,13 +51,17 @@ test("native product docs pass while private docs and local model assets fail", 
 test("source maps permit only the shared Parquet helper from the replay source family", async context => {
   const fixture = await boundaryFixture(context);
   const file = "dist/assets/monitor.js.map";
-  await fixture.write(file, JSON.stringify({ sources: ["../../src/dataset-replay-zstd.ts"] }));
-  const accepted = fixture.run();
-  assert.equal(accepted.status, 0, accepted.stderr);
-  await fixture.write(file, JSON.stringify({ sources: ["../../src/dataset-replay-app.ts"] }));
-  const rejected = fixture.run();
-  assert.notEqual(rejected.status, 0);
-  assert.ok(rejected.stderr.includes(`Excluded source map entry: ${file}`), rejected.stderr);
+  for (const source of ["../../src/dataset-replay-zstd.ts", "../src/dataset-replay-zstd.ts"]) {
+    await fixture.write(file, JSON.stringify({ sources: [source] }));
+    const accepted = fixture.run();
+    assert.equal(accepted.status, 0, accepted.stderr);
+  }
+  for (const source of ["../../src/dataset-replay-app.ts", "../src/dataset-replay-app.ts", "../src/private/dataset-replay-zstd.ts"]) {
+    await fixture.write(file, JSON.stringify({ sources: [source] }));
+    const rejected = fixture.run();
+    assert.notEqual(rejected.status, 0);
+    assert.ok(rejected.stderr.includes(`Excluded source map entry: ${file}`), rejected.stderr);
+  }
 });
 
 test("export manifests cannot classify native build products as public source", async context => {

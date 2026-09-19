@@ -2,7 +2,7 @@
   "version": 2,
   "packageVersion": "1.1.1",
   "generator": "ceres-public-core/2",
-  "treeDigest": "b677970f67445e76be7e0be11c7f99afa14071dc1bb317e53d7059b34205a0dc",
+  "treeDigest": "9432ed000efce14f1529eb236430aab8aafb5ad9c7c84984d7739f8b776da97f",
   "files": {
     ".dockerignore": {
       "sha256": "f4f0799e0c8f318b0d36a430909ba9dcb3eeca1d1b0ae8b3b7907b44cc2bedca",
@@ -75,13 +75,13 @@
       "mode": "100644"
     },
     "README.md": {
-      "sha256": "61aa78453ab89cdf7957d9db868c18a97e0a14c9f00181d0608afbb30a4e01bf",
-      "bytes": 13595,
+      "sha256": "61bae52da548ec461ff96f33c7c49aa3ffdc422dec5c3ee60889e01d4ad04edb",
+      "bytes": 13832,
       "mode": "100644"
     },
     "RELEASE.md": {
-      "sha256": "af076edd44cac1bd12767f1bc10be4bd69baa044f993210d00fbc8948353e431",
-      "bytes": 1634,
+      "sha256": "d6fedb2cb0b467b23935db73c8c55b72f3dc587df30663bc18c0ba59772f045e",
+      "bytes": 1891,
       "mode": "100644"
     },
     "bridge/index.html": {
@@ -145,13 +145,18 @@
       "mode": "100644"
     },
     "native/lerobot-exporter/Cargo.toml": {
-      "sha256": "fffd76ae1a89a6ce25e5453a7780ccf5232544a8ba26544a7d05222b2aede235",
-      "bytes": 644,
+      "sha256": "9de0c589125eaaf692f6d2603c35aada8b08dc5d0b1acb529be88e8d831be9c4",
+      "bytes": 690,
       "mode": "100644"
     },
     "native/lerobot-exporter/README.md": {
       "sha256": "c9a3d326a50f81554f3164408f767aca393b61f3dd6713acfda838e8b2f80d0a",
       "bytes": 12020,
+      "mode": "100644"
+    },
+    "native/lerobot-exporter/build.rs": {
+      "sha256": "87b04dc35080d3d408ec38543ffd57cd69e13c773bb0d5f8f7e58055b513587f",
+      "bytes": 831,
       "mode": "100644"
     },
     "native/lerobot-exporter/src/compatibility.rs": {
@@ -170,8 +175,8 @@
       "mode": "100644"
     },
     "native/lerobot-exporter/src/main.rs": {
-      "sha256": "b2ba266f0524c3720d17d81862236c4472a49852bf8bd7b5db943eae8692947f",
-      "bytes": 1321,
+      "sha256": "eb5ea4da21de724b38952464e157993d8ce3af83918cd1995df6e81e20268256",
+      "bytes": 1378,
       "mode": "100644"
     },
     "native/lerobot-exporter/src/session.rs": {
@@ -182,6 +187,11 @@
     "native/lerobot-exporter/src/video.rs": {
       "sha256": "9d06249eb8c8037c4c8135f1622692df0bf13962ef28af7480eea4eee047bab2",
       "bytes": 8123,
+      "mode": "100644"
+    },
+    "native/lerobot-exporter/tests/release_version.rs": {
+      "sha256": "f748c52c7c58c01248e30fade4fbbc457d92773c88c1d985474bf0cc0cbad92a",
+      "bytes": 655,
       "mode": "100644"
     },
     "native/lerobot-exporter/tests/session_export.rs": {
@@ -595,8 +605,8 @@
       "mode": "100644"
     },
     "native/viewer/scripts/verify-package.py": {
-      "sha256": "720ef1c0ca66abd2b6b9f94bd98b2823c01c9344d7e6e57fa133ea7945b707d7",
-      "bytes": 23400,
+      "sha256": "f9e5fc277e1328ff4937e577a46d02791a8216d76ea40c594cb5fc310747add6",
+      "bytes": 23680,
       "mode": "100644"
     },
     "native/viewer/scripts/verify-recording.py": {
@@ -1500,8 +1510,8 @@
       "mode": "100644"
     },
     "scripts/check-public-boundary.mjs": {
-      "sha256": "2c0f0152f98752c7d593fe8df7292156c25ce9b61b6b0325f6e7184b28d35f1b",
-      "bytes": 5638,
+      "sha256": "dc01d2a59f4908711070ca07f197d18a1f8e8adb9adac733e57c1eab50b91a06",
+      "bytes": 5820,
       "mode": "100644"
     },
     "scripts/check-release-sboms.mjs": {
@@ -2735,8 +2745,8 @@
       "mode": "100644"
     },
     "test/public-boundary.test.ts": {
-      "sha256": "ae22455827f9258973cf8a77ff38acf2760f240e29af7d7a2837956b2c111a89",
-      "bytes": 6428,
+      "sha256": "5c68937dadf099afbfa14063bd59e8c9a782f83c8d8a2541a91723bb9cb94f7a",
+      "bytes": 6748,
       "mode": "100644"
     },
     "test/quest-camera.test.ts": {

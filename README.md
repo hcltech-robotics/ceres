@@ -150,9 +150,9 @@ datasets. Download the package for your machine from the release assets:
 
 | Platform | Download | System |
 | --- | --- | --- |
-| Windows x64 | `ceres-viewer-<version>-windows-x64.zip` | Windows 11 with an NVIDIA GPU |
-| Linux x64 | `ceres-viewer-<version>-linux-x64.tar.gz` | Ubuntu 22.04 or newer with an NVIDIA GPU |
-| Linux ARM64 | `ceres-viewer-<version>-linux-arm64.tar.gz` | Ubuntu 24.04 or newer on NVIDIA GB10 |
+| Windows x64 | [Download ZIP](https://github.com/hcltech-robotics/ceres/releases/download/v1.1.1/ceres-viewer-1.1.1-windows-x64.zip) | Windows 11 with an NVIDIA GPU |
+| Linux x64 | [Download tar.gz](https://github.com/hcltech-robotics/ceres/releases/download/v1.1.1/ceres-viewer-1.1.1-linux-x64.tar.gz) | Ubuntu 22.04 or newer with an NVIDIA GPU |
+| Linux ARM64 | [Download tar.gz](https://github.com/hcltech-robotics/ceres/releases/download/v1.1.1/ceres-viewer-1.1.1-linux-arm64.tar.gz) | Ubuntu 24.04 or newer on NVIDIA GB10 |
 
 Extract the archive and start `ceres-viewer.exe` on Windows or `./ceres-viewer` on
 Linux. Each download includes the exporter, FFmpeg, runtime libraries, product

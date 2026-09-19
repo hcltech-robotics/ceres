@@ -4,7 +4,10 @@ fn main() {
     let args = std::env::args().collect::<Vec<_>>();
     let result = match args.get(1).map(String::as_str) {
         Some("--version") => {
-            println!("ceres-native-exporter {}", env!("CARGO_PKG_VERSION"));
+            println!(concat!(
+                "ceres-native-exporter ",
+                env!("CERES_RELEASE_VERSION")
+            ));
             return;
         }
         Some("--capabilities") => {
