@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "packageVersion": "1.1.2",
+  "packageVersion": "1.1.3",
   "generator": "ceres-public-core/2",
-  "treeDigest": "a5554323a2e9f17a3d4e4a1b440038deeff8490db19cd80b3ab897c096c650ec",
+  "treeDigest": "0555b2fd46f8630fdb61d6dae2c0974927813575eb93586f657a65caef7834f3",
   "files": {
     ".dockerignore": {
       "sha256": "f4f0799e0c8f318b0d36a430909ba9dcb3eeca1d1b0ae8b3b7907b44cc2bedca",
@@ -40,8 +40,8 @@
       "mode": "100644"
     },
     ".github/workflows/native-viewer.yml": {
-      "sha256": "19965721c7fb53dd1c7a87dcc86e71c239fa5fb4dc4b1c82cf9af7bf5bcf0976",
-      "bytes": 17039,
+      "sha256": "35fe1525e8b5915f90c04d87afbff1f7072504d5df6d176d1e80e8f333a5b17a",
+      "bytes": 17247,
       "mode": "100644"
     },
     ".github/workflows/release.yml": {
@@ -55,12 +55,12 @@
       "mode": "100644"
     },
     ".zenodo.json": {
-      "sha256": "0e64c235d63ec07d2c976f7f1b7e43aa36387bef80e9495cbff0b7dc41212368",
+      "sha256": "16d35e1d4d875cd44ed203092a07f565033ac1f11a678697d81877651636d5fe",
       "bytes": 993,
       "mode": "100644"
     },
     "CITATION.cff": {
-      "sha256": "aab815b2682fc3e53251568f5501565a537730537afdf1c35937d8f3025d400e",
+      "sha256": "c5921fcb62ebab3e485e97105f377c5c17187c87ae130f44933663e3e7bfd8b0",
       "bytes": 501,
       "mode": "100644"
     },
@@ -75,13 +75,13 @@
       "mode": "100644"
     },
     "README.md": {
-      "sha256": "a00d837357da840f56e5fdfcd9219a0aa55dfcc6cd1e3afbf2ad0c5e7fba3a98",
+      "sha256": "c541e9ccd8509b22d6dc4b2ff322c08cc764e95c45aaeb27584902c5670ea7e5",
       "bytes": 15250,
       "mode": "100644"
     },
     "RELEASE.md": {
-      "sha256": "cd23b505b29838045de519d5519ea2c882a707b96d2629e7c5cec863fbec04c4",
-      "bytes": 4657,
+      "sha256": "e48d099628105a4b16f134c129c22e6e22aa7dc60970e9e281d3e04b2f76555a",
+      "bytes": 2890,
       "mode": "100644"
     },
     "bridge/index.html": {
@@ -90,7 +90,7 @@
       "mode": "100644"
     },
     "citation.bib": {
-      "sha256": "f070c6845775aed33d637c27f0cdf067fdaca91baabcd31938531522da4fb6c1",
+      "sha256": "110d2890d2162b2e3f05158898d4980b138dd1d70f30432458e558890cd121ed",
       "bytes": 354,
       "mode": "100644"
     },
@@ -1085,12 +1085,12 @@
       "mode": "100644"
     },
     "package-lock.json": {
-      "sha256": "a5aea983ac13b2cece7c283dba4fbbc8a7a2aeb860e4cf85a017736be1365cb8",
+      "sha256": "0b6e0d74b7cad60d7050cc008255d54b54d75793a8c2760aad3159e082b5a40e",
       "bytes": 173490,
       "mode": "100644"
     },
     "package.json": {
-      "sha256": "3e39b78a09e899723a538f63210c15d48d3a19bcfea7e01dc257f4382e257838",
+      "sha256": "6de396e9b4e847557b0e79305391b23d01fa0e65c4678047ae0b1d728654c475",
       "bytes": 3276,
       "mode": "100644"
     },
@@ -1555,8 +1555,8 @@
       "mode": "100644"
     },
     "receiver/src/ceres_bridge/worker.py": {
-      "sha256": "fb163d98df1b09757d4b816702534756585c06e0ce696902283170b384284305",
-      "bytes": 13309,
+      "sha256": "7a36c217fe5cb0a3659fed6b97b2967b92ddf39288dd9caef5a577dc39a21b8a",
+      "bytes": 13314,
       "mode": "100644"
     },
     "receiver/tests/inspect_foxglove.py": {
@@ -1645,8 +1645,8 @@
       "mode": "100644"
     },
     "receiver/tests/test_pairing.py": {
-      "sha256": "be017fda6d15faed7b15638f0620b04f0ad2b4b469876784dec029bae7efed75",
-      "bytes": 3702,
+      "sha256": "303ec562023adc55512a299e6afb57577b54bd6a2eaf2e0b98ba6b4682272ce8",
+      "bytes": 4210,
       "mode": "100644"
     },
     "receiver/tests/test_protocol.py": {
@@ -1900,7 +1900,7 @@
       "mode": "100644"
     },
     "shared/software-citation.ts": {
-      "sha256": "97f914fd8b4074e7dc4b6432c8fe43a183fc5abf9e0e1a0cdf85c46334059f01",
+      "sha256": "9430ca145281f71a584e872ce7456d59bdbfc028016a3982713d77dc29df6187",
       "bytes": 1053,
       "mode": "100644"
     },

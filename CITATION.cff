@@ -2,11 +2,11 @@ cff-version: 1.2.0
 message: Please cite the version of CERES used in your work.
 type: software
 title: "CERES: Capturing Egocentric Recordings with Ease and Speed"
-version: "1.1.2"
+version: "1.1.3"
 license: MIT
 repository-code: https://github.com/hcltech-robotics/ceres
 url: https://ceres.cam/documentation/
-doi: 10.5281/zenodo.22729061
+doi: 10.5281/zenodo.22729060
 authors:
   - family-names: "Foldi"
     given-names: "Tamas"

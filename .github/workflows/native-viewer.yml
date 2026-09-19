@@ -133,6 +133,7 @@ jobs:
           }
           $sourceLock | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath "$env:RUNNER_TEMP/ffmpeg/ffmpeg-8.0-full_build/ffmpeg-source-lock.json" -Encoding utf8
           "FFMPEG=$env:RUNNER_TEMP/ffmpeg/ffmpeg-8.0-full_build/bin/ffmpeg.exe" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "CERES_FFMPEG=$env:RUNNER_TEMP/ffmpeg/ffmpeg-8.0-full_build/bin/ffmpeg.exe" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - name: Build the standalone viewer source and native tests
         shell: cmd
         run: |
@@ -214,10 +215,10 @@ jobs:
         run: |
           apt-get update
           DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates curl git g++ make nasm python3 python3-venv pkg-config libssl-dev libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libgl1-mesa-dev libwayland-dev wayland-protocols libxkbcommon-dev
-          curl --proto '=https' --tlsv1.2 -fsSL "https://static.rust-lang.org/rustup/archive/1.28.2/${{ matrix.rust-target }}/rustup-init" -o /tmp/ceres-rustup-init
-          echo '${{ matrix.rustup-sha256 }}  /tmp/ceres-rustup-init' | sha256sum --check
-          chmod +x /tmp/ceres-rustup-init
-          /tmp/ceres-rustup-init -y --profile minimal --default-toolchain 1.91.0
+          curl --proto '=https' --tlsv1.2 -fsSL "https://static.rust-lang.org/rustup/archive/1.28.2/${{ matrix.rust-target }}/rustup-init" -o /tmp/rustup-init
+          echo '${{ matrix.rustup-sha256 }}  /tmp/rustup-init' | sha256sum --check
+          chmod +x /tmp/rustup-init
+          /tmp/rustup-init -y --profile minimal --default-toolchain 1.91.0
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -238,6 +239,7 @@ jobs:
         run: |
           bash "$RUNNER_TEMP/native-source/.github/scripts/build-native-ffmpeg.sh" "$RUNNER_TEMP/ffmpeg-build" "$RUNNER_TEMP/ffmpeg-runtime"
           echo "FFMPEG=$RUNNER_TEMP/ffmpeg-runtime/bin/ffmpeg" >> "$GITHUB_ENV"
+          echo "CERES_FFMPEG=$RUNNER_TEMP/ffmpeg-runtime/bin/ffmpeg" >> "$GITHUB_ENV"
       - name: Build the standalone viewer source and native tests
         run: |
           cmake -S "$RUNNER_TEMP/native-source/native/viewer" -B "$RUNNER_TEMP/build-native" -G Ninja -DCMAKE_BUILD_TYPE=Release -DCERES_BUILD_TESTS=ON -DPython_EXECUTABLE="$(command -v python)" -DPython3_EXECUTABLE="$(command -v python)"

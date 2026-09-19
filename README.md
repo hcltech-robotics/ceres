@@ -18,7 +18,7 @@
   <a href="https://ceres.cam/"><img src="https://img.shields.io/badge/Built_for-WebXR-5A45FF?style=flat-square" alt="Built for WebXR"></a>
   <a href="https://ceres.cam/documentation/data-description-and-output-format/"><img src="https://img.shields.io/badge/Datasets-LeRobot_v3-FFD21E?style=flat-square&amp;logo=huggingface&amp;logoColor=black" alt="LeRobot v3 datasets"></a>
   <a href="LICENCE.md"><img src="https://img.shields.io/badge/Licence-MIT-4C76BA?style=flat-square" alt="Licence: MIT"></a>
-  <a href="https://doi.org/10.5281/zenodo.22729061"><img src="https://zenodo.org/badge/DOI/10.5281/zenodo.22729061.svg" alt="DOI: 10.5281/zenodo.22729061"></a>
+  <a href="https://doi.org/10.5281/zenodo.22729060"><img src="https://zenodo.org/badge/DOI/10.5281/zenodo.22729060.svg" alt="DOI: 10.5281/zenodo.22729060"></a>
 </p>
 
 <p align="center">
@@ -152,9 +152,9 @@ release assets:
 
 | Platform | Download | System |
 | --- | --- | --- |
-| Windows x64 | [Download ZIP](https://github.com/hcltech-robotics/ceres/releases/download/v1.1.2/ceres-viewer-1.1.2-windows-x64.zip) | Windows 11 with an NVIDIA GPU |
-| Linux x64 | [Download tar.gz](https://github.com/hcltech-robotics/ceres/releases/download/v1.1.2/ceres-viewer-1.1.2-linux-x64.tar.gz) | Ubuntu 22.04 or newer with an NVIDIA GPU |
-| Linux ARM64 | [Download tar.gz](https://github.com/hcltech-robotics/ceres/releases/download/v1.1.2/ceres-viewer-1.1.2-linux-arm64.tar.gz) | Ubuntu 24.04 or newer on NVIDIA GB10 |
+| Windows x64 | [Download ZIP](https://github.com/hcltech-robotics/ceres/releases/download/v1.1.3/ceres-viewer-1.1.3-windows-x64.zip) | Windows 11 with an NVIDIA GPU |
+| Linux x64 | [Download tar.gz](https://github.com/hcltech-robotics/ceres/releases/download/v1.1.3/ceres-viewer-1.1.3-linux-x64.tar.gz) | Ubuntu 22.04 or newer with an NVIDIA GPU |
+| Linux ARM64 | [Download tar.gz](https://github.com/hcltech-robotics/ceres/releases/download/v1.1.3/ceres-viewer-1.1.3-linux-arm64.tar.gz) | Ubuntu 24.04 or newer on NVIDIA GB10 |
 
 Extract the archive and start `ceres-viewer.exe` on Windows or `./ceres-viewer` on
 Linux. Each download includes the exporter, FFmpeg, runtime libraries, product
@@ -285,8 +285,8 @@ please cite the version you used. The citation below is also available in
   author  = {Foldi, Tamas and von Csefalvay, Chris and Unni Krishnan, Achyuthan},
   title   = {{CERES: Capturing Egocentric Recordings with Ease and Speed}},
   year    = {2026},
-  version = {1.1.2},
-  doi     = {10.5281/zenodo.22729061},
+  version = {1.1.3},
+  doi     = {10.5281/zenodo.22729060},
   url     = {https://github.com/hcltech-robotics/ceres},
   license = {MIT}
 }

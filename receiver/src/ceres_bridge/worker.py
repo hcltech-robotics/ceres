@@ -15,7 +15,6 @@ from urllib.parse import urlparse
 import aiohttp
 
 from .ipc import Broker, runtime_dir
-from .media import MediaPeer
 from .state import LatestState
 
 
@@ -108,6 +107,8 @@ def show_invitation(identity, qr_path=None):
 
 
 async def run(args):
+    from .media import MediaPeer
+
     directory = runtime_dir()
     lock = open(directory / "worker.lock", "a")
     try:

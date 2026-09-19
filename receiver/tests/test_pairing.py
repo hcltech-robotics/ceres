@@ -1,12 +1,24 @@
 """Pairing invitations retain their expiry and retry only code collisions."""
 
 import asyncio
+import importlib.util
 import json
+import sys
 from types import SimpleNamespace
 
 import pytest
 
 from ceres_bridge import worker
+
+
+def test_pairing_import_does_not_load_media_but_worker_startup_requires_it(monkeypatch):
+    monkeypatch.setitem(sys.modules, "ceres_bridge.media", None)
+    spec = importlib.util.spec_from_file_location("ceres_bridge._pairing_import_fixture", worker.__file__)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    with pytest.raises(ModuleNotFoundError, match="ceres_bridge.media"):
+        asyncio.run(module.run(SimpleNamespace()))
 
 
 @pytest.fixture
