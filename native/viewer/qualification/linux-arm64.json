@@ -1,0 +1,47 @@
+{
+  "schema": "ceres-native-hardware-qualification",
+  "version": 1,
+  "status": "passed",
+  "platform": "linux-arm64",
+  "input_sha256": "0e77ea56a950cfdfd64f6662fe2f67ae5a48a6b14e4fd18c011d5921f82c71a7",
+  "source_revision": "931a899ce55692650bbc3de8847187495e3bc786",
+  "archive_name": "ceres-viewer-1.1.1-linux-arm64.tar.gz",
+  "archive_sha256": "3407a32ecbd49f4ee430e506e098bbfb4bff00fec695c624a55729da66eb1a3f",
+  "build_inputs_sha256": "d3fdedbb84dd54f43047b2919992198d5fc99b1b59737c0f50d6e2de7da4315e",
+  "completed_at": "2026-09-19T13:02:22.948607+00:00",
+  "gpu": "NVIDIA GB10",
+  "driver": "NVIDIA GB10, 580.142",
+  "graphics": {
+    "vendor": "NVIDIA Corporation",
+    "renderer": "NVIDIA GB10/PCIe",
+    "version": "4.5.0 NVIDIA 580.142"
+  },
+  "checks": {
+    "cuda": true,
+    "depth": true,
+    "dual_camera": true,
+    "export": true,
+    "nvdec": true,
+    "package": true,
+    "record": true,
+    "render": true,
+    "replay": true
+  },
+  "evidence_sha256": {
+    "nvdec.json": "443ed4742296f96bab49339b18f4b1a9071c824c08e5ac3d5166f7e5e10e098d",
+    "nvdec.log": "e6c78e27b7bca6d733e938d607b6f931097878b3548d03085c9b2621836b9af2",
+    "record.json": "cafcc7d75caeefff39402a0b68ff8681d9557fef3a7cb92c0f2a27fcd45469b3",
+    "record.log": "e89f19b43acb217a0b8160bd052ebe37b53d026e93cea216cc9381f5f786b8fe",
+    "record.ppm": "d0bc283347bb4def873d661f15d94dc07b21fed626a372ff2a43b6dc94b71cd8",
+    "recording-check.log": "d143d089c90b9576af997457b3c3a809d802129a72a10d4b0ba1976ac36be4fc",
+    "recording-report.json": "c0501d690b36f46df123d2b822454af168f19ad2e681e5703b54e7561a3e41ad",
+    "recording.mcap.episodes.json": "804a0a260f3945bdffe2c495ebbf7fb85f64fd29770c4b86e5369cf3ac18f783",
+    "replay.json": "d252e1df8cefff3cfdc32ae6cee0ae27a9a0ac645c6ab9c141e4fe503319f629",
+    "replay.log": "d94c76807a8dbf86969899579c9788f524e4e26288304add348f367df337a2ed",
+    "replay.ppm": "4bff52fe9fa734157fe5dd1abe7e5d76dcc1a87f80295999120c76e1004fdb78",
+    "test_depth_cuda.log": "5ae801789689f46f8685744643f9ef5786bfc9f0934c00c9464961e4cf1cd16c",
+    "test_image.log": "4599ef326fd180542262391935fe00643c3655e881aaa1083882b8938a3f516b",
+    "test_stereo_cuda.log": "fd117ba49306279d383d47c209c6667e7f5339919d20c07d13dd3892bd0c4530",
+    "test_voxel_cuda.log": "e9c7e72b884ec65b2f1c72be6d0d7546f299843f4160f6f8ca17b443983f2921"
+  }
+}

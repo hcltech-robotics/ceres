@@ -2,7 +2,7 @@
   "version": 2,
   "packageVersion": "1.1.1",
   "generator": "ceres-public-core/2",
-  "treeDigest": "e44e2f02935a7fc2b0c50221f0566b83b44ed6748ac3d3f7e6dda72787cb9ed4",
+  "treeDigest": "b9c4abbf3e4c23b63763aed0007fc403e1af8716ad35e62025fd9e63cbc58e81",
   "files": {
     ".dockerignore": {
       "sha256": "f4f0799e0c8f318b0d36a430909ba9dcb3eeca1d1b0ae8b3b7907b44cc2bedca",
@@ -562,6 +562,21 @@
     "native/viewer/include/ceres/voxel_kernel.hpp": {
       "sha256": "e5d25690692c34316cd027ad71fdec92f1da214ecd890faadebe2b0a5de290b5",
       "bytes": 3817,
+      "mode": "100644"
+    },
+    "native/viewer/qualification/linux-arm64.json": {
+      "sha256": "7134961238cb7d38c622169145cbff730d132016ca9e390ff4828519103e908c",
+      "bytes": 2345,
+      "mode": "100644"
+    },
+    "native/viewer/qualification/linux-x64.json": {
+      "sha256": "3e7d6afc5bf6e1f80b597ef3cfd2328c764a4ff78e1156dd6bc9a7978aa8466e",
+      "bytes": 2466,
+      "mode": "100644"
+    },
+    "native/viewer/qualification/windows-x64.json": {
+      "sha256": "f31e0d5ad6691fb79a83ad71bff6dd7d2cd4f4bb6271b8237307b396717de708",
+      "bytes": 2381,
       "mode": "100644"
     },
     "native/viewer/scripts/build-windows.cmd": {
