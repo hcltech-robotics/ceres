@@ -1,11 +1,14 @@
+import { normalisePairingCode } from "../../shared/pairing-code.js";
+
 export function receiverCodeFromQr(text: string, origin: string): string | null {
-  if (/^[A-Z2-9]{8}$/.test(text)) return text;
+  const rawCode = normalisePairingCode(text);
+  if (rawCode) return rawCode;
   try {
     const url = new URL(text);
     if (url.origin !== origin) return null;
     const code = url.pathname === "/bridge/" ? url.searchParams.get("code")
-      : url.searchParams.get("mode") === "bridge" ? url.pathname.match(/^\/j\/([A-Z2-9]{8})$/)?.[1] : null;
-    return code && /^[A-Z2-9]{8}$/.test(code) ? code : null;
+      : url.searchParams.get("mode") === "bridge" ? url.pathname.match(/^\/j\/([^/]+)$/)?.[1] : null;
+    return code ? normalisePairingCode(code) : null;
   } catch { return null; }
 }
 

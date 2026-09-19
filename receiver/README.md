@@ -8,6 +8,10 @@ python -m pip install ".[worker]"
 ceres-bridge listen --app-origin https://ceres.example.org
 ```
 
+The receiver displays a nine-letter pairing code, using capital letters without
+I, L or O. Open Bridge on the headset, enter the code and select **Pair**. The
+invitation lasts five minutes, and the receiver remembers the headset after pairing.
+
 Licensed under MIT. Please cite CERES using the repository's CITATION.cff.
 [Documentation](https://ceres.cam/documentation/)
 

@@ -1,5 +1,6 @@
 import { applicationServices, mountUserIdentity, applicationHeaderMarkup, mountApplicationHeader, type UserIdentityState, type DirectoryInvitation } from "./application-services.js";
 import { World } from "@iwsdk/core/dist/ecs/world.js";
+import { pairingCodeInputError } from "../shared/pairing-code.js";
 
 import { RayInteractable } from "@iwsdk/core/dist/input/state-tags.js";
 import { BrowserQRCodeReader } from "@zxing/browser";
@@ -954,7 +955,7 @@ export class CaptureApp {
       : `
               <form id="join-code-form" class="join-code-form">
                 <label for="join-code">Join code</label>
-                <div class="join-code-controls"><input id="join-code" class="join-code-input" type="text" maxlength="12" autocomplete="one-time-code" autocapitalize="characters" enterkeyhint="go" spellcheck="false" placeholder="8-character code" aria-describedby="capture-status"><button id="join-code-submit" class="join-code-submit" type="submit" aria-label="Join with code">Join</button></div>
+                <div class="join-code-controls"><input id="join-code" class="join-code-input" type="text" maxlength="128" autocomplete="one-time-code" autocapitalize="characters" enterkeyhint="go" spellcheck="false" placeholder="9-letter code" aria-describedby="capture-status"><button id="join-code-submit" class="join-code-submit" type="submit" aria-label="Join with code">Join</button></div>
               </form>
               <button id="scan-qr" class="qr-button" type="button" aria-label="Scan pairing invitation from QR code"><svg class="qr-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M7 7h.01"/><path d="M17 7h.01"/><path d="M17 17h.01"/><path d="M12 12h.01"/></svg><small>Scan QR</small></button>
               <section id="capture-invitations"${shell.invitations ? "" : " hidden"} class="capture-invitations" aria-label="Invitations"><header><span>Invitations</span><b id="capture-invitation-count">--</b></header><div id="capture-invitation-list" class="capture-invitation-list"><span>${shell.directoryUrl ? "Checking account" : "Account unavailable"}</span></div><b id="pairing-invitation-status" class="sr-only">${this.pairingInvite ? "READY" : invitationExpired ? "EXPIRED" : "WAITING"}</b></section>
@@ -1285,7 +1286,7 @@ export class CaptureApp {
     prepare.addEventListener("click", () => { void this.prepareCamera(root); });
     if (!this.bridge) qrButton.addEventListener("click", () => { void this.scanQr(root); });
     joinCodeInput.addEventListener("input", () => {
-      joinCodeInput.value = joinCodeInput.value.toUpperCase();
+      joinCodeInput.value = joinCodeInput.value.replace(/[a-z]/g, character => character.toUpperCase());
       joinCodeInput.setCustomValidity("");
     });
     joinCodeForm.addEventListener("submit", (event) => {
@@ -2150,9 +2151,9 @@ export class CaptureApp {
     if (button.disabled) return;
     const code = normaliseShortPairingCode(input.value);
     if (!code) {
-      input.setCustomValidity("Enter the eight-character join code");
+      input.setCustomValidity(pairingCodeInputError);
       input.reportValidity();
-      this.setStatus(root, "Enter the eight-character join code", true);
+      this.setStatus(root, pairingCodeInputError, true);
       return;
     }
     input.setCustomValidity("");

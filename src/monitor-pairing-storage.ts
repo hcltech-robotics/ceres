@@ -1,4 +1,5 @@
 import { normaliseConnectionServer, type ConnectionProfile } from "./connection-profile.js";
+import { pairingRoomIdPattern } from "../shared/pairing-code.js";
 import {
   demonstratorInvite,
   isPairingSessionId,
@@ -21,7 +22,7 @@ export interface MonitorPairingInvitationState {
 
 const monitorPairingInvitationStorageKey = "ceres.monitor-pairing-invitation.v1";
 export const monitorPairingRetentionMs = pairedInvitationRetentionMs;
-const roomIdPattern = /^(?:[A-Z2-9]{8}|[A-Za-z0-9_-]{20,128})$/;
+const roomIdPattern = pairingRoomIdPattern;
 const opaqueIdPattern = /^[A-Za-z0-9_-]{20,128}$/;
 
 export function storedMonitorPairingInvitation(

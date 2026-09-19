@@ -1,6 +1,7 @@
 import { decideInvitationCaptureAuthority, decideInvitationCaptureRegistration,
   invitationExpiryAllowed, invitationSignallingAvailable, pairedInvitationRetentionMs } from "./invitation-authority.js";
 import type { SignallingContext, SignallingSocket } from "./signalling-context.js";
+import { pairingRoomIdPattern } from "./pairing-code.js";
 
 type SignalRole = "capture" | "monitor";
 
@@ -53,7 +54,6 @@ interface CaptureIntentMessage {
 }
 
 const sessionIdPattern = /^[A-Za-z0-9_-]{8,128}$/;
-const roomIdPattern = /^(?:[A-Z2-9]{8}|[A-Za-z0-9_-]{20,128})$/;
 const opaqueIdPattern = /^[A-Za-z0-9_-]{20,128}$/;
 const pairingIdPattern = /^[A-Za-z0-9._-]{1,128}$/;
 const maxMessageBytes = 32 * 1024;
@@ -87,7 +87,7 @@ function isInvitationRegisterMessage(value: unknown): value is InvitationRegiste
     && message.protocol === "invitation"
     && (message.role === "capture" || message.role === "monitor")
     && typeof message.sessionId === "string" && sessionIdPattern.test(message.sessionId)
-    && typeof message.roomId === "string" && roomIdPattern.test(message.roomId)
+    && typeof message.roomId === "string" && pairingRoomIdPattern.test(message.roomId)
     && typeof message.capability === "string" && opaqueIdPattern.test(message.capability)
     && (message.role !== "capture" || typeof message.pairingId === "string" && pairingIdPattern.test(message.pairingId))
     && (message.role === "monitor"
@@ -99,7 +99,7 @@ function isInvitationRoom(value: unknown): value is InvitationRoom {
   if (!value || typeof value !== "object") return false;
   const room = value as Partial<InvitationRoom>;
   return room.version === 1
-    && typeof room.roomId === "string" && roomIdPattern.test(room.roomId)
+    && typeof room.roomId === "string" && pairingRoomIdPattern.test(room.roomId)
     && typeof room.sessionId === "string" && sessionIdPattern.test(room.sessionId)
     && typeof room.monitorCapabilityHash === "string" && opaqueIdPattern.test(room.monitorCapabilityHash)
     && typeof room.demonstratorCapabilityHash === "string" && opaqueIdPattern.test(room.demonstratorCapabilityHash)

@@ -11,6 +11,7 @@ export interface Binding {
 }
 
 import { defaultCeresRelayUrl } from "../connection-profile.js";
+import { normalisePairingCode, pairingCodeInputError } from "../../shared/pairing-code.js";
 export const relayOrigin = defaultCeresRelayUrl;
 export const relayBase = relayOrigin.replace(/\/$/, "") + "/api/bridge/v1";
 export const randomIdentity = () => Array.from(crypto.getRandomValues(new Uint8Array(32)), b => b.toString(16).padStart(2, "0")).join("");
@@ -74,7 +75,9 @@ export async function refreshBinding(binding: Binding, restartAfter?: number): P
 }
 
 export async function pairReceiver(code: string): Promise<Binding> {
-  if (!/^[A-Z2-9]{8}$/.test(code)) throw new Error("Enter the eight-character receiver code");
+  const normalised = normalisePairingCode(code);
+  if (!normalised) throw new Error(pairingCodeInputError);
+  code = normalised;
   const previous = await storedBinding();
   if (previous?.code === code && previous.invitationSecret && !previous.revoked) return completeClaim(previous);
   if (previous) await forgetReceiver(previous);

@@ -35,7 +35,7 @@ for (const [name, route] of [["director", "/monitor/"], ["Solo", "/launch/captur
     await expect(page.locator("#app")).not.toContainText("failed to load", { ignoreCase: true });
     if (name === "director") {
       await page.getByRole("button", { name: "Roll a fresh local invitation" }).click();
-      await expect(page.locator("#pairing-invitation-link")).toHaveValue(/\/j\/[A-Z2-9]{8}$/);
+      await expect(page.locator("#pairing-invitation-link")).toHaveValue(/\/j\/[ABCDEFGHJKMNPQRSTUVWXYZ]{9}$/);
       const link = await page.locator("#pairing-invitation-link").inputValue();
       expect(new URL(link).origin).toBe(baseURL);
       const demonstrator = await context.newPage();
@@ -54,6 +54,24 @@ for (const [name, route] of [["director", "/monitor/"], ["Solo", "/launch/captur
     expect(settings.every(configuration => !configuration.iceServers?.length)).toBe(true);
   });
 }
+
+test("manual pairing accepts nine letters with mixed case and surrounding whitespace", async ({ page, context }) => {
+  await page.goto("/monitor/");
+  await page.getByRole("button", { name: "Roll a fresh local invitation" }).click();
+  await expect(page.locator("#pairing-invitation-link")).toHaveValue(/\/j\/[ABCDEFGHJKMNPQRSTUVWXYZ]{9}$/);
+  const link = new URL(await page.locator("#pairing-invitation-link").inputValue());
+  const code = link.pathname.split("/").at(-1)!;
+  const capture = await context.newPage();
+  await capture.goto("/launch/capture/?simulation=1");
+  await capture.locator("#join-code").fill("ABCD-EFGHJ");
+  await capture.getByRole("button", { name: "Join with code" }).click();
+  await expect(capture.locator("#capture-status")).toHaveText("Enter nine letters, without I, L or O. Do not use numbers, spaces or punctuation.");
+  await capture.locator("#join-code").fill(`  ${code.slice(0, 4).toLowerCase()}${code.slice(4)}  `);
+  await capture.getByRole("button", { name: "Join with code" }).click();
+  await expect(capture.locator("#join-code")).toHaveValue(code);
+  await expect(capture.locator("#app")).toHaveAttribute("data-pairing-room-id", code);
+  await expect(capture.locator("#join-session-state")).toHaveText("OK");
+});
 
 test("public routes link to external documentation and exclude platform routes", async ({ page, request }) => {
   await page.goto("/");

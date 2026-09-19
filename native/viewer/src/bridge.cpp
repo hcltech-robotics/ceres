@@ -137,12 +137,22 @@ std::string secret() {
     return result;
 }
 std::string pairing_code() {
-    constexpr std::string_view alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-    std::array<uint8_t, 8> bytes{};
-    random_bytes(bytes);
+    constexpr std::string_view alphabet = "ABCDEFGHJKMNPQRSTUVWXYZ";
+    constexpr auto accepted_bytes = 256 / alphabet.size() * alphabet.size();
+    std::array<uint8_t, 9> bytes{};
     std::string result;
-    for (auto b : bytes)
-        result.push_back(alphabet[b % alphabet.size()]);
+    result.reserve(bytes.size());
+    while (result.size() < bytes.size()) {
+        random_bytes(bytes);
+        for (auto b : bytes) {
+            // Discard the incomplete alphabet block so every letter is equally likely.
+            if (b >= accepted_bytes)
+                continue;
+            result.push_back(alphabet[b % alphabet.size()]);
+            if (result.size() == bytes.size())
+                break;
+        }
+    }
     return result;
 }
 bool valid_identity_text(const Json& value) {

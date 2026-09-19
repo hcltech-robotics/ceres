@@ -1,4 +1,5 @@
 import { applyConnectionProfile, connectionProfileFromSearch, defaultCeresRelayUrl, type ConnectionProfile } from "./connection-profile.js";
+import { createPairingCode, normalisePairingCode, pairingRoomIdPattern } from "../shared/pairing-code.js";
 
 export interface PairingRoomCredentials {
   version: 1;
@@ -31,12 +32,9 @@ export interface PairingInvitationTarget {
 type PairingInvitationStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
 const sessionIdPattern = /^[A-Za-z0-9_-]{8,128}$/;
-const roomIdPattern = /^(?:[A-Z2-9]{8}|[A-Za-z0-9_-]{20,128})$/;
+const roomIdPattern = pairingRoomIdPattern;
 const opaqueIdPattern = /^[A-Za-z0-9_-]{20,128}$/;
 export const pairingInvitationLifetimeMs = 5 * 60 * 1_000;
-const readableCodeAlphabet = "23456789ABCDEFGHJKMNPQRSTUVWXYZ";
-const shortPairingCodePattern = /^[A-Z2-9]{8}$/;
-const typedPairingCodePattern = /^[2-9ABCDEFGHJKMNPQRSTUVWXYZ]{8}$/;
 const capturePairingInvitationStorageKey = "ceres.capture-pairing-invitation.v1";
 const boundPairingInvitationRetentionMs = 24 * 60 * 60 * 1_000;
 
@@ -49,7 +47,7 @@ export function createPairingRoomCredentials(sessionId: string, now = Date.now()
   return {
     version: 1,
     sessionId,
-    roomId: randomReadableCode(8),
+    roomId: createPairingCode(),
     monitorCapability: randomOpaqueId(32),
     demonstratorCapability: randomOpaqueId(32),
     expiresAt: new Date(now + pairingInvitationLifetimeMs).toISOString(),
@@ -98,8 +96,7 @@ export function shortPairingInviteUrl(
 }
 
 export function normaliseShortPairingCode(value: string) {
-  const code = value.trim().toUpperCase().replace(/[\s-]+/g, "");
-  return typedPairingCodePattern.test(code) ? code : null;
+  return normalisePairingCode(value);
 }
 
 export function shareablePairingInviteUrl(
@@ -120,8 +117,10 @@ export function shortPairingInviteFromUrl(
   try {
     const url = new URL(value);
     if (!applicationOrigin || url.origin !== new URL(applicationOrigin).origin) return null;
-    const code = url.pathname.startsWith("/j/") ? url.pathname.slice("/j/".length) : "";
-    return shortPairingCodePattern.test(code) && !url.search && !url.hash ? url.toString() : null;
+    const code = normalisePairingCode(url.pathname.startsWith("/j/") ? url.pathname.slice("/j/".length) : "");
+    if (!code || url.search || url.hash) return null;
+    url.pathname = `/j/${code}`;
+    return url.toString();
   } catch {
     return null;
   }
@@ -428,14 +427,6 @@ function randomOpaqueId(length: number) {
   const bytes = new Uint8Array(length);
   crypto.getRandomValues(bytes);
   return encodeBase64Url(bytes);
-}
-
-function randomReadableCode(length: number) {
-  const bytes = new Uint8Array(length);
-  crypto.getRandomValues(bytes);
-  let code = "";
-  for (const byte of bytes) code += readableCodeAlphabet[byte % readableCodeAlphabet.length];
-  return code;
 }
 
 function encodeInvite(invite: DemonstratorPairingInvite) {

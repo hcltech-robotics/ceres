@@ -301,6 +301,14 @@ class Relay {
         std::lock_guard lock(mutex);
         return creates;
     }
+    void reject_next_creation() {
+        std::lock_guard lock(mutex);
+        reject_creation = true;
+    }
+    int creation_attempt_count() {
+        std::lock_guard lock(mutex);
+        return creation_attempts;
+    }
     int revoked_count() {
         std::lock_guard lock(mutex);
         return revokes;
@@ -330,12 +338,27 @@ class Relay {
     Json identity;
     uint32_t epoch = 1;
     bool paired = false;
+    bool reject_creation = false;
+    int creation_attempts = 0;
     int creates = 0, revokes = 0, registrations = 0;
     std::string failure;
     Json request(const std::string& path, const Json& body) {
         std::lock_guard lock(mutex);
         if (path == "/api/bridge/v1/bindings") {
-            check(body.at("code").get<std::string>().size() == 8, "Invitation code length differs");
+            const auto code = body.at("code").get<std::string>();
+            check(code.size() == 9 &&
+                      code.find_first_not_of("ABCDEFGHJKMNPQRSTUVWXYZ") == std::string::npos,
+                  "Invitation code must contain nine unambiguous letters");
+            const auto now = std::chrono::duration<double>(
+                                 std::chrono::system_clock::now().time_since_epoch())
+                                 .count();
+            const auto lifetime = body.at("invitation_expires").get<double>() - now;
+            check(lifetime > 290 && lifetime <= 300, "Invitation expiry differs");
+            ++creation_attempts;
+            if (reject_creation) {
+                reject_creation = false;
+                return {{"error", "Code already allocated"}, {"status", 409}};
+            }
             identity = body;
             epoch = 1;
             paired = false;
@@ -434,7 +457,8 @@ class Relay {
             response_json.erase("status");
             const auto response = response_json.dump();
             const auto reply =
-                std::string("HTTP/1.1 ") + (status == 404 ? "404 Not Found" : "200 OK") +
+                std::string("HTTP/1.1 ") +
+                (status == 404 ? "404 Not Found" : status == 409 ? "409 Conflict" : "200 OK") +
                 "\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: " +
                 std::to_string(response.size()) + "\r\n\r\n" + response;
             send_all(socket, reply.data(), reply.size());
@@ -1273,6 +1297,7 @@ int main(int argc, char** argv) {
     try {
         rtcp_clock_tests();
         Relay relay;
+        relay.reject_next_creation();
         ceres::BridgeOptions options;
         options.app_origin = options.relay = relay.origin();
         options.identity_path = identity_file;
@@ -1296,6 +1321,8 @@ int main(int argc, char** argv) {
         until([&] { return first.snapshot().connected && first.snapshot().clock.valid; },
               "Initial local Bridge connection failed");
         check(relay.error().empty(), "Local relay rejected the receiver contract");
+        check(relay.creation_attempt_count() == 2 && relay.created_count() == 1,
+              "Invitation did not retry the code collision");
         const auto saved = relay.current_identity();
         identity_protected(identity_file, saved);
         std::ifstream fixture_file(std::filesystem::path(__FILE__).parent_path() / "fixtures" /

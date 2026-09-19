@@ -7,9 +7,9 @@ import { SessionSignallingAuthority } from "../shared/session-signalling.js";
 import { BridgeSignallingAuthority } from "../shared/bridge-signalling.js";
 import { BRIDGE_INVITE_MS, BridgeFault, bridgeCodePattern, requireBridgeIdentity, type BridgeBinding } from "../shared/bridge-authority.js";
 import type { SignallingContext, SignallingSocket } from "../shared/signalling-context.js";
+import { normalisePairingCode, pairingRoomIdPattern } from "../shared/pairing-code.js";
 import { SignallingStore } from "./signalling-store.js";
 
-const roomPattern = /^(?:[A-Z2-9]{8}|[A-Za-z0-9_-]{20,128})$/;
 const bindingPattern = /^[A-Za-z0-9_-]{20,128}$/;
 type Authority = SessionSignallingAuthority | BridgeSignallingAuthority;
 
@@ -84,7 +84,7 @@ export function installSignalling(app: Express, server: Server, options: { dataD
   }, 60_000);
   cleanup.unref();
   const actor = (kind: "room" | "bridge" | "code", id: string) => {
-    if (!(kind === "room" ? roomPattern : kind === "code" ? bridgeCodePattern : bindingPattern).test(id)) throw new BridgeFault(400, "Invalid signalling identity");
+    if (!(kind === "room" ? pairingRoomIdPattern : kind === "code" ? bridgeCodePattern : bindingPattern).test(id)) throw new BridgeFault(400, "Invalid signalling identity");
     const key = `${kind}-${id}`;
     let current = actors.get(key);
     if (!current) {
@@ -133,7 +133,8 @@ export function installSignalling(app: Express, server: Server, options: { dataD
     await respond(response, await invoke(actor("room", request.body.roomId), "/internal/create-invitation", request));
   });
   router.get("/v1/invitations/:room", async (request, response) => {
-    await respond(response, await invoke(actor("room", String(request.params.room)), "/internal/resolve-invitation", request));
+    const room = String(request.params.room);
+    await respond(response, await invoke(actor("room", normalisePairingCode(room) ?? room), "/internal/resolve-invitation", request));
   });
   router.post("/bridge/v1/bindings", async (request, response) => {
     rate(request, "create", 20);
@@ -159,7 +160,7 @@ export function installSignalling(app: Express, server: Server, options: { dataD
     await respond(response, indexed);
   });
   router.get("/bridge/v1/invitations/:code", async (request, response) => {
-    const index = actor("code", String(request.params.code));
+    const index = actor("code", normalisePairingCode(String(request.params.code)) ?? "");
     const invitation = await index.run(() => index.storage.get<{ bindingId: string; expiresAt: number }>("code"));
     if (!invitation || Date.now() >= invitation.expiresAt) throw new BridgeFault(410, "Bridge invitation expired");
     const available = await invoke(actor("bridge", invitation.bindingId), "/available", request);
@@ -179,7 +180,8 @@ export function installSignalling(app: Express, server: Server, options: { dataD
   app.get("/j/:room", async (request, response) => {
     try {
       rate(request, "join");
-      const value = await invoke(actor("room", String(request.params.room)), "/internal/resolve-invitation", request);
+      const room = String(request.params.room);
+      const value = await invoke(actor("room", normalisePairingCode(room) ?? room), "/internal/resolve-invitation", request);
       if (!value.ok) { await respond(response, value); return; }
       const invitation = await value.json() as { joinUrl: string };
       if (new URL(invitation.joinUrl).origin !== origin(request)) throw new BridgeFault(403, "Invitation origin mismatch");

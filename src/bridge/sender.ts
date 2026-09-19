@@ -1,4 +1,5 @@
 import type { CaptureAuthorityPort } from "../capture-authority.js";
+import { normalisePairingCode, pairingCodeInputError } from "../../shared/pairing-code.js";
 import type { BridgeCamera } from "./camera.js";
 import { Observations } from "./observations.js";
 import { BridgePeer } from "./peer.js";
@@ -74,9 +75,18 @@ export class BridgeSender implements CaptureAuthorityPort {
     root.querySelector("#join-code-form")!.addEventListener("submit", event => {
       event.preventDefault();
       if (!this.ownsTab || this.busy || this.session) return;
+      const code = normalisePairingCode(input.value);
+      if (!code) {
+        input.setCustomValidity(pairingCodeInputError);
+        input.reportValidity();
+        this.setStatus(pairingCodeInputError);
+        return;
+      }
+      input.setCustomValidity("");
+      input.value = code;
       this.busy = true;
       this.setStatus("Pairing with the receiver");
-      void pairReceiver(input.value.trim().toUpperCase()).then(binding => {
+      void pairReceiver(code).then(binding => {
         if (this.disposed) return;
         this.binding = binding;
         this.setStatus("");
@@ -138,7 +148,7 @@ export class BridgeSender implements CaptureAuthorityPort {
         const url = new URL(location.href);
         const code = url.searchParams.get("code");
         if (code) {
-          input.value = code.toUpperCase();
+          input.value = normalisePairingCode(code) ?? code;
           url.searchParams.delete("code");
           history.replaceState(null, "", url);
         }

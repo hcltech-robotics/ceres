@@ -1,7 +1,9 @@
+import { pairingCodePattern } from "./pairing-code.js";
+
 export const BRIDGE_INVITE_MS = 5 * 60_000;
 export const BRIDGE_ROOM_MS = 24 * 60 * 60_000;
 export const bridgeIdPattern = /^[A-Za-z0-9_-]{20,128}$/;
-export const bridgeCodePattern = /^[A-Z2-9]{8}$/;
+export const bridgeCodePattern = pairingCodePattern;
 export type BridgeRole = "sender" | "receiver";
 export interface BridgeIdentity { id: string; hash: string }
 export interface BridgeBinding {

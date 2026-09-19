@@ -77,7 +77,7 @@ async def invitation(relay, args, path):
     for _ in range(5):
         identity = {"version": 1, "bindingId": secrets.token_urlsafe(32), "deviceId": secrets.token_urlsafe(32),
                     "secret": secrets.token_urlsafe(32), "invitationSecret": secrets.token_urlsafe(32),
-                    "code": "".join(secrets.choice("ABCDEFGHJKLMNPQRSTUVWXYZ23456789") for _ in range(8)),
+                    "code": "".join(secrets.choice("ABCDEFGHJKMNPQRSTUVWXYZ") for _ in range(9)),
                     "label": args.name, "appOrigin": args.app_origin.rstrip("/"), "relay": args.relay,
                     "invitation_expires": time.time() + 300}
         # Save before creation so a lost HTTP response cannot discard a claimed identity.

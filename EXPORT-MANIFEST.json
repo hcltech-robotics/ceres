@@ -2,7 +2,7 @@
   "version": 2,
   "packageVersion": "1.1.2",
   "generator": "ceres-public-core/2",
-  "treeDigest": "37a5d14bb762ea2a05a844ed1975ad1626bacdc0f9338eba7e29862ab570066e",
+  "treeDigest": "4f9802857aed4dd6b6be0fde563b39a816dddbfb15085735dceff4153870090e",
   "files": {
     ".dockerignore": {
       "sha256": "f4f0799e0c8f318b0d36a430909ba9dcb3eeca1d1b0ae8b3b7907b44cc2bedca",
@@ -710,8 +710,8 @@
       "mode": "100644"
     },
     "native/viewer/src/bridge.cpp": {
-      "sha256": "b4fb8342e8ae3767ce97af2f32fc5626ff191f07456291b3464ed611ccc79b10",
-      "bytes": 68396,
+      "sha256": "7f11e77fb5c794eebf775ed0f4305e1af7fb79c2c0470c2fbef3bc222361955a",
+      "bytes": 68792,
       "mode": "100644"
     },
     "native/viewer/src/calibration.cpp": {
@@ -905,8 +905,8 @@
       "mode": "100644"
     },
     "native/viewer/tests/test_bridge.cpp": {
-      "sha256": "c446e70a9d0f02deac8d2eb80c25072809b4d63c052a30768400cd32952a0939",
-      "bytes": 67034,
+      "sha256": "f0aa7d5f4b959f77157034e9d8d847dee44d92269b7496102dee04943b921768",
+      "bytes": 68282,
       "mode": "100644"
     },
     "native/viewer/tests/test_depth.cpp": {
@@ -1195,8 +1195,8 @@
       "mode": "100644"
     },
     "receiver/README.md": {
-      "sha256": "24196266151a452da864455a346cc619d944e73f3932fe5aa52c0a0ef4057564",
-      "bytes": 3065,
+      "sha256": "29b1b3058bb1e13b66e4edb579cd6f29814ff7d5d7b34e8e0b3f4b76eb1d2669",
+      "bytes": 3310,
       "mode": "100644"
     },
     "receiver/THIRD-PARTY.md": {
@@ -1555,8 +1555,8 @@
       "mode": "100644"
     },
     "receiver/src/ceres_bridge/worker.py": {
-      "sha256": "97a5e5845f45a1d6e492a9e2763e59d78a21cdd89996eca6dcbb06229dd716a8",
-      "bytes": 13318,
+      "sha256": "fb163d98df1b09757d4b816702534756585c06e0ce696902283170b384284305",
+      "bytes": 13309,
       "mode": "100644"
     },
     "receiver/tests/inspect_foxglove.py": {
@@ -1642,6 +1642,11 @@
     "receiver/tests/test_media_cameras.py": {
       "sha256": "e92c7dd037b22da86109256b25bbbbf31afe96e211aa6c200c5865739fc92e07",
       "bytes": 9251,
+      "mode": "100644"
+    },
+    "receiver/tests/test_pairing.py": {
+      "sha256": "be017fda6d15faed7b15638f0620b04f0ad2b4b469876784dec029bae7efed75",
+      "bytes": 3702,
       "mode": "100644"
     },
     "receiver/tests/test_protocol.py": {
@@ -1780,8 +1785,8 @@
       "mode": "100644"
     },
     "server/signalling.ts": {
-      "sha256": "ddf07e1afdb86b4219eac0dc09aac32fdbda994e2def1fd494aafdddf728d957",
-      "bytes": 13794,
+      "sha256": "b4debe31166dc32fa9697616c920c12ccde43413ab9cd5a92c87ed58cd08b18f",
+      "bytes": 13964,
       "mode": "100644"
     },
     "server/websocket-origin.ts": {
@@ -1790,8 +1795,8 @@
       "mode": "100644"
     },
     "shared/bridge-authority.ts": {
-      "sha256": "b70f54e9e77f48c40eb101d92515d3a27874d6efc12982d2ebeaff84f2cb8118",
-      "bytes": 2781,
+      "sha256": "9c852d75b6caff753c217aa4afcbad4ddbb5885306540fc7adca00aff5085a32",
+      "bytes": 2841,
       "mode": "100644"
     },
     "shared/bridge-depth.ts": {
@@ -1864,6 +1869,11 @@
       "bytes": 10466,
       "mode": "100644"
     },
+    "shared/pairing-code.ts": {
+      "sha256": "2f1794d5707f5cda4e62e089845f49a53aafd0ca8bdde6b09cae0497b3f69fad",
+      "bytes": 1391,
+      "mode": "100644"
+    },
     "shared/protocol.ts": {
       "sha256": "12828e0e2bd19e79188d1be6ccabbab942c64e17861c36f1ead9029f7ca2b73d",
       "bytes": 52822,
@@ -1880,8 +1890,8 @@
       "mode": "100644"
     },
     "shared/session-signalling.ts": {
-      "sha256": "b8b2de2c5a668d8a51e4621b75a5445691833eabf352f6588bf15d1c5587a745",
-      "bytes": 23431,
+      "sha256": "3b7925142ad9388aa2785412ef44594d390212f560ec34ba8d624b800594df21",
+      "bytes": 23438,
       "mode": "100644"
     },
     "shared/signalling-context.ts": {
@@ -1955,8 +1965,8 @@
       "mode": "100644"
     },
     "src/bridge/pairing.ts": {
-      "sha256": "4260574ed305df0252faf680c18af04943f24f068fdb535dc6355291142373d9",
-      "bytes": 5460,
+      "sha256": "8864b1d5c86572258d18157660efe55fef35c48cc7dff01676e204b2cfe29958",
+      "bytes": 5586,
       "mode": "100644"
     },
     "src/bridge/peer.ts": {
@@ -1965,8 +1975,8 @@
       "mode": "100644"
     },
     "src/bridge/qr.ts": {
-      "sha256": "ec0acce38eed7a867639936bfdf161cd1f4be54356b2af792b0bb6cf0bea7ae2",
-      "bytes": 2224,
+      "sha256": "64f49cbd29d98ad4cc856d4e4c0db42c37866e249c3a0dbe60222bffaf5b3d07",
+      "bytes": 2310,
       "mode": "100644"
     },
     "src/bridge/qr.worker.ts": {
@@ -1975,8 +1985,8 @@
       "mode": "100644"
     },
     "src/bridge/sender.ts": {
-      "sha256": "df19876ace595ee58a0adc6f7e5a16c1ee17d836867c65a59ea0432a60c9f7a1",
-      "bytes": 13668,
+      "sha256": "553564d6150c8e98a0401320f8a0fcff995025982989c9b0b33429ced542b8a4",
+      "bytes": 14041,
       "mode": "100644"
     },
     "src/camera-calibration-solver.ts": {
@@ -2010,8 +2020,8 @@
       "mode": "100644"
     },
     "src/capture-app.ts": {
-      "sha256": "77fb6573d75f21413df3253c85e3d394212cd3da2dbf51b9dab4baf5bd9b6da4",
-      "bytes": 315139,
+      "sha256": "69a7dc14480d07a219f4c7957117fb2baae9f70e8873c491c46654ea390396d6",
+      "bytes": 315214,
       "mode": "100644"
     },
     "src/capture-authority.ts": {
@@ -2270,8 +2280,8 @@
       "mode": "100644"
     },
     "src/monitor-pairing-storage.ts": {
-      "sha256": "4cbe7de3b26c897e3d1695a20370f162dde1fe05b01ccd60a66c392537f6e101",
-      "bytes": 6741,
+      "sha256": "3700ef4a7c7b7249361ac075d0f79ba8e36b0bb2f42d21f64783791748c29257",
+      "bytes": 6786,
       "mode": "100644"
     },
     "src/monitor-renderer.ts": {
@@ -2340,8 +2350,8 @@
       "mode": "100644"
     },
     "src/pairing-invite.ts": {
-      "sha256": "a796b59eba8c3aa616f8af65dfd0f3e0908bdf3a2119edd1f086ffdf4c9b8351",
-      "bytes": 17624,
+      "sha256": "facb0e69d3c5877c84a17c4586fd1848c1fd9f666b8353b96d1be02a58a3502d",
+      "bytes": 17228,
       "mode": "100644"
     },
     "src/quest-camera.ts": {
@@ -2765,8 +2775,8 @@
       "mode": "100644"
     },
     "test/browser/selfhost.spec.ts": {
-      "sha256": "85dd1c7b47df4f30c75aee2e90d87b4cf2b56a4ca1cbaa20ae283cbcb35c36d7",
-      "bytes": 3346,
+      "sha256": "3c6dfa76cb1f0171867d92067a543837a08cc35a84dfe2bc27575cfe61cbca7a",
+      "bytes": 4621,
       "mode": "100644"
     },
     "test/camera-capture-frame.test.ts": {
@@ -2899,9 +2909,14 @@
       "bytes": 534,
       "mode": "100644"
     },
+    "test/pairing-code.test.ts": {
+      "sha256": "e19a823fb02b3e8bd84c77dfab5bf3199ea75a7dd9522662c486c564781f9337",
+      "bytes": 3159,
+      "mode": "100644"
+    },
     "test/pairing-invite.test.ts": {
-      "sha256": "bd75cf03a2e6bdf37789a57a510710783542c3df7c3a304a90d693b55bd71c3d",
-      "bytes": 13709,
+      "sha256": "8c6592a9c000435224fcb1a187c4cf8ed5b107991763b041250a4b37052d62d3",
+      "bytes": 13854,
       "mode": "100644"
     },
     "test/peer-recorder-framing.test.ts": {
@@ -2965,8 +2980,8 @@
       "mode": "100644"
     },
     "test/selfhost-signalling.test.ts": {
-      "sha256": "6ec07cb4099c654fa4baee9319d9e6d7801979047e5ce5e6e0fdcbddf0dc6c93",
-      "bytes": 9083,
+      "sha256": "65faa5e6bf6a361e4a7e0ddecf9a6866a052879b838e72b1ff06ae9c6438ac61",
+      "bytes": 12747,
       "mode": "100644"
     },
     "test/sensor-source.test.ts": {

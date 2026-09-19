@@ -47,7 +47,7 @@ test("a demonstrator invitation carries one capability in its fragment", () => {
   assert.equal(url.search.includes(room.demonstratorCapability), false);
   assert.equal(url.hash.includes(room.demonstratorCapability), false);
   assert.deepEqual(pairingInviteFromUrl(url.toString()), demonstratorInvite(room));
-  assert.match(room.roomId, /^[A-Z2-9]{8}$/);
+  assert.match(room.roomId, /^[ABCDEFGHJKMNPQRSTUVWXYZ]{9}$/);
   assert.equal(Date.parse(room.expiresAt) - Date.now() <= 5 * 60 * 1_000, true);
   assert.equal(Date.parse(room.expiresAt) - Date.now() > 4 * 60 * 1_000, true);
   assert.equal(url.toString().length < 300, true);
@@ -62,9 +62,11 @@ test("a short invitation is human-scale and same-origin", () => {
 });
 
 test("a typed join code is normalised without accepting ambiguous characters", () => {
-  assert.equal(normaliseShortPairingCode(" abcd-2345 "), "ABCD2345");
-  assert.equal(normaliseShortPairingCode("ABCD 2345"), "ABCD2345");
-  assert.equal(normaliseShortPairingCode("ABCDO345"), null);
+  assert.equal(normaliseShortPairingCode(" abCdEfGHj "), "ABCDEFGHJ");
+  assert.equal(normaliseShortPairingCode(" abcd2345 "), "ABCD2345");
+  assert.equal(normaliseShortPairingCode("abcd-2345"), null);
+  assert.equal(normaliseShortPairingCode("ABCD EFGHJ"), null);
+  assert.equal(normaliseShortPairingCode("ABCDEFGHO"), null);
   assert.equal(normaliseShortPairingCode("TOO-SHORT"), null);
 });
 

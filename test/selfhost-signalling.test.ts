@@ -10,6 +10,7 @@ import express from "express";
 import { WebSocket } from "ws";
 import { installSignalling } from "../server/signalling.js";
 import { SignallingStore } from "../server/signalling-store.js";
+import { BRIDGE_INVITE_MS } from "../shared/bridge-authority.js";
 
 const identity = () => randomBytes(24).toString("base64url");
 const hash = (value: string) => createHash("sha256").update(value).digest("base64url");
@@ -138,6 +139,66 @@ test("Bridge claims, epochs, SDP direction and revocation survive a local restar
     await until(() => left.code !== 0 && right.code !== 0);
     assert.equal(left.code, 4410);
     assert.equal((await host.request(`${base}/session`, receiver)).status, 403);
+  } finally { await host.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+for (const code of ["ABCDEFGHJ", "ABCIOL29"]) {
+  test(`short pairing code ${code} resolves without case sensitivity and keeps collision and expiry guards`, async (context) => {
+    const directory = await mkdtemp(path.join(tmpdir(), "ceres-short-code-"));
+    const host = await fixture(directory);
+    let now = Date.now();
+    context.mock.method(Date, "now", () => now);
+    const sessionId = identity(), monitor = identity();
+    const room = {
+      version: 1, roomId: code, sessionId, monitorCapabilityHash: hash(monitor), demonstratorCapabilityHash: hash(identity()),
+      expiresAt: new Date(now + 240_000).toISOString(),
+      joinUrl: `${host.origin}/launch/capture/?session=${sessionId}#invite=${identity()}`,
+    };
+    const binding = {
+      bindingId: identity(), deviceId: identity(), secret: identity(), invitationSecret: identity(),
+      code, label: "Receiver", appOrigin: host.origin,
+    };
+    try {
+      assert.equal((await host.request("/api/v1/rooms", room)).status, 201);
+      assert.equal((await host.request("/api/v1/rooms", room)).status, 409);
+      for (const entered of [code, code.toLowerCase()]) {
+        assert.equal((await host.request(`/api/v1/invitations/${entered}`)).status, 200);
+        assert.equal((await host.request(`/j/${entered}`)).headers.get("location"), room.joinUrl);
+      }
+      const director = host.connect(`/invite-signal?room=${code}`, {
+        type: "register", protocol: "invitation", role: "monitor", roomId: code, sessionId, capability: monitor,
+      });
+      await until(() => director.messages.some(message => message.type === "session-registered"));
+      assert.equal((await host.request("/api/bridge/v1/bindings", binding)).status, 200);
+      assert.equal((await host.request("/api/bridge/v1/bindings", { ...binding, bindingId: identity() })).status, 409);
+      assert.equal((await host.request(`/api/bridge/v1/invitations/${code.toLowerCase()}`)).status, 200);
+      now += BRIDGE_INVITE_MS + 1;
+      assert.equal((await host.request(`/api/v1/invitations/${code}`)).status, 410);
+      assert.equal((await host.request(`/j/${code}`)).status, 410);
+      assert.equal((await host.request(`/api/bridge/v1/invitations/${code}`)).status, 410);
+    } finally { await host.close(); await rm(directory, { recursive: true, force: true }); }
+  });
+}
+
+test("short pairing routes reject invalid nine-character codes before allocation", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "ceres-invalid-code-"));
+  const host = await fixture(directory);
+  const sessionId = identity();
+  try {
+    for (const code of ["ABCDEFGH2", "ABCDEFGHI", "ABCDEFGHL", "ABCDEFGHO", "ABCD-EFGH", "ABCD EFGH"]) {
+      const room = {
+        version: 1, roomId: code, sessionId, monitorCapabilityHash: hash(identity()), demonstratorCapabilityHash: hash(identity()),
+        expiresAt: new Date(Date.now() + 240_000).toISOString(),
+        joinUrl: `${host.origin}/launch/capture/?session=${sessionId}#invite=${identity()}`,
+      };
+      assert.equal((await host.request("/api/v1/rooms", room)).status, 400, code);
+      const binding = {
+        bindingId: identity(), deviceId: identity(), secret: identity(), invitationSecret: identity(),
+        code, label: "Receiver", appOrigin: host.origin,
+      };
+      assert.equal((await host.request("/api/bridge/v1/bindings", binding)).status, 400, code);
+      assert.equal((await host.request(`/api/bridge/v1/invitations/${encodeURIComponent(code)}`)).status, 400, code);
+    }
   } finally { await host.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
