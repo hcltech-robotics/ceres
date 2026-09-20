@@ -4,6 +4,7 @@ interface LocalVoiceCommandUtterance {
   utteranceId: number;
   capturedAtMs: number;
   context?: string;
+  exitContext?: string;
 }
 
 interface LocalVoiceCommandAudio extends LocalVoiceCommandUtterance {
@@ -23,10 +24,10 @@ export class LocalVoiceCommandQueue {
   private pending: LocalVoiceCommandAudio | null = null;
   private active: LocalVoiceCommandRequest | null = null;
 
-  start(utteranceId: number, capturedAtMs: number, context?: string) {
+  start(utteranceId: number, capturedAtMs: number, context?: string, exitContext?: string) {
     if (!Number.isSafeInteger(utteranceId) || utteranceId <= this.lastUtteranceId) return;
     this.lastUtteranceId = utteranceId;
-    this.capturing = { utteranceId, capturedAtMs, context };
+    this.capturing = { utteranceId, capturedAtMs, context, exitContext };
   }
 
   cancel(utteranceId: number) {
@@ -61,6 +62,18 @@ export class LocalVoiceCommandQueue {
     if (this.active?.requestId !== requestId) return false;
     this.active = null;
     return true;
+  }
+
+  activity(now: number) {
+    if (this.capturing && !this.fresh(this.capturing, now)) this.capturing = null;
+    if (this.pending && !this.fresh(this.pending, now)) this.pending = null;
+    const expiring = [this.capturing, this.pending].filter(utterance => utterance !== null);
+    return {
+      outstanding: this.active !== null || expiring.length > 0,
+      expiresAtMs: expiring.length
+        ? Math.min(...expiring.map(utterance => utterance.capturedAtMs + LOCAL_VOICE_COMMAND_MAX_AGE_MS))
+        : null,
+    };
   }
 
   clear() {

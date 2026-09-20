@@ -81,6 +81,22 @@ test("abandons only the requested inference and releases captured audio on clear
   assert.equal(queue.complete(next.requestId, 500), null);
 });
 
+test("tracks capture and pending expiry without hiding an outstanding inference", () => {
+  const queue = new LocalVoiceCommandQueue();
+  assert.deepEqual(queue.activity(0), { outstanding: false, expiresAtMs: null });
+  queue.start(1, 0, "run-a", "xr-a");
+  assert.deepEqual(queue.activity(1), { outstanding: true, expiresAtMs: LOCAL_VOICE_COMMAND_MAX_AGE_MS });
+  queue.capture(1, new Float32Array([1]), 16_000, 100);
+  const first = queue.next(100)!;
+  assert.equal(first.exitContext, "xr-a");
+  capture(queue, 2, 200);
+  assert.deepEqual(queue.activity(300), { outstanding: true, expiresAtMs: 200 + LOCAL_VOICE_COMMAND_MAX_AGE_MS });
+  assert.deepEqual(queue.activity(200 + LOCAL_VOICE_COMMAND_MAX_AGE_MS), { outstanding: true, expiresAtMs: null });
+  queue.complete(first.requestId, 5_000);
+  assert.deepEqual(queue.activity(5_000), { outstanding: false, expiresAtMs: null });
+  assert.equal(queue.next(5_000), null);
+});
+
 type WorkerMessage = Record<string, unknown>;
 
 function controllerHarness(t: TestContext, options: Partial<LocalVoiceCommandControllerOptions> = {}) {
@@ -115,6 +131,7 @@ function controllerHarness(t: TestContext, options: Partial<LocalVoiceCommandCon
   const commands: Array<{ command: string; context?: string }> = [];
   const activity: boolean[] = [];
   const statuses: string[] = [];
+  const results: boolean[] = [];
   let successes = 0;
   const controller = new LocalVoiceCommandController({
     stream: {} as MediaStream,
@@ -122,6 +139,7 @@ function controllerHarness(t: TestContext, options: Partial<LocalVoiceCommandCon
     onStatus: (status) => statuses.push(status),
     onRecognitionChange: (active) => activity.push(active),
     onRecognitionSuccess: () => { successes += 1; },
+    onRecognitionResult: (matched) => results.push(matched),
     ...options,
   });
   t.after(() => {
@@ -136,9 +154,11 @@ function controllerHarness(t: TestContext, options: Partial<LocalVoiceCommandCon
     commands,
     activity,
     statuses,
+    results,
     successes: () => successes,
     tick(ms: number) { now += ms; t.mock.timers.tick(ms); },
     start(id: number) { input.receiveAudioMessage({ type: "speech-start", utteranceId: id }); },
+    cancel(id: number) { input.receiveAudioMessage({ type: "speech-cancel", utteranceId: id }); },
     finish(id: number) {
       input.receiveAudioMessage({ type: "audio", utteranceId: id, samples: new Float32Array([id]), sampleRate: 16_000 });
     },
@@ -164,7 +184,8 @@ test("immediately recognises the latest retry after a miss and accepts repeated 
   worker.emit({ type: "result", requestId: worker.audio[2]!.requestId, successful: true, command: "pause" });
   assert.deepEqual(h.commands.map(({ command }) => command), ["pause", "pause"]);
   assert.equal(h.successes(), 3);
-  assert.deepEqual(h.activity, [true, false, true, false, true, false]);
+  assert.deepEqual(h.activity, [true, false, true, false]);
+  assert.deepEqual(h.results, [false, true, true]);
   assert.deepEqual(h.statuses, ["ready"]);
 });
 
@@ -181,7 +202,8 @@ test("retries immediately after inference failure and clears activity on disposa
   h.tick(LOCAL_VOICE_COMMAND_INFERENCE_TIMEOUT_MS);
   worker.emit({ type: "result", requestId: worker.audio[1]!.requestId, successful: true, command: "next" });
   assert.equal(h.workers.length, 1);
-  assert.deepEqual(h.activity, [true, false, true, false]);
+  assert.deepEqual(h.activity, [true, false]);
+  assert.deepEqual(h.results, []);
   assert.deepEqual(h.commands, []);
 });
 
@@ -199,6 +221,68 @@ test("continues the pending retry when applying a recognised command throws", (t
   }), /Control rejected/);
   assert.equal(worker.audio.length, 2);
   assert.equal((worker.audio[1]!.samples as Float32Array)[0], 2);
+});
+
+test("shows activity during capture and model waiting and clears it on cancellation, expiry and errors", (t) => {
+  const h = controllerHarness(t);
+  const worker = h.workers[0]!;
+  h.start(1);
+  assert.deepEqual(h.activity, [true]);
+  h.cancel(1);
+  assert.deepEqual(h.activity, [true, false]);
+  h.start(2); h.finish(2);
+  assert.equal(worker.audio.length, 0);
+  h.tick(LOCAL_VOICE_COMMAND_MAX_AGE_MS);
+  assert.deepEqual(h.activity, [true, false, true, false]);
+  h.start(3);
+  worker.emit({ type: "status", status: "error", detail: "Model could not load" });
+  assert.deepEqual(h.activity, [true, false, true, false, true, false]);
+  h.finish(3);
+  worker.emit({ type: "status", status: "ready" });
+  assert.equal(worker.audio.length, 0);
+  h.start(4); h.finish(4);
+  worker.crash();
+  assert.equal(h.activity.at(-1), false);
+  h.tick(LOCAL_VOICE_COMMAND_INFERENCE_TIMEOUT_MS);
+  assert.deepEqual(h.results, []);
+});
+
+test("cancelling a new capture keeps activity while the previous utterance is still processing", (t) => {
+  const h = controllerHarness(t);
+  const worker = h.workers[0]!;
+  worker.emit({ type: "status", status: "ready" });
+  h.start(1); h.finish(1);
+  h.start(2);
+  h.cancel(2);
+  assert.deepEqual(h.activity, [true]);
+  worker.emit({ type: "result", requestId: worker.audio[0]!.requestId, successful: true });
+  assert.deepEqual(h.activity, [true, false]);
+  assert.deepEqual(h.results, [false]);
+});
+
+test("keeps processing feedback continuous when a result arrives during another capture", (t) => {
+  const h = controllerHarness(t);
+  const worker = h.workers[0]!;
+  worker.emit({ type: "status", status: "ready" });
+  h.start(1); h.finish(1);
+  h.start(2);
+  worker.emit({ type: "result", requestId: worker.audio[0]!.requestId, successful: true, command: "pause" });
+  assert.deepEqual(h.activity, [true]);
+  h.finish(2);
+  worker.emit({ type: "result", requestId: worker.audio[1]!.requestId, successful: true });
+  assert.deepEqual(h.activity, [true, false]);
+  assert.deepEqual(h.results, [true, false]);
+});
+
+test("drains a waiting retry even if a recognition feedback callback throws", (t) => {
+  const h = controllerHarness(t, { onRecognitionResult: () => { throw new Error("Feedback failed"); } });
+  const worker = h.workers[0]!;
+  worker.emit({ type: "status", status: "ready" });
+  h.start(1); h.finish(1);
+  h.start(2); h.finish(2);
+  assert.throws(() => worker.emit({ type: "result", requestId: worker.audio[0]!.requestId, successful: true }), /Feedback failed/);
+  assert.equal(worker.audio.length, 2);
+  assert.deepEqual(h.activity, [true]);
 });
 
 test("replaces a repeatedly failing native worker and preserves the microphone and pending retry", (t) => {
@@ -277,9 +361,11 @@ test("drops speech when context changes before dispatch or before the result", (
   context = "task-c";
   worker.emit({ type: "result", requestId: worker.audio[0]!.requestId, successful: true, command: "next" });
   assert.deepEqual(h.commands, []);
+  assert.deepEqual(h.results, []);
   h.start(3); h.finish(3);
   worker.emit({ type: "result", requestId: worker.audio[1]!.requestId, successful: true, command: "next" });
   assert.deepEqual(h.commands, [{ command: "next", context: "task-c" }]);
+  assert.deepEqual(h.results, [true]);
 });
 
 test("does not apply expired results or dispatch expired pending speech", (t) => {
@@ -291,9 +377,52 @@ test("does not apply expired results or dispatch expired pending speech", (t) =>
   h.tick(LOCAL_VOICE_COMMAND_MAX_AGE_MS);
   worker.emit({ type: "result", requestId: worker.audio[0]!.requestId, successful: true, command: "next" });
   assert.deepEqual(h.commands, []);
+  assert.deepEqual(h.results, []);
   assert.equal(worker.audio.length, 1);
   h.tick(LOCAL_VOICE_COMMAND_INFERENCE_TIMEOUT_MS);
   assert.equal(h.workers.length, 1);
+});
+
+test("allows exit across task changes but keeps other commands and their feedback bound to the captured task", (t) => {
+  let context = "task-a";
+  const h = controllerHarness(t, { getContext: () => context, getExitContext: () => "session:1:active" });
+  const worker = h.workers[0]!;
+  h.start(1);
+  context = "task-b";
+  h.finish(1);
+  worker.emit({ type: "status", status: "ready" });
+  assert.equal(worker.audio.length, 1);
+  context = "task-c";
+  worker.emit({ type: "result", requestId: worker.audio[0]!.requestId, successful: true, command: "exit" });
+  assert.deepEqual(h.commands, [{ command: "exit", context: "session:1:active" }]);
+  assert.deepEqual(h.results, [true]);
+  h.start(2); h.finish(2);
+  context = "task-d";
+  worker.emit({ type: "result", requestId: worker.audio[1]!.requestId, successful: true, command: "next" });
+  assert.equal(h.commands.length, 1);
+  assert.deepEqual(h.results, [true]);
+  assert.equal(h.successes(), 2);
+});
+
+test("drops speech and exit results from an earlier XR presentation", (t) => {
+  let exitContext = "session:1:active";
+  const h = controllerHarness(t, { getContext: () => "task-a", getExitContext: () => exitContext });
+  const worker = h.workers[0]!;
+  h.start(1); h.finish(1);
+  exitContext = "session:2:active";
+  worker.emit({ type: "status", status: "ready" });
+  assert.equal(worker.audio.length, 0);
+  assert.deepEqual(h.activity, [true, false]);
+  h.start(2); h.finish(2);
+  exitContext = "session:2:inactive";
+  worker.emit({ type: "result", requestId: worker.audio[0]!.requestId, successful: true, command: "exit" });
+  assert.deepEqual(h.commands, []);
+  assert.deepEqual(h.results, []);
+  h.start(3); h.finish(3);
+  exitContext = "session:3:active";
+  worker.emit({ type: "result", requestId: worker.audio[1]!.requestId, successful: true, command: "next" });
+  assert.deepEqual(h.commands, []);
+  assert.deepEqual(h.results, []);
 });
 
 test("replaces stalled inference without closing the microphone and ignores old results", (t) => {
@@ -317,6 +446,7 @@ test("replaces stalled inference without closing the microphone and ignores old 
   assert.equal(portClosed, 0);
   assert.equal(state.audioContext, audioContext);
   assert.equal(state.captureNode, captureNode);
+  assert.deepEqual(h.activity, [true]);
   const replacement = h.workers[1]!;
   assert.deepEqual(replacement.messages, [{ type: "initialise" }]);
   oldWorker.emit({ type: "result", requestId: oldWorker.audio[0]!.requestId, successful: true, command: "stop" });
@@ -328,6 +458,8 @@ test("replaces stalled inference without closing the microphone and ignores old 
   assert.equal((replacement.audio[0]!.samples as Float32Array)[0], 2);
   replacement.emit({ type: "result", requestId: replacement.audio[0]!.requestId, successful: true, command: "pause" });
   assert.deepEqual(h.commands, [{ command: "pause", context: undefined }]);
+  assert.deepEqual(h.results, [true]);
+  assert.deepEqual(h.activity, [true, false]);
   assert.deepEqual(h.statuses, ["ready", "loading", "ready"]);
   h.controller.dispose();
   assert.equal(audioClosed, 1);

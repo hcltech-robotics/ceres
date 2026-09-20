@@ -682,21 +682,45 @@ export interface XrCameraEdgesPresentation {
   phase: XrCameraEdgesPhase;
 }
 
-export type XrCameraVoiceIndicatorState = "active" | "standby" | "unavailable";
+export type XrCameraVoiceIndicatorState = "active" | "standby" | "recognising" | "matched" | "unmatched" | "unavailable";
+
+export const XR_VOICE_MATCHED_FEEDBACK_MS = 800;
+export const XR_VOICE_UNMATCHED_FEEDBACK_MS = 1_600;
+const XR_VOICE_RECOGNISING_PULSE_MS = 1_600;
+const XR_VOICE_MATCHED_COLOUR = "#75d68a";
+const XR_VOICE_WAVE_BARS = [[-10, 12], [-3, 24], [4, 30], [11, 18]] as const;
+
+export interface XrCameraVoiceIndicatorFeedback {
+  recognising?: boolean;
+  outcome?: "matched" | "unmatched" | null;
+  outcomeElapsedMs?: number;
+}
 
 export const xrCameraVoiceIndicatorState = (
   runtimeFeaturesLoaded: boolean,
   recognitionEnabled: boolean,
   status: LocalVoiceCommandStatus,
+  feedback: XrCameraVoiceIndicatorFeedback = {},
 ): XrCameraVoiceIndicatorState => {
   if (!runtimeFeaturesLoaded || status === "loading") return "standby";
   if (!recognitionEnabled || status === "error") return "unavailable";
+  const elapsedMs = feedback.outcomeElapsedMs;
+  if (typeof elapsedMs === "number" && Number.isFinite(elapsedMs) && elapsedMs >= 0) {
+    if (feedback.outcome === "matched" && elapsedMs < XR_VOICE_MATCHED_FEEDBACK_MS) return "matched";
+    if (feedback.outcome === "unmatched" && elapsedMs < XR_VOICE_UNMATCHED_FEEDBACK_MS) return "unmatched";
+  }
+  if (feedback.recognising) return "recognising";
   return "active";
 };
 
-export interface XrCameraEdgeIndicatorPresentation {
-  recording: boolean;
+export interface XrVoiceIndicatorPresentation {
   voice: XrCameraVoiceIndicatorState;
+  voiceElapsedMs?: number;
+  reducedMotion?: boolean;
+}
+
+export interface XrCameraEdgeIndicatorPresentation extends XrVoiceIndicatorPresentation {
+  recording: boolean;
   uploading: boolean;
 }
 
@@ -866,23 +890,64 @@ export const drawXrCameraEdgeIndicators = (
     },
   );
 
-  const voiceColour = presentation.voice === "active"
-    ? colourWithAlpha(semanticColours.success, .94)
-    : presentation.voice === "unavailable"
-      ? colourWithAlpha(semanticColours.danger, .92)
-      : colourWithAlpha(semanticColours.text, .46);
-  iconStroke(voiceColour, () => {
-    const x = layout.voiceX;
-    const y = layout.centreY;
-    for (const [offset, height] of [[-10, 12], [-3, 24], [4, 30], [11, 18]] as const) {
-      context.moveTo(x + offset, y - height / 2);
-      context.lineTo(x + offset, y + height / 2);
+  drawXrVoiceIndicator(context, frame, presentation);
+  context.restore();
+};
+
+/** Draws voice feedback at the camera anchor, including when Bridge owns capture controls. */
+export const drawXrVoiceIndicator = (
+  context: CanvasRenderingContext2D,
+  frame: XrCameraEdgesPresentation,
+  presentation: XrVoiceIndicatorPresentation,
+) => {
+  const layout = xrCameraEdgeIndicatorLayout(frame);
+  const elapsedMs = Number.isFinite(presentation.voiceElapsedMs)
+    ? Math.max(0, presentation.voiceElapsedMs!)
+    : 0;
+  const state = presentation.voice === "matched" && elapsedMs >= XR_VOICE_MATCHED_FEEDBACK_MS
+    || presentation.voice === "unmatched" && elapsedMs >= XR_VOICE_UNMATCHED_FEEDBACK_MS
+    ? "active"
+    : presentation.voice;
+  context.save();
+  context.lineWidth = 4;
+  context.lineCap = "round";
+  context.lineJoin = "round";
+  context.shadowBlur = 0;
+  context.shadowOffsetX = 0;
+  context.shadowOffsetY = 0;
+  context.shadowColor = "transparent";
+  if (state === "matched") {
+    // One slow emphasis, with no repeated flash or fully hidden icon.
+    const pulse = presentation.reducedMotion ? .5 : Math.sin(Math.PI * elapsedMs / XR_VOICE_MATCHED_FEEDBACK_MS);
+    context.strokeStyle = colourWithAlpha(XR_VOICE_MATCHED_COLOUR, .72 + .26 * pulse);
+    context.shadowColor = colourWithAlpha(XR_VOICE_MATCHED_COLOUR, .16 + .24 * pulse);
+    context.shadowBlur = 6 + 8 * pulse;
+  } else if (state === "unmatched") {
+    context.strokeStyle = colourWithAlpha(semanticColours.warning, .98);
+  } else if (state === "unavailable") {
+    context.strokeStyle = colourWithAlpha(semanticColours.danger, .92);
+  } else {
+    context.strokeStyle = colourWithAlpha(semanticColours.text, state === "standby" ? .46 : .82);
+    if (state === "recognising" || state === "standby") {
+      const pulse = presentation.reducedMotion
+        ? .5
+        : (1 - Math.cos((elapsedMs % XR_VOICE_RECOGNISING_PULSE_MS) / XR_VOICE_RECOGNISING_PULSE_MS * Math.PI * 2)) / 2;
+      context.shadowColor = colourWithAlpha(semanticColours.text, .22 + .22 * pulse);
+      context.shadowBlur = 8 + 8 * pulse;
     }
-    if (presentation.voice !== "active") {
-      context.moveTo(x - 15, y - 15);
-      context.lineTo(x + 16, y + 16);
-    }
-  });
+  }
+  const x = layout.voiceX;
+  const y = layout.centreY;
+  context.beginPath();
+  for (const [offset, height] of XR_VOICE_WAVE_BARS) {
+    context.moveTo(x + offset, y - height / 2);
+    context.lineTo(x + offset, y + height / 2);
+  }
+  if (state === "unavailable") {
+    context.moveTo(x - 15, y - 15);
+    context.lineTo(x + 16, y + 16);
+  }
+  context.stroke();
   context.restore();
 };
 
