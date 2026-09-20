@@ -16,6 +16,7 @@ class VideoQueue {
     struct Item {
         SessionEvent event;
         uint64_t revision = 0;
+        int64_t queued_us = 0;
     };
     enum class Result { Accepted, Ignored, Cancelled, Closed, TooLarge };
     struct State {
@@ -25,7 +26,9 @@ class VideoQueue {
         bool closed = false;
     };
 
-    explicit VideoQueue(size_t frames = 12, size_t bytes = 64 * 1024 * 1024)
+    static constexpr int64_t max_live_age_us = 80000;
+
+    explicit VideoQueue(size_t frames = 4, size_t bytes = 64 * 1024 * 1024)
         : max_frames_(std::max<size_t>(frames, 2)), max_bytes_(bytes) {}
 
     Result push(const SessionEvent& event) {
@@ -65,6 +68,8 @@ class VideoQueue {
             ready_.notify_all();
             return Result::TooLarge;
         }
+        if (!generation)
+            expire_live_locked(monotonic_us());
         const auto revision = revision_;
         const auto has_room = [&] {
             return queue_.size() < max_frames_ && event.payload.size() <= max_bytes_ - bytes_;
@@ -87,7 +92,7 @@ class VideoQueue {
             }
         }
         bytes_ += event.payload.size();
-        queue_.push_back({event, revision_});
+        queue_.push_back({event, revision_, monotonic_us()});
         ready_.notify_all();
         return Result::Accepted;
     }
@@ -97,6 +102,7 @@ class VideoQueue {
         ready_.wait(lock, [&] { return closed_ || !queue_.empty(); });
         if (closed_)
             return std::nullopt;
+        expire_live_locked(monotonic_us());
         auto item = std::move(queue_.front());
         queue_.pop_front();
         bytes_ -= item.event.payload.size();
@@ -110,6 +116,7 @@ class VideoQueue {
         ready_.wait_for(lock, timeout, [&] { return closed_ || !queue_.empty(); });
         if (closed_ || queue_.empty())
             return std::nullopt;
+        expire_live_locked(monotonic_us());
         auto item = std::move(queue_.front());
         queue_.pop_front();
         bytes_ -= item.event.payload.size();
@@ -144,6 +151,30 @@ class VideoQueue {
         ready_.notify_all();
     }
 
+    static bool expired(const Item& item, int64_t now_us) {
+        return expired(item.event, item.queued_us, now_us);
+    }
+
+    static bool expired(const SessionEvent& event, int64_t queued_us, int64_t now_us) {
+        if (event.kind != EventKind::Video || replay_generation(event))
+            return false;
+        const auto began = event.receive_us > 0 ? std::min(queued_us, event.receive_us) : queued_us;
+        return now_us - began > max_live_age_us;
+    }
+
+    void expire_live(int64_t now_us) {
+        std::lock_guard lock(mutex_);
+        expire_live_locked(now_us);
+        ready_.notify_all();
+    }
+
+    void reset_after_delay(uint64_t revision) {
+        std::lock_guard lock(mutex_);
+        if (revision == revision_)
+            discard_live_locked("video-age-budget");
+        ready_.notify_all();
+    }
+
     void accepted_keyframe(uint64_t revision) {
         std::lock_guard lock(mutex_);
         if (revision == revision_)
@@ -170,6 +201,19 @@ class VideoQueue {
     }
 
   private:
+    void discard_live_locked(const char* reason) {
+        for (const auto& item : queue_)
+            if (item.event.kind == EventKind::Video)
+                ++dropped_;
+        reset_locked(reason);
+    }
+
+    void expire_live_locked(int64_t now_us) {
+        if (std::any_of(queue_.begin(), queue_.end(),
+                        [now_us](const Item& item) { return expired(item, now_us); }))
+            discard_live_locked("video-age-budget");
+    }
+
     static std::optional<uint64_t> replay_generation(const SessionEvent& event) {
         const auto value = event.attributes.find("replay_generation");
         if (value == event.attributes.end() || !value->is_number_unsigned()) {

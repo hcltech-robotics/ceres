@@ -68,7 +68,7 @@ struct H264AccessUnit {
     bool keyframe = false;
 };
 
-// Bounded RFC 6184 single-NAL/STAP-A/FU-A receiver with a 10 ms reorder window.
+// Bounded RFC 6184 receiver with a 60 ms deadline for reordering and repair.
 class H264Assembler {
   public:
     std::vector<H264AccessUnit> push(std::span<const uint8_t> packet, int64_t received_us);
@@ -89,6 +89,7 @@ class H264Assembler {
     void add_nal(std::span<const uint8_t>);
     void finish_frame(const Packet&, std::vector<H264AccessUnit>&);
     std::map<int64_t, Packet> pending_;
+    size_t pending_bytes_ = 0;
     std::vector<uint8_t> frame_, sps_, pps_;
     std::optional<uint32_t> ssrc_, timestamp_;
     int64_t greatest_sequence_ = 0, next_sequence_ = 0;

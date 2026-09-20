@@ -13,6 +13,7 @@
 #include <ctime>
 #include <fstream>
 #include <iostream>
+#include <iterator>
 #include <mutex>
 #include <thread>
 #ifdef _WIN32
@@ -567,7 +568,10 @@ class Relay {
             if (!depth_only) {
                 rtc::Description::Video video("camera", rtc::Description::Direction::SendOnly);
                 video.addH264Codec(96);
+                video.addRtxCodec(97, 96, 90000);
                 video.addSSRC(42, "fixture", "fixture", "camera");
+                video.addSSRC(44, "fixture", "fixture", "camera");
+                video.addAttribute("ssrc-group:FID 42 44");
                 sender->video = sender->peer->addTrack(video);
             }
             if (dual) {
@@ -1220,6 +1224,111 @@ void rtcp_clock_tests() {
     check(!next_epoch.clock.report(44, 8500000), "A new connection inherited a sender report");
 }
 
+void rtcp_repair_tests() {
+    ceres::RtcpCameraSession::Feedback feedback;
+    feedback.media_payload = 96;
+    feedback.rtx_payload = 97;
+    feedback.media_ssrc = 42;
+    feedback.rtx_ssrc = 44;
+    feedback.nack = feedback.remb = true;
+    ceres::RtcpCameraSession session(feedback);
+    ceres::H264Assembler assembler;
+    std::vector<rtc::message_ptr> sent;
+    const auto send = [&](rtc::message_ptr message) { sent.push_back(std::move(message)); };
+    auto receive = [&](uint16_t sequence, uint32_t time, bool marker, uint8_t payload,
+                       uint32_t source, std::initializer_list<uint8_t> data, int64_t now) {
+        std::vector<uint8_t> bytes{0x80, uint8_t(payload | (marker ? 0x80 : 0)),
+                                   uint8_t(sequence >> 8), uint8_t(sequence), 0, 0, 0, 0,
+                                   0, 0, 0, 0};
+        ceres::detail::put_network_u32(bytes, 4, time);
+        ceres::detail::put_network_u32(bytes, 8, source);
+        bytes.insert(bytes.end(), data);
+        rtc::message_vector messages{rtc::make_message(binary(bytes), rtc::Message::Binary)};
+        session.incoming_at(messages, send, now);
+        std::vector<ceres::H264AccessUnit> frames;
+        for (const auto& message : messages) {
+            auto decoded = assembler.push(
+                {reinterpret_cast<const uint8_t*>(message->data()), message->size()}, now);
+            frames.insert(frames.end(), std::make_move_iterator(decoded.begin()),
+                          std::make_move_iterator(decoded.end()));
+        }
+        return frames;
+    };
+    check(receive(10, 9000, true, 96, 42, {0x65, 1}, 1000000).size() == 1,
+          "Repair fixture did not receive its IDR");
+    check(!sent.empty(), "Negotiated REMB did not announce the initial receive budget");
+    sent.clear();
+    receive(11, 12000, false, 96, 42, {0x7c, 0x81, 1}, 1010000);
+    receive(13, 12000, true, 96, 42, {0x7c, 0x41, 3}, 1011000);
+    session.tick(1016000);
+    check(sent.size() == 1 && sent[0]->type == rtc::Message::Control &&
+              std::to_integer<uint8_t>((*sent[0])[1]) == 205 &&
+              std::to_integer<uint8_t>((*sent[0])[13]) == 12,
+          "Negotiated NACK did not request the missing original sequence");
+    check(receive(90, 12000, false, 97, 45, {0, 12, 0x7c, 0x01, 2}, 1020000).empty(),
+          "An undeclared RTX source was accepted");
+    const auto frames = receive(91, 12000, false, 97, 44, {0, 12, 0x7c, 0x01, 2}, 1040000);
+    check(frames.size() == 1 && frames[0].bytes ==
+              std::vector<uint8_t>({0, 0, 0, 1, 0x61, 1, 2, 3}),
+          "RTX did not recover the fragmented frame through the camera receive handler");
+    sent.clear();
+    session.tick(1041000);
+    check(sent.empty(), "Recovered RTP remained in the NACK retry list");
+}
+
+void negotiated_rtx_test(const std::filesystem::path& directory) {
+    Relay relay;
+    ceres::BridgeOptions options;
+    options.app_origin = options.relay = relay.origin();
+    options.identity_path = directory / "rtx.identity";
+    ceres::BridgeClient receiver(options);
+    std::atomic<bool> recovered = false;
+    receiver.set_event_sink([&](const ceres::SessionEvent& event) {
+        if (event.kind == ceres::EventKind::Video && event.sequence == 1)
+            recovered = event.payload == std::vector<uint8_t>({0, 0, 0, 1, 0x61, 1, 2, 3});
+    });
+    ReceiverStop stop_before_callback_state{receiver};
+    relay.start();
+    receiver.start();
+    until([&] { return receiver.snapshot().connected; }, "RTX fixture did not connect");
+    auto sender = relay.current_sender();
+    const auto answer = sender->peer->remoteDescription();
+    check(answer && std::string(*answer).find("apt=96") != std::string::npos,
+          "The native answer removed the selected codec's RTX association");
+    auto packet = [](uint16_t sequence, uint32_t timestamp, bool marker, bool retransmission,
+                     std::initializer_list<uint8_t> payload) {
+        std::vector<uint8_t> bytes{0x80, uint8_t((marker ? 0x80 : 0) | (retransmission ? 97 : 96)),
+                                   uint8_t(sequence >> 8), uint8_t(sequence), 0, 0, 0, 0,
+                                   0, 0, 0, uint8_t(retransmission ? 44 : 42)};
+        ceres::detail::put_network_u32(bytes, 4, timestamp);
+        bytes.insert(bytes.end(), payload);
+        return binary(bytes);
+    };
+    const auto repair = packet(100, 12000, false, true, {0, 3, 0x7c, 0x01, 2});
+    const auto nacks = std::make_shared<std::atomic<unsigned>>(0);
+    std::weak_ptr<Sender> weak = sender;
+    sender->video->onMessage([weak, repair, nacks](rtc::message_variant message) {
+        const auto* bytes = std::get_if<rtc::binary>(&message);
+        if (!bytes || bytes->size() < 16 || std::to_integer<uint8_t>((*bytes)[1]) != 205 ||
+            std::to_integer<uint8_t>((*bytes)[13]) != 3)
+            return;
+        ++*nacks;
+        if (auto source = weak.lock())
+            source->video->send(repair);
+    });
+    sender->video->send(packet(1, 9000, true, false, {0x65, 1}));
+    until([&] { return receiver.snapshot().video_frames == 1; }, "RTX fixture IDR was lost");
+    sender->video->send(packet(2, 12000, false, false, {0x7c, 0x81, 1}));
+    sender->video->send(packet(4, 12000, true, false, {0x7c, 0x41, 3}));
+    until([&] { return recovered.load(); }, "Negotiated NACK/RTX did not repair the live SRTP frame");
+    check(*nacks > 0 && receiver.snapshot().video_frames == 2,
+          "The repair fixture did not exercise a real NACK or duplicated a frame");
+    sender->video->resetCallbacks();
+    receiver.stop();
+    relay.stop();
+    remove_test_identity(options.identity_path);
+}
+
 void dual_camera_test(const std::filesystem::path& directory) {
     Relay relay(0, 0, true);
     ceres::BridgeOptions options;
@@ -1281,7 +1390,13 @@ void dual_camera_test(const std::filesystem::path& directory) {
     send(false, 2, 0x00001ee0u, false);
     send(true, 102, 906000, false);
     received(5);
-    std::this_thread::sleep_for(20ms);
+    const auto hand = stream_pose(2, receiver.snapshot().epoch, 900, ceres::monotonic_us(), 0.0);
+    sender->pose->send(binary(hand));
+    until([&] {
+        const auto pose = receiver.snapshot().poses[1];
+        return pose && pose->sequence == 900;
+    }, "Fresh hands waited for the damaged video prediction chain");
+    std::this_thread::sleep_for(70ms);
     send(false, 3, 0x00002a98u, true);
     received(6);
     {
@@ -1762,6 +1877,8 @@ int main(int argc, char** argv) {
     const auto identity_file = directory / "receiver.identity";
     try {
         rtcp_clock_tests();
+        rtcp_repair_tests();
+        negotiated_rtx_test(directory);
         pairing_compatibility_tests(directory);
         pairing_rotation_tests(directory);
         pairing_error_tests(directory);

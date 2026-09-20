@@ -32,6 +32,8 @@ export interface DepthPeer {
   epoch: number;
   depthMetadataVersion?: 1 | 2;
   depthEnabled?: boolean;
+  depthThrottled?: boolean;
+  pose?: Pick<RTCDataChannel, "bufferedAmount"> | null;
   depth: Pick<RTCDataChannel, "readyState" | "bufferedAmount" | "send"> | null;
   sendDepthStatus(status: DepthStatus): boolean;
 }
@@ -106,6 +108,7 @@ export class BridgeDepth {
   private nextAt = 0;
   private lastAt = -1;
   private capturePaused = false;
+  private outgoing: { peer: DepthPeer; header: DepthHeader; fragments: Uint8Array<ArrayBuffer>[]; index: number; at: number } | null = null;
   constructor(private readonly createGpu = defaultGpu) {}
   start(session: XRSession, renderer?: DepthRenderer) {
     this.stop();
@@ -128,6 +131,7 @@ export class BridgeDepth {
     }
   }
   reset() {
+    this.outgoing = null;
     this.gpu?.cancel();
     this.pending = null;
     this.nextAt = 0;
@@ -151,7 +155,7 @@ export class BridgeDepth {
     this.reset();
   }
   publish(frame: XRFrame, space: XRReferenceSpace, displayTime: number, peer: DepthPeer | null,
-    spaceEpoch: number, paused: boolean, now = performance.now()) {
+    spaceEpoch: number, paused: boolean, now = performance.now(), posePublished = true) {
     if (!peer || frame.session !== this.session) return;
     if (this.epoch !== peer.epoch || this.spaceEpoch !== spaceEpoch || now < this.lastAt) {
       this.reset();
@@ -160,6 +164,7 @@ export class BridgeDepth {
     }
     this.lastAt = now;
     if (paused || peer.depthEnabled === false) {
+      this.outgoing = null;
       this.gpu?.cancel();
       this.pending = null;
       this.nextAt = 0;
@@ -188,6 +193,22 @@ export class BridgeDepth {
       return;
     }
     try {
+      if (peer.depthThrottled) {
+        this.outgoing = null;
+        this.gpu?.cancel();
+        this.pending = null;
+        this.sendStatus(peer, "waiting");
+        return;
+      }
+      // A small buffer can still hold an old hand that prevented this callback's
+      // pose publication. Only the successful current sample can admit depth.
+      if (!posePublished) return;
+      if (this.outgoing) {
+        this.flush(peer, now);
+        return;
+      }
+      // A fresh complete pose takes 1,756 bytes. Additional queued bytes indicate older work.
+      if ((peer.pose?.bufferedAmount ?? 0) > 1756) return;
       if (this.pending) {
         const pending = this.pending;
         if (now - pending.at > 250 || channel.bufferedAmount > 0) {
@@ -198,11 +219,11 @@ export class BridgeDepth {
           if (pixels) {
             this.pending = null;
             pending.header.readback_us = Math.max(0, Math.round((now - pending.at) * 1000));
-            this.transmit(peer, pending.header, pixels);
+            this.transmit(peer, pending.header, pixels, now);
           }
         }
       }
-      if (this.pending || now < this.nextAt || channel.bufferedAmount > 0) {
+      if (this.pending || this.outgoing || now < this.nextAt || channel.bufferedAmount > 0) {
         this.sendStatus(peer, this.status);
         return;
       }
@@ -251,7 +272,7 @@ export class BridgeDepth {
           const started = performance.now();
           const pixels = copyCpuDepth(image, this.format, dimensions.width, dimensions.height);
           header.readback_us = Math.max(0, Math.round((performance.now() - started) * 1000));
-          this.transmit(peer, header, pixels);
+          this.transmit(peer, header, pixels, now);
         } else if (image.texture && image.textureType && this.gpu?.capture(image as GpuDepthImage, this.format, dimensions.width, dimensions.height)) {
           this.pending = { header, at: now };
         } else continue;
@@ -260,6 +281,7 @@ export class BridgeDepth {
       }
       this.sendStatus(peer, "waiting");
     } catch (error) {
+      this.outgoing = null;
       this.gpu?.cancel();
       this.pending = null;
       // Optional spatial acquisition must never stop poses, video or recording.
@@ -267,20 +289,35 @@ export class BridgeDepth {
       this.sendStatus(peer, "error");
     }
   }
-  private transmit(peer: DepthPeer, header: DepthHeader, pixels: Uint16Array) {
+  private transmit(peer: DepthPeer, header: DepthHeader, pixels: Uint16Array, now: number) {
     const channel = peer.depth;
     if (peer.depthEnabled === false || !channel || channel.readyState !== "open" || channel.bufferedAmount !== 0
       || peer.epoch !== header.epoch || this.spaceEpoch !== header.space_epoch) return;
     const { geometry_source, readback_us, target_lead_us, mapping_version, ...legacyHeader } = header;
     const wireHeader = peer.depthMetadataVersion === 2 ? header : legacyHeader;
     const fragments = fragmentDepthFrame(encodeDepthFrame(wireHeader, pixels), header);
-    for (const fragment of fragments) channel.send(fragment);
+    this.outgoing = { peer, header, fragments, index: 0, at: now };
+    this.flush(peer, now);
     this.diagnostics.geometry_source = header.geometry_source;
     this.diagnostics.mapping_version = header.mapping_version;
     this.diagnostics.readback_us = header.readback_us;
     this.diagnostics.target_lead_us = header.target_lead_us;
     this.diagnosticKey = JSON.stringify(this.diagnostics);
     this.sendStatus(peer, "streaming");
+  }
+  private flush(peer: DepthPeer, now: number) {
+    const outgoing = this.outgoing;
+    if (!outgoing) return;
+    if (outgoing.peer !== peer || outgoing.header.epoch !== peer.epoch || outgoing.header.space_epoch !== this.spaceEpoch
+      || now - outgoing.at > 250 || peer.depthEnabled === false || peer.depthThrottled) {
+      this.outgoing = null;
+      return;
+    }
+    const channel = peer.depth;
+    if (!channel || channel.readyState !== "open" || channel.bufferedAmount !== 0 || (peer.pose?.bufferedAmount ?? 0) > 1756) return;
+    // At most one bounded fragment follows the current pose in each XR callback.
+    channel.send(outgoing.fragments[outgoing.index++]);
+    if (outgoing.index === outgoing.fragments.length) this.outgoing = null;
   }
   private sendStatus(peer: DepthPeer, status: DepthStatus["status"]) {
     this.status = status === "paused" ? this.status : status;

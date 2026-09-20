@@ -1,4 +1,5 @@
 #include "ceres/protocol.hpp"
+#include "ceres/detail/rtp_repair.hpp"
 #include <algorithm>
 #include <bit>
 #include <cctype>
@@ -496,13 +497,16 @@ std::vector<H264AccessUnit> H264Assembler::drain(int64_t now) {
             int64_t oldest = now;
             for (const auto& [sequence, packet] : pending_)
                 oldest = std::min(oldest, packet.received_us);
-            if (pending_.size() < 64 && now - oldest < 10000)
+            if (pending_.size() < detail::video_reorder_packets &&
+                pending_bytes_ < detail::video_reorder_bytes &&
+                now - oldest < detail::video_repair_window_us)
                 break;
             lose_frame();
             next_sequence_ = pending_.begin()->first;
             continue;
         }
         consume(it->second, output);
+        pending_bytes_ -= it->second.bytes.size();
         pending_.erase(it);
         ++next_sequence_;
     }
@@ -565,14 +569,17 @@ std::vector<H264AccessUnit> H264Assembler::push(std::span<const uint8_t> packet,
         return {};
     if (sequence > next_sequence_ + 4096) {
         pending_.clear();
+        pending_bytes_ = 0;
         lose_frame();
         next_sequence_ = sequence;
     }
     greatest_sequence_ = std::max(greatest_sequence_, sequence);
-    pending_.try_emplace(sequence, Packet{be32(packet, 4),
+    const auto inserted = pending_.try_emplace(sequence, Packet{be32(packet, 4),
                                           received,
                                           (packet[1] & 0x80) != 0,
                                           {packet.begin() + at, packet.begin() + end}});
+    if (inserted.second)
+        pending_bytes_ += end - at;
     return drain(received);
 }
 } // namespace ceres

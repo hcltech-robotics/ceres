@@ -2,12 +2,13 @@ import { parseMetadata, XR_HAND_JOINTS, type BridgeCameraDescription, type Bridg
 import type { BridgeCamera } from "./camera.js";
 import { relayBase, refreshBinding, type Binding } from "./pairing.js";
 import { DEPTH_CHANNEL, DEPTH_FEATURE, type DepthStatus } from "../../shared/bridge-depth.js";
+import { bridgeVideoEncoding, bridgeVideoProfiles, defaultBridgeVideoQuality, type BridgeVideoQuality } from "./video-quality.js";
 
 const nowUs = () => Math.round(performance.now() * 1000);
 
-const describeCamera = (camera: BridgeCamera): BridgeCameraDescription => ({
+const describeCamera = (camera: BridgeCamera, quality: BridgeVideoQuality): BridgeCameraDescription => ({
   side: camera.side, width: camera.width, height: camera.height,
-  requestedWidth: 640, fps: camera.track.getSettings().frameRate ?? null, calibration: null,
+  requestedWidth: bridgeVideoProfiles[quality].width, fps: camera.track.getSettings().frameRate ?? null, calibration: null,
 });
 
 export class BridgePeer {
@@ -17,6 +18,7 @@ export class BridgePeer {
   epoch = 0;
   depthMetadataVersion: 1 | 2 = 1;
   depthEnabled = false;
+  depthThrottled = false;
   private depthControlSupported = false;
   private paused = false;
   private videoSender: RTCRtpSender | null = null;
@@ -32,7 +34,8 @@ export class BridgePeer {
   private signalComplete = false;
 
   constructor(private binding: Binding, private camera: BridgeCamera | null, private referenceSpace: "local" | "local-floor",
-    private status: (message: string) => void, private fatal: (error: Error) => void) {
+    private status: (message: string) => void, private fatal: (error: Error) => void,
+    private quality: BridgeVideoQuality = defaultBridgeVideoQuality) {
     if (camera && (!camera.track || !camera.stream)) {
       throw new Error("Bridge accepts one selected camera");
     }
@@ -54,7 +57,7 @@ export class BridgePeer {
       clock: { id: crypto.randomUUID(), units: "microseconds", domain: "sender-monotonic" },
       referenceSpace: this.referenceSpace, axes: "right-handed-x-right-y-up-z-back", units: "metres",
       quaternion: "xyzw", joints: XR_HAND_JOINTS,
-      ...(this.camera ? { camera: describeCamera(this.camera) } : {}),
+      ...(this.camera ? { camera: describeCamera(this.camera, this.quality) } : {}),
       environment_depth: { ...DEPTH_FEATURE },
       depth_control_version: 1,
     };
@@ -138,9 +141,14 @@ export class BridgePeer {
           offered = true;
           const video = this.camera ? pc.addTransceiver(this.camera.track, {
             direction: "sendonly", streams: [this.camera.stream],
-            sendEncodings: [{ maxBitrate: 2_000_000, scaleResolutionDownBy: Math.max(1, this.camera.width / 640) }],
+            sendEncodings: [bridgeVideoEncoding(this.quality, this.camera.width)],
           }) : null;
           this.videoSender = video?.sender ?? null;
+          if (this.videoSender?.getParameters && this.videoSender.setParameters) {
+            const parameters = this.videoSender.getParameters();
+            parameters.degradationPreference = "balanced";
+            await this.videoSender.setParameters(parameters);
+          }
           if (this.paused) await this.videoSender?.replaceTrack(null);
           if (!active()) return;
           const audio = pc.addTransceiver("audio", { direction: "sendonly", sendEncodings: [{ maxBitrate: 32_000 }] });
@@ -158,7 +166,7 @@ export class BridgePeer {
           if (!active()) return;
           await pc.setLocalDescription(offer);
           if (!active()) return;
-          if (this.camera) description.camera = describeCamera(this.camera);
+          if (this.camera) description.camera = describeCamera(this.camera, this.quality);
           send({ type: "offer", sdp: offer.sdp });
         } else if (message.type === "signal") {
           const signal = message.signal;

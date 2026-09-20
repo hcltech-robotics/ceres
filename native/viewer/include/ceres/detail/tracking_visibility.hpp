@@ -9,8 +9,9 @@ namespace ceres::detail {
 class TrackingVisibility {
   public:
     enum class LossPolicy { Fade, Hold };
-    static constexpr int64_t grace_us = 120000;
-    static constexpr int64_t hold_us = 1000000;
+    static constexpr int64_t grace_us = 200000;
+    static constexpr int64_t fade_us = 1000000;
+    static constexpr int64_t hold_us = grace_us + fade_us;
     static constexpr int64_t recovery_us = 80000;
 
     void reset() {
@@ -32,7 +33,9 @@ class TrackingVisibility {
                 recovering_ = false;
             } else if (!was_tracked_) {
                 recovery_start_ = now_us;
-                recovery_from_ = alpha_;
+                // A newly available observation is visible on this frame,
+                // including after the retained geometry has fully faded.
+                recovery_from_ = std::max(alpha_, .16f);
                 recovering_ = true;
             }
             if (recovering_) {

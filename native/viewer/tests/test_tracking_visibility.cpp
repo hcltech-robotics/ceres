@@ -18,36 +18,36 @@ void lifecycle() {
           "Invalid initial tracking manufactured geometry");
     check(visible.update(1000, true, 1, 2) == 1 && visible.retained(),
           "Initial tracking did not appear");
-    check(visible.update(51000, false, 1, 2) == 1 && visible.update(121000, false, 1, 2) == 1,
+    check(visible.update(51000, false, 1, 2) == 1 && visible.update(201000, false, 1, 2) == 1,
           "Brief tracking gap flickered during its grace period");
-    check(close(visible.update(561000, false, 1, 2), .5f),
+    check(close(visible.update(701000, false, 1, 2), .5f),
           "Tracking fade did not follow the bounded smooth curve");
-    check(visible.update(1000999, false, 1, 2) < .0001f && visible.retained(),
+    check(visible.update(1200999, false, 1, 2) < .0001f && visible.retained(),
           "Tracking faded outside its hold budget");
-    check(visible.update(1001000, false, 1, 2) == 0 && !visible.retained(),
-          "Tracking geometry survived one second without validity");
-    check(visible.update(2000000, true, 1, 2) == 0 && visible.retained(),
-          "Reacquired tracking jumped to full opacity");
-    check(close(visible.update(2040000, true, 1, 2), .5f) &&
+    check(visible.update(1201000, false, 1, 2) == 0 && !visible.retained(),
+          "Tracking geometry survived its two-hundred millisecond hold and one-second fade");
+    check(close(visible.update(2000000, true, 1, 2), .16f) && visible.retained(),
+          "Reacquired tracking was invisible on its first frame");
+    check(close(visible.update(2040000, true, 1, 2), .58f) &&
               visible.update(2080000, true, 1, 2) == 1,
           "Tracking recovery did not finish smoothly in eighty milliseconds");
 }
 void intermittent() {
     TrackingVisibility visible;
     visible.update(0, true, 1, 1);
-    const auto lost = visible.update(560000, false, 1, 1);
+    const auto lost = visible.update(700000, false, 1, 1);
     check(close(lost, .5f), "Intermittent fade setup failed");
-    check(visible.update(600000, true, 1, 1) == lost,
+    check(visible.update(740000, true, 1, 1) == lost,
           "Reacquisition changed alpha at its transition boundary");
-    const auto recovered = visible.update(640000, true, 1, 1);
+    const auto recovered = visible.update(780000, true, 1, 1);
     check(close(recovered, .75f), "Partial recovery did not interpolate from held alpha");
-    check(visible.update(650000, false, 1, 1) == recovered &&
-              visible.update(700000, false, 1, 1) == recovered,
+    check(visible.update(790000, false, 1, 1) == recovered &&
+              visible.update(840000, false, 1, 1) == recovered,
           "Repeated tracking loss brightened or flickered the held geometry");
-    check(visible.update(700000, true, 1, 1) == recovered &&
-              visible.update(780000, true, 1, 1) == 1,
+    check(visible.update(840000, true, 1, 1) == recovered &&
+              visible.update(920000, true, 1, 1) == 1,
           "Intermittent recovery did not reach full opacity");
-    for (int64_t t = 790000; t <= 850000; t += 10000)
+    for (int64_t t = 930000; t <= 990000; t += 10000)
         check(visible.update(t, t % 20000 == 0, 1, 1) == 1,
               "Short alternating tracking loss flickered");
 }

@@ -187,6 +187,15 @@ int main() {
         check_pixels(wait(*decoder, 6), 43);
         require(decoder->status().error.empty(), "Keyframe recovery retained the decoder error");
         decoder->submit(event(7, 99));
+        const auto delay_deadline = ceres::monotonic_us() + 500000;
+        while (!decoder->status().needs_keyframe && ceres::monotonic_us() < delay_deadline)
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        require(decoder->status().needs_keyframe && !decoder->latest(),
+                "A stalled live hardware frame escaped the video age budget");
+        decoder->submit(event(8, 44));
+        check_pixels(wait(*decoder, 8), 44);
+        require(decoder->status().decoded == 5, "The stalled live frame was displayed");
+        decoder->submit(event(9, 99));
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
         const auto before = ceres::monotonic_us();
         decoder.reset();

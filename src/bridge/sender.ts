@@ -6,6 +6,9 @@ import { BridgePeer } from "./peer.js";
 import { completeClaim, forgetReceiver, pairReceiver, storedBinding, type Binding } from "./pairing.js";
 import { verifyBridgeConfiguration } from "./config.js";
 import { BridgeDepth, type DepthRenderer } from "./depth.js";
+import { bridgeVideoProfiles, bridgeVideoQualityKey, configureBridgeVideo, defaultBridgeVideoQuality,
+  parseBridgeVideoQuality, type BridgeVideoQuality } from "./video-quality.js";
+import { BridgeVideoStatsSampler, emptyVideoStats } from "./video-stats.js";
 
 /** Sender services for CaptureApp, which owns the same IWSDK runtime used by Solo. */
 export class BridgeSender implements CaptureAuthorityPort {
@@ -32,11 +35,18 @@ export class BridgeSender implements CaptureAuthorityPort {
   private changed = () => {};
   private statsTimer: ReturnType<typeof setTimeout> | null = null;
   videoFps = 0;
+  videoStats = emptyVideoStats();
+  videoQuality: BridgeVideoQuality = defaultBridgeVideoQuality;
   motionFps = 0;
   paused = false;
   hudMode: "off" | "light" | "full" = "light";
   private pauseBusy = false;
   status = "Preparing Bridge";
+
+  constructor() {
+    try { this.videoQuality = parseBridgeVideoQuality(globalThis.localStorage?.getItem(bridgeVideoQualityKey)); }
+    catch { /* Storage is optional for a live session. */ }
+  }
 
   get ready() { return this.ownsTab && Boolean(this.binding && !this.binding.revoked) && !this.busy; }
   get label() { return this.binding?.label ?? "Receiver"; }
@@ -68,10 +78,28 @@ export class BridgeSender implements CaptureAuthorityPort {
       root.querySelector<HTMLElement>(".join-key-area")!.hidden = paired;
       root.querySelector<HTMLButtonElement>("#join-code-submit")!.disabled = !this.ownsTab || this.busy;
       root.querySelector<HTMLButtonElement>("#scan-qr")!.disabled = !this.ownsTab || Boolean(this.session) || (this.busy && !this.scanner);
+      const quality = root.querySelector<HTMLSelectElement>("#bridge-video-quality");
+      if (quality) { quality.value = this.videoQuality; quality.disabled = Boolean(this.session) || this.busy; }
+      const stats = this.videoStats;
+      root.dataset.bridgeVideoQuality = this.videoQuality;
+      root.dataset.bridgeEncodedWidth = String(stats.width);
+      root.dataset.bridgeEncodedHeight = String(stats.height);
+      root.dataset.bridgeVideoBitrate = String(Math.round(stats.bitrate));
+      root.dataset.bridgeVideoLimitation = stats.limitation;
+      root.dataset.bridgeVideoEncodeMs = String(stats.encodeMs);
+      root.dataset.bridgeVideoQp = stats.qp === null ? "" : String(stats.qp);
+      const videoStatus = root.querySelector<HTMLElement>("#bridge-video-status");
+      if (videoStatus) videoStatus.textContent = stats.width
+        ? `${stats.width} x ${stats.height} at ${stats.fps.toFixed(0)} fps, ${(stats.bitrate / 1_000_000).toFixed(1)} Mbps`
+        : `${bridgeVideoProfiles[this.videoQuality].label}. Hands update independently of video.`;
       changed();
     };
     const input = root.querySelector<HTMLInputElement>("#join-code")!;
     const options = { signal: this.lifetime.signal };
+    root.querySelector<HTMLSelectElement>("#bridge-video-quality")?.addEventListener("change", event => {
+      const value = parseBridgeVideoQuality((event.target as HTMLSelectElement).value);
+      void this.setVideoQuality(value).catch(error => this.failed(error));
+    }, options);
     root.querySelector("#join-code-form")!.addEventListener("submit", event => {
       event.preventDefault();
       if (!this.ownsTab || this.busy || this.session) return;
@@ -161,6 +189,24 @@ export class BridgeSender implements CaptureAuthorityPort {
 
   setCamera(camera: BridgeCamera | null) { this.camera = camera; }
 
+  async setVideoQuality(quality: BridgeVideoQuality) {
+    if (this.session || this.busy || this.disposed) return;
+    this.busy = true;
+    this.changed();
+    try {
+      const camera = this.camera;
+      if (camera) {
+        await configureBridgeVideo(camera.track, quality);
+        const settings = camera.track.getSettings();
+        camera.width = settings.width ?? camera.width;
+        camera.height = settings.height ?? camera.height;
+      }
+      if (this.disposed) return;
+      this.videoQuality = quality;
+      try { globalThis.localStorage?.setItem(bridgeVideoQualityKey, quality); } catch { /* Optional preference. */ }
+    } finally { this.busy = false; this.changed(); }
+  }
+
   start(session: XRSession, space: XRReferenceSpace, referenceSpace: "local" | "local-floor", renderer?: DepthRenderer) {
     if (!this.ready || !this.binding
       || (this.camera && this.camera.track.readyState !== "live")) {
@@ -188,7 +234,7 @@ export class BridgeSender implements CaptureAuthorityPort {
         this.stop();
         this.failed(error);
         void session.end().catch(() => undefined);
-      });
+      }, this.videoQuality);
     void peer.setAudioTrack(this.audioTrack);
     this.setStatus("Connecting to " + this.label);
     void peer.start().catch(error => {
@@ -212,7 +258,8 @@ export class BridgeSender implements CaptureAuthorityPort {
   }
 
   publishDepth(frame: XRFrame, space: XRReferenceSpace, displayTime: number) {
-    this.depth.publish(frame, space, displayTime, this.peer, this.observations.spaceEpoch, this.paused);
+    this.depth.publish(frame, space, displayTime, this.peer, this.observations.spaceEpoch, this.paused,
+      performance.now(), this.observations.hasPublishedSample(frame, space));
   }
 
   async togglePause() {
@@ -240,7 +287,7 @@ export class BridgeSender implements CaptureAuthorityPort {
   private sampleRates(peer: BridgePeer) {
     let lastMotion = this.observations.acquired - this.observations.dropped;
     let lastTime = performance.now();
-    let lastVideos = new Map<string, { frames: number; time: number }>();
+    const videoStats = new BridgeVideoStatsSampler();
     const sample = async () => {
       if (this.peer !== peer) return;
       const now = performance.now();
@@ -252,17 +299,9 @@ export class BridgeSender implements CaptureAuthorityPort {
       try {
         const report = await pc?.getStats();
         if (this.peer !== peer || peer.pc !== pc) return;
-        const videos = new Map<string, { frames: number; time: number }>();
-        const rates: number[] = [];
-        report?.forEach(stat => {
-          if (stat.type !== "outbound-rtp" || stat.kind !== "video" || typeof stat.framesSent !== "number") return;
-          const previous = lastVideos.get(stat.id);
-          rates.push(!this.paused && previous && stat.framesSent >= previous.frames
-            ? 1000 * (stat.framesSent - previous.frames) / Math.max(1, stat.timestamp - previous.time) : 0);
-          videos.set(stat.id, { frames: stat.framesSent, time: stat.timestamp });
-        });
-        this.videoFps = this.camera && rates.length === 1 ? rates[0] : 0;
-        lastVideos = videos;
+        this.videoStats = videoStats.sample(report, this.paused);
+        this.videoFps = this.camera ? this.videoStats.fps : 0;
+        peer.depthThrottled = this.videoStats.limitation === "bandwidth" || this.videoStats.packetDelayMs > 20;
         let geometryChanged = false;
         if (this.camera) {
           const camera = this.camera;
@@ -279,6 +318,7 @@ export class BridgeSender implements CaptureAuthorityPort {
         }
       } catch { this.videoFps = 0; }
       finally {
+        this.changed();
         if (this.peer === peer) this.statsTimer = setTimeout(() => { void sample(); }, 500);
       }
     };
@@ -287,10 +327,12 @@ export class BridgeSender implements CaptureAuthorityPort {
 
   stop() {
     this.paused = false;
+    this.observations.clearSample();
     this.depth.stop();
     if (this.statsTimer) clearTimeout(this.statsTimer);
     this.statsTimer = null;
     this.videoFps = this.motionFps = 0;
+    this.videoStats = emptyVideoStats();
     this.peer?.stop();
     this.peer = null;
     this.sessionEvents?.abort();

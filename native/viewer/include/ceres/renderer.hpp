@@ -127,6 +127,7 @@ class Renderer {
     void restore_headset_asset(const SessionEvent& event);
     void restore_live_assets();
     Json scene_assets() const;
+    Json presentation_metrics() const;
     void draw(const ReceiverSnapshot& snapshot, const Calibration& calibration,
               const ViewOptions& options, int64_t trail_time_us = -1, double trail_time_scale = 1,
               int64_t scene_time_us = -1);

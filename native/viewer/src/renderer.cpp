@@ -10,6 +10,7 @@
 #include "ceres/depth_kernel.hpp"
 #include "ceres/depth_display.hpp"
 #include "ceres/detail/tracking_visibility.hpp"
+#include "ceres/detail/hand_presentation.hpp"
 #include "ceres/detail/spatial_map_render.hpp"
 #include <glad/gl.h>
 #include <GLFW/glfw3.h>
@@ -119,10 +120,10 @@ layout(location=9) in vec4 weights2;
 layout(location=10) in vec4 weights3;
 layout(location=11) in vec4 trail_colour;
 uniform mat4 vp,model,bones[25];
-uniform float joint_valid[25];
+uniform float joint_valid[25],joint_opacity[25];
 uniform vec3 joint_colour[25];
 uniform int skinned,trail;
-out vec3 N; out vec3 P; out vec2 UV; out float validity;
+out vec3 N; out vec3 P; out vec2 UV; out float validity; out float opacity;
 out vec4 path_colour;
 out vec3 visual_colour;
 mat4 skin(ivec4 j,vec4 w) {
@@ -131,11 +132,14 @@ mat4 skin(ivec4 j,vec4 w) {
 float valid(ivec4 j,vec4 w) {
     return dot(vec4(joint_valid[j.x],joint_valid[j.y],joint_valid[j.z],joint_valid[j.w]),w);
 }
+float visible(ivec4 j,vec4 w) {
+    return dot(vec4(joint_opacity[j.x],joint_opacity[j.y],joint_opacity[j.z],joint_opacity[j.w]),w);
+}
 vec3 skin_colour(ivec4 j,vec4 w) {
     return joint_colour[j.x]*w.x+joint_colour[j.y]*w.y+joint_colour[j.z]*w.z+joint_colour[j.w]*w.w;
 }
 void main() {
-    visual_colour=vec3(1);
+    visual_colour=vec3(1); opacity=1;
     if(trail!=0) {
         N=vec3(0,0,1); P=position; UV=vec2(0); validity=1;
         path_colour=trail_colour; gl_Position=vp*vec4(position,1); return;
@@ -145,6 +149,7 @@ void main() {
     if(skinned!=0) {
         m=skin(joints,weights)+skin(joints1,weights1)+skin(joints2,weights2)+skin(joints3,weights3);
         validity=clamp(valid(joints,weights)+valid(joints1,weights1)+valid(joints2,weights2)+valid(joints3,weights3),0.0,1.0);
+        opacity=clamp(visible(joints,weights)+visible(joints1,weights1)+visible(joints2,weights2)+visible(joints3,weights3),0.0,1.0);
         visual_colour=skin_colour(joints,weights)+skin_colour(joints1,weights1)+skin_colour(joints2,weights2)+skin_colour(joints3,weights3);
     }
     vec4 p=m*vec4(position,1); P=p.xyz;
@@ -154,7 +159,7 @@ void main() {
     UV=uv; gl_Position=vp*p;
 })GLSL";
     const char* fragment = R"GLSL(#version 450 core
-in vec3 N; in vec3 P; in vec2 UV; in float validity;
+in vec3 N; in vec3 P; in vec2 UV; in float validity; in float opacity;
 in vec4 path_colour;
 in vec3 visual_colour;
 out vec4 colour;
@@ -210,7 +215,7 @@ void main() {
         c*=.40+.56*d; c+=.16*s;
     }
     c=mix(vec3(dot(c,vec3(.2126,.7152,.0722))),c,validity);
-    colour=vec4(c,alpha*mix(.16,1.0,validity));
+    colour=vec4(c,alpha*opacity);
 })GLSL";
     auto shader = [](GLenum type, const char* s) {
         GLuint id = glCreateShader(type);
@@ -1055,8 +1060,10 @@ struct Renderer::Impl {
     std::filesystem::path local_assets;
     bool replay_assets = false;
     std::array<GLuint, 3> headset_textures{};
-    std::array<std::optional<PoseSample>, 2> mesh_held;
-    std::array<detail::TrackingVisibility, 2> mesh_visibility;
+    std::array<detail::HandPresentation, 2> hand_presentation;
+    std::array<bool, 2> hand_drawn{}, hand_mesh{};
+    std::array<std::optional<uint32_t>, 2> drawn_hand_sequence, drawn_camera_sequence;
+    std::array<uint64_t, 2> hand_update_count{}, hand_updates_without_video{};
     glm::vec3 target{0, 1.5f, -.45f}, eye{};
     SceneReference scene_reference = SceneReference::world;
     SceneView scene_view = SceneView::orbit;
@@ -1283,8 +1290,10 @@ struct Renderer::Impl {
         held = {};
         tracking_visibility = {};
         fresh = {};
-        mesh_held = {};
-        mesh_visibility = {};
+        hand_presentation = {};
+        hand_drawn = hand_mesh = {};
+        drawn_hand_sequence = drawn_camera_sequence = {};
+        hand_update_count = hand_updates_without_video = {};
         headset_camera.reset();
         reference_bounds[static_cast<size_t>(SceneReference::hands)] = {};
         reference_bounds[static_cast<size_t>(SceneReference::camera)] = {};
@@ -1340,16 +1349,12 @@ struct Renderer::Impl {
             headset_camera.reset();
         if (options.hands) {
             for (int side = 1; side < 3; ++side) {
-                const bool mesh = options.hand_level == HandLevel::mesh;
-                const auto& displayed = mesh ? mesh_held[side - 1] : held[side];
-                const auto alpha = mesh ? std::min(tracking_visibility[side].alpha(),
-                                                   mesh_visibility[side - 1].alpha())
-                                        : tracking_visibility[side].alpha();
-                if (!displayed || alpha <= .001f)
+                const auto& presentation = hand_presentation[side - 1];
+                if (!presentation.retained())
                     continue;
-                const auto& pose = *displayed;
+                const auto& pose = presentation.pose();
                 for (int joint = 0; joint < 25; ++joint) {
-                    if (!(pose.joint_mask & (1u << joint)))
+                    if (!(pose.joint_mask & (1u << joint)) || presentation.opacity(joint) <= .001f)
                         continue;
                     const auto* values = pose.values.data() + joint * 8;
                     if (finite_pose(values))
@@ -1708,6 +1713,29 @@ Json Renderer::scene_assets() const {
                              {"model", asset.metadata}};
     }
     return result;
+}
+Json Renderer::presentation_metrics() const {
+    const auto& p = *impl_;
+    Json hands = Json::object();
+    for (size_t side = 0; side < p.hand_presentation.size(); ++side) {
+        const auto& presentation = p.hand_presentation[side];
+        const auto& pose = presentation.pose();
+        hands[side == 0 ? "left" : "right"] = {
+            {"visible", p.hand_drawn[side]}, {"mesh", p.hand_mesh[side]},
+            {"latest_sequence", pose.sequence}, {"source_valid", presentation.source_valid()},
+            {"source_mask", presentation.source_mask()}, {"observed_mask", presentation.observed_mask()},
+            {"retained_mask", pose.joint_mask}, {"wrist_sequence", presentation.joint_sequence(0)},
+            {"wrist_observed_us", presentation.joint_observed_us(0)},
+            {"wrist_position", {pose.values[0], pose.values[1], pose.values[2]}},
+            {"wrist_opacity", presentation.opacity(0)}, {"drawn_updates", p.hand_update_count[side]},
+            {"updates_without_video", p.hand_updates_without_video[side]}};
+    }
+    Json cameras = Json::array();
+    for (const auto& camera : p.cameras)
+        cameras.push_back({{"available", camera.current >= 0}, {"sequence", camera.presented.sequence},
+                           {"time_us", camera.presented.time_us}, {"receive_us", camera.presented.receive_us},
+                           {"rtp_timestamp", camera.presented.rtp_timestamp}});
+    return {{"hands", std::move(hands)}, {"cameras", std::move(cameras)}, {"rendered_frames", p.frame}};
 }
 void Renderer::invalidate_video() {
     auto& p = *impl_;
@@ -2404,25 +2432,23 @@ void Renderer::draw(const ReceiverSnapshot& s, const Calibration& c, const ViewO
         if (s.poses[i]) {
             auto& a = *s.poses[i];
             if (fresh_pose(s, a, trail_time_scale) && (i != 0 || finite_pose(a.values.data()))) {
-                p.held[i] = a;
                 p.fresh[i] = true;
+                if (i == 0)
+                    p.held[i] = a;
             }
         }
-        using LossPolicy = detail::TrackingVisibility::LossPolicy;
-        p.tracking_visibility[i].update(appearance_now, p.fresh[i], s.epoch, s.space_epoch,
-                                        i == 0 ? LossPolicy::Hold : LossPolicy::Fade);
-        if (!p.tracking_visibility[i].retained())
-            p.held[i].reset();
+        if (i == 0) {
+            p.tracking_visibility[i].update(appearance_now, p.fresh[i], s.epoch, s.space_epoch,
+                                            detail::TrackingVisibility::LossPolicy::Hold);
+            if (!p.tracking_visibility[i].retained())
+                p.held[i].reset();
+        }
     }
     for (int side = 0; side < 2; ++side) {
-        const bool supported = p.fresh[side + 1] && p.held[side + 1] &&
-                               hand_pose_supported(*p.held[side + 1], side == 0, p.hand_assets);
-        if (supported) {
-            p.mesh_held[side] = p.held[side + 1];
-        }
-        p.mesh_visibility[side].update(appearance_now, supported, s.epoch, s.space_epoch);
-        if (!p.mesh_visibility[side].retained())
-            p.mesh_held[side].reset();
+        const auto* source = s.poses[side + 1] ? &*s.poses[side + 1] : nullptr;
+        const bool supported = source && hand_pose_supported(*source, side == 0, p.hand_assets);
+        p.hand_presentation[side].update(appearance_now, source, p.fresh[side + 1],
+                                         s.epoch, s.space_epoch, supported);
     }
     p.update_scene_references(o);
     const auto camera_state = scene_camera();
@@ -2551,32 +2577,36 @@ void Renderer::draw(const ReceiverSnapshot& s, const Calibration& c, const ViewO
             }
         }
     }
+    p.hand_drawn = p.hand_mesh = {};
     for (int side = 0; side < 2; ++side) {
-        int k = side + 1;
-        if (!o.hands || !p.held[k] || p.tracking_visibility[k].alpha() <= .001f)
+        const auto& presentation = p.hand_presentation[side];
+        if (!o.hands || !presentation.retained())
             continue;
-        auto& hand = *p.held[k];
+        const auto& hand = presentation.pose();
         glm::vec4 colour =
             side == 0 ? glm::vec4(.27f, .64f, .95f, 1) : glm::vec4(.95f, .47f, .38f, 1);
-        colour.a = p.tracking_visibility[k].alpha();
-        if (o.hand_level == HandLevel::mesh && p.mesh_held[side] &&
-            p.mesh_visibility[side].alpha() > .001f) {
-            const auto& mesh_pose = *p.mesh_held[side];
-            auto transforms = hand_transforms(mesh_pose, side == 0, p.hand_assets);
-            auto mesh_colour = colour;
-            mesh_colour.a = std::min(colour.a, p.mesh_visibility[side].alpha());
-            glDepthMask(mesh_colour.a >= .999f ? GL_TRUE : GL_FALSE);
+        const bool draw_mesh = o.hand_level == HandLevel::mesh &&
+                               presentation.use_mesh(hand_pose_supported(hand, side == 0, p.hand_assets));
+        if (draw_mesh) {
+            auto transforms = hand_transforms(hand, side == 0, p.hand_assets);
             std::array<float, 25> validity{};
+            std::array<float, 25> opacity{};
             std::array<std::array<float, 3>, 25> joint_colours{};
             for (int j = 0; j < 25; ++j) {
-                validity[j] = (mesh_pose.joint_mask & (1u << j)) ? 1.f : 0.f;
+                validity[j] = (presentation.observed_mask() & (1u << j)) ? 1.f : 0.f;
+                opacity[j] = presentation.opacity(j);
                 joint_colours[j] = hand_colour(o.hand_colour, side, {},
                                                p.hand_trails.joint_velocity(side, j));
             }
-            p.model(glm::mat4(1), mesh_colour);
+            p.hand_drawn[side] = std::any_of(opacity.begin(), opacity.end(), [](float alpha) { return alpha > .001f; });
+            p.hand_mesh[side] = p.hand_drawn[side];
+            glDepthMask(std::all_of(opacity.begin(), opacity.end(), [](float alpha) { return alpha >= .999f; })
+                            ? GL_TRUE : GL_FALSE);
+            p.model(glm::mat4(1), colour);
             p.set("skinned", 1);
             p.set("hand_colouring", static_cast<int>(o.hand_colour));
             glUniform1fv(glGetUniformLocation(p.shader, "joint_valid"), 25, validity.data());
+            glUniform1fv(glGetUniformLocation(p.shader, "joint_opacity"), 25, opacity.data());
             glUniform3fv(glGetUniformLocation(p.shader, "joint_colour"), 25,
                          joint_colours[0].data());
             glUniformMatrix4fv(glGetUniformLocation(p.shader, "bones"), 25, GL_FALSE,
@@ -2584,31 +2614,41 @@ void Renderer::draw(const ReceiverSnapshot& s, const Calibration& c, const ViewO
             (side == 0 ? p.left : p.right).draw();
             p.set("skinned", 0);
         }
-        if (o.hand_level == HandLevel::mesh)
+        if (draw_mesh)
             continue;
-        glDepthMask(colour.a >= .999f ? GL_TRUE : GL_FALSE);
+        // A partially tracked palm can still provide useful current joints.
+        // Mesh mode falls back to those joints immediately, with the same
+        // independent hold/fade clocks as the explicit points and bones modes.
+        const bool mesh_fallback = o.hand_level == HandLevel::mesh;
         for (int j = 0; j < 25; ++j) {
-            if (!(hand.joint_mask & (1u << j)))
+            const float alpha = presentation.opacity(j);
+            if (!(hand.joint_mask & (1u << j)) || alpha <= .001f)
                 continue;
             auto v = glm::vec3(hand.values[j * 8], hand.values[j * 8 + 1], hand.values[j * 8 + 2]);
             const auto normal = glm::vec3(pose_transform(hand.values.data() + j * 8)[2]);
             const auto rgb = hand_colour(o.hand_colour, side, {normal.x, normal.y, normal.z},
                                          p.hand_trails.joint_velocity(side, j));
-            const glm::vec4 joint_colour{rgb[0], rgb[1], rgb[2], colour.a};
+            const glm::vec4 joint_colour{rgb[0], rgb[1], rgb[2], alpha};
             const bool lighting = o.hand_colour == HandColour::side;
-            if (o.hand_level == HandLevel::points) {
+            glDepthMask(alpha >= .999f ? GL_TRUE : GL_FALSE);
+            if (o.hand_level == HandLevel::points || mesh_fallback) {
                 float radius = std::max(.0025f, hand.values[j * 8 + 7] * .48f);
                 p.model(glm::translate(glm::mat4(1), v) *
                             glm::scale(glm::mat4(1), glm::vec3(radius)),
                         joint_colour, lighting);
                 p.sphere.draw();
+                p.hand_drawn[side] = true;
             }
-            if ((o.hand_level == HandLevel::outline || o.hand_level == HandLevel::bones) &&
+            if ((o.hand_level == HandLevel::outline || o.hand_level == HandLevel::bones || mesh_fallback) &&
                 joint_parents[j] >= 0 && (hand.joint_mask & (1u << joint_parents[j]))) {
                 int b = joint_parents[j] * 8;
                 const bool outline = o.hand_level == HandLevel::outline;
+                auto bone_colour = joint_colour;
+                bone_colour.a = std::min(alpha, presentation.opacity(joint_parents[j]));
+                glDepthMask(bone_colour.a >= .999f ? GL_TRUE : GL_FALSE);
                 p.segment(v, {hand.values[b], hand.values[b + 1], hand.values[b + 2]},
-                          outline ? .0008f : .003f, joint_colour, lighting && !outline);
+                          outline ? .0008f : .003f, bone_colour, lighting && !outline);
+                p.hand_drawn[side] |= bone_colour.a > .001f;
             }
         }
     }
@@ -2729,6 +2769,19 @@ void Renderer::notify_presented() {
     if (primary.current >= 0 && p.notified_count != p.count) {
         p.latency = (monotonic_us() - primary.presented.receive_us) / 1000.0;
         p.notified_count = p.count;
+    }
+    for (size_t side = 0; side < p.hand_presentation.size(); ++side) {
+        const auto& presentation = p.hand_presentation[side];
+        const auto sequence = presentation.pose().sequence;
+        if (!p.hand_drawn[side] || !presentation.observed_mask() || p.drawn_hand_sequence[side] == sequence)
+            continue;
+        ++p.hand_update_count[side];
+        if (p.drawn_hand_sequence[side] && primary.current >= 0 &&
+            p.drawn_camera_sequence[side] == primary.presented.sequence)
+            ++p.hand_updates_without_video[side];
+        p.drawn_hand_sequence[side] = sequence;
+        p.drawn_camera_sequence[side] = primary.current >= 0
+                                          ? std::optional<uint32_t>{primary.presented.sequence} : std::nullopt;
     }
 }
 unsigned Renderer::video_texture(size_t camera_index) const {
