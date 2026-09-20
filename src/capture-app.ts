@@ -7,6 +7,7 @@ import { BrowserQRCodeReader } from "@zxing/browser";
 import jsQR from "jsqr";
 import { CanvasTexture, DoubleSide, Group, Mesh, MeshBasicMaterial, Object3D, PlaneGeometry, Quaternion, SRGBColorSpace, Vector3 } from "three";
 import { HandSpeedTracker, type HandSpeedSample } from "../shared/capture-quality.js";
+import { localVoiceCommandContext } from "./local-voice-command-context.js";
 import { cameraRegistrationMatches, normaliseCameraRegistration, type CameraRegistration } from "../shared/camera-registration.js";
 import { defaultHandDisplaySettings, normaliseHandDisplaySettings, type HandDisplaySettings } from "../shared/hand-display.js";
 import { classifyCaptureSensorSource, defaultCaptureStatus, defaultConfiguration, isDirectBeamDeliveryId, isRepetitionTask, isStateBoundRunControlAction, nextRunControlCursor, webRtcSignalNegotiationId, type CaptureConfiguration, type CaptureStatus, type ClientMessage, type DirectBeamAcknowledgement, type DirectBeamDeliveryState, type DirectRunState, type DirectTaskPresentationAcknowledgement, type Episode, type HandState, type PromptDelivery, type RecorderRunEvent, type RecordingReadiness, type RuntimeFeatures, type SensorFrame, type SequenceReadiness, type ServerMessage, type SessionSnapshot, type SessionTelemetryMode, type Transform, type WebRtcSignal } from "../shared/protocol.js";
@@ -700,6 +701,8 @@ export class CaptureApp {
   private localVoiceCommandErrorDetail: string | null = null;
   private localVoiceCommandErrorKind: LocalVoiceCommandFailureKind | null = null;
   private localVoiceCommandRecognitionStartedAt: number | null = null;
+  private localVoiceStartPending: { context: string; expiresAt: number } | null = null;
+  private localVoiceSoloStartPending = false;
   private readonly localVoiceCommandRecovery = new LocalVoiceCommandRecovery();
   private localVoiceCommandOverlayNotice: LocalVoiceCommandOverlayNotice | null = null;
   private localVoiceCommandOverlayPending = false;
@@ -2822,7 +2825,8 @@ export class CaptureApp {
     this.renderLocalVoiceCommandStatus();
     const commands = new LocalVoiceCommandController({
       stream,
-      onCommand: (command) => this.handleLocalVoiceCommand(command),
+      getContext: () => this.voiceCommandContext(),
+      onCommand: (command, context) => this.handleLocalVoiceCommand(command, context),
       onRecognitionChange: (active) => {
         if (
           this.localVoiceCommands !== commands
@@ -2975,12 +2979,17 @@ export class CaptureApp {
     this.localVoiceCommandOverlayPending = false;
   }
 
-  private handleLocalVoiceCommand(command: LocalVoiceCommand) {
+  private voiceCommandContext() {
+    return localVoiceCommandContext(this.sessionKey, this.snapshot, this.bridge?.paused ?? null);
+  }
+
+  private handleLocalVoiceCommand(command: LocalVoiceCommand, context?: string) {
     const root = this.mountedRoot;
     if (!root
       || !this.localVoiceCommandRecognitionEnabled()
       || this.disposed
-      || this.captureAuthorityRevoked) return;
+      || this.captureAuthorityRevoked
+      || context !== undefined && context !== this.voiceCommandContext()) return;
     const handDisplaySettings = localVoiceCommandHandDisplaySettings(
       this.handDisplaySettings,
       command,
@@ -3006,15 +3015,31 @@ export class CaptureApp {
       else if (command === "stop" || command === "finish" || command === "done") void this.xrSession?.end();
       return;
     }
+    if (command === "start" && this.authority.kind !== "solo") {
+      // Voice retries express readiness once, including while its acknowledgement
+      // is in flight. The corresponding pointer control can still toggle it.
+      const currentContext = this.voiceCommandContext();
+      if (this.snapshot?.run.demonstratorReady
+        || this.snapshot?.solo?.startCountdownDeadlineMs != null
+        || this.localVoiceStartPending?.context === currentContext
+          && performance.now() < this.localVoiceStartPending.expiresAt) return;
+      this.localVoiceStartPending = { context: currentContext, expiresAt: performance.now() + 4_000 };
+    }
     if (command === "start" && this.authority.kind === "solo") {
-      if (this.onSoloStartRun) {
-        this.xrCaptureHorizonHud?.flashVoiceAction(action, this.prefersReducedMotion());
-      }
-      void this.onSoloStartRun?.();
+      if (!this.onSoloStartRun || this.localVoiceSoloStartPending
+        || this.snapshot?.solo?.startCountdownDeadlineMs != null
+        || this.snapshot?.run.status === "stopped" && this.snapshot?.solo?.selectedStartTaskId != null) return;
+      this.localVoiceSoloStartPending = true;
+      this.xrCaptureHorizonHud?.flashVoiceAction(action, this.prefersReducedMotion());
+      void Promise.resolve().then(() => this.onSoloStartRun?.()).catch(error => {
+        this.reportError(root, error instanceof Error ? error.message : "The run could not start");
+      }).finally(() => { this.localVoiceSoloStartPending = false; });
       return;
     }
     if (this.sendDemonstratorControl(root, action)) {
       this.xrCaptureHorizonHud?.flashVoiceAction(action, this.prefersReducedMotion());
+    } else if (command === "start") {
+      this.localVoiceStartPending = null;
     }
   }
 

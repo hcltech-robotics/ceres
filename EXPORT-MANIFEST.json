@@ -2,7 +2,7 @@
   "version": 2,
   "packageVersion": "1.1.3",
   "generator": "ceres-public-core/2",
-  "treeDigest": "950c80cc91861654aa4812715bbc928c23e26aa9ac493cff84d4986e466ed51f",
+  "treeDigest": "850b8b2a1c4040ba6cb67676943068ac67326f65b8a5069e36eba0e0ec3714fa",
   "files": {
     ".dockerignore": {
       "sha256": "c42f073a38c93eb50ac7cafd943c2ed01e7481ee36435bc1c7d5903977af839f",
@@ -130,8 +130,8 @@
       "mode": "100644"
     },
     "models/moonshine-LICENCE.txt": {
-      "sha256": "a7830b83d8e1d29a4fa4e8dad03221c07e31077b30d89db57183e6035bc49f63",
-      "bytes": 1505,
+      "sha256": "037658b43c2e7751d19169b71ad4e87cb913ed561542adf0f0e01a054708b810",
+      "bytes": 3478,
       "mode": "100644"
     },
     "monitor/index.html": {
@@ -1130,13 +1130,13 @@
       "mode": "100644"
     },
     "package-lock.json": {
-      "sha256": "0b6e0d74b7cad60d7050cc008255d54b54d75793a8c2760aad3159e082b5a40e",
-      "bytes": 173490,
+      "sha256": "f24140c7c2f0c90f92e0340bd2ecdedec99a8cc8e4a73cf954976932eae18d65",
+      "bytes": 157129,
       "mode": "100644"
     },
     "package.json": {
-      "sha256": "4100f926372cf5e14bcd55cad52ec1f70e2f2417d3e20d79b58d178f3a699bae",
-      "bytes": 3549,
+      "sha256": "de8491c18de6be0521683a3d2b9f3c3846ce177734929ddcfc7e08d9fa11dfe2",
+      "bytes": 3485,
       "mode": "100644"
     },
     "playwright.config.ts": {
@@ -1754,6 +1754,11 @@
       "bytes": 2737,
       "mode": "100644"
     },
+    "scripts/local-voice-runtime-assets.ts": {
+      "sha256": "d7c029ecf5fc21cb03391ebe35ed05d03e974f80ea21c58f1caabd9e2ba2e3c6",
+      "bytes": 5799,
+      "mode": "100644"
+    },
     "scripts/normalise-source-maps.mjs": {
       "sha256": "8030bbbc64f3f7f8291543773bfc538a97771f307fabc772eacb40dbc526e0b6",
       "bytes": 1020,
@@ -1770,8 +1775,8 @@
       "mode": "100644"
     },
     "scripts/prepare-voice-models.mjs": {
-      "sha256": "02e79f40401b435253d6e8f7c317d105792ebda9bcb8581247e1c4b7ced1fdba",
-      "bytes": 7491,
+      "sha256": "989881df429022888ef8db03f0a6aee8b235c1fa0185a46a4cf18cca1550eed5",
+      "bytes": 7738,
       "mode": "100644"
     },
     "scripts/publish-public-release.mjs": {
@@ -1920,8 +1925,13 @@
       "mode": "100644"
     },
     "shared/local-voice-model.json": {
-      "sha256": "0b279c4c3cd4bf72b2f92e272852b61ecf99905a01c2a4eff39e06945ff4cff4",
-      "bytes": 1430,
+      "sha256": "641e2c85cbc2e0af89a81f9392a5f110ffdd90a2df9b23de2fb1742d1fb7131b",
+      "bytes": 1452,
+      "mode": "100644"
+    },
+    "shared/local-voice-runtime.json": {
+      "sha256": "bc19b93eccccad07b0645f31e817218a28f888c73ff074e0b576935ef3b24460",
+      "bytes": 119,
       "mode": "100644"
     },
     "shared/pairing-code.ts": {
@@ -2075,8 +2085,8 @@
       "mode": "100644"
     },
     "src/capture-app.ts": {
-      "sha256": "5c9c98c948c6f52d05a401ba435a2259c4ea2fdb851d8eecd4cefc9a5a0bf37c",
-      "bytes": 316498,
+      "sha256": "561003851c2caf8f98d58e2103fb1e072794be5d95d8124ed408208e2710ad20",
+      "bytes": 318200,
       "mode": "100644"
     },
     "src/capture-authority.ts": {
@@ -2244,29 +2254,49 @@
       "bytes": 5518,
       "mode": "100644"
     },
+    "src/local-voice-command-audio.ts": {
+      "sha256": "84c04aba1953c3adda473d2945a034a64f489e0adcc762947c20b96e290593dc",
+      "bytes": 7467,
+      "mode": "100644"
+    },
+    "src/local-voice-command-context.ts": {
+      "sha256": "f77407df918eb1cad6a9a07d996c922298433afa5145d56932dd062140548cfc",
+      "bytes": 816,
+      "mode": "100644"
+    },
+    "src/local-voice-command-queue.ts": {
+      "sha256": "648d5ed6ac0f02247832ab207eecd8324766f5d03569044dafdbd3916bcf1af4",
+      "bytes": 2518,
+      "mode": "100644"
+    },
     "src/local-voice-command-timing.ts": {
-      "sha256": "d22abff07304d2576b9358b90125a6d079975da057c27eb00a640e260c507a02",
-      "bytes": 772,
+      "sha256": "ebc689e54fc73df919c52ab7d3708b94a209100d3086d9331b80be0fd4acf0ac",
+      "bytes": 606,
       "mode": "100644"
     },
     "src/local-voice-command.ts": {
-      "sha256": "ccef1c873917a72b88753bc6b82ade7f56f6c6a1f45bbf1a1110f8dae144c29c",
-      "bytes": 14731,
+      "sha256": "eecf6e95444077ec056747898aef1b21b6b9c5a42ff2249b4dda4f312ba507e8",
+      "bytes": 17733,
       "mode": "100644"
     },
     "src/local-voice-command.worker.ts": {
-      "sha256": "4de7cbb44f0aab6ce94624c989de6b126050c571670359b2375ca33bcf831c75",
-      "bytes": 5894,
+      "sha256": "2db0cbda3956ddf9a3bba6639a9d7f3fe0d0acc05a6c8ed52ce21790a35d6271",
+      "bytes": 4526,
       "mode": "100644"
     },
     "src/local-voice-command.worklet.ts": {
-      "sha256": "267037ae9e0f1a9de4cfe259eb4058d602e0d6a667743264f8c7f39a387c1b81",
-      "bytes": 2432,
+      "sha256": "d8a9c945c481fb41f14565257b7389825db3cde6f221a0f5b68b9d549aa793eb",
+      "bytes": 1005,
       "mode": "100644"
     },
     "src/local-voice-model-recovery.ts": {
       "sha256": "e969563f8e5f76bef27459338645c0ed7ee32118bb45b99f7e475f539a1873fc",
       "bytes": 2454,
+      "mode": "100644"
+    },
+    "src/local-voice-transcriber.ts": {
+      "sha256": "2c022f0b6e84bcab0847cfe2df99799f41350aac4ff6aedac6fdb37b3816f4ba",
+      "bytes": 917,
       "mode": "100644"
     },
     "src/monitor-app.ts": {
@@ -2840,8 +2870,8 @@
       "mode": "100644"
     },
     "test/browser/voice-model.spec.ts": {
-      "sha256": "313ce1d8bfa29f2f0f74bfdf90f87d505600e9f467f365cb9de9dc9d53fd2b47",
-      "bytes": 10361,
+      "sha256": "9360f984ca87f11caba283d91f923022f99a612e0d9b5520212cc3dff2a577fa",
+      "bytes": 15761,
       "mode": "100644"
     },
     "test/camera-capture-frame.test.ts": {
@@ -2934,14 +2964,39 @@
       "bytes": 1161,
       "mode": "100644"
     },
+    "test/local-voice-command-audio.test.ts": {
+      "sha256": "0bbc5796a9950e85492a6755b48439a3714b8901d9cb8bb5d492c02c0715aa04",
+      "bytes": 8819,
+      "mode": "100644"
+    },
+    "test/local-voice-command-context.test.ts": {
+      "sha256": "4ee11c8cd3c6d3299450c6199c0c0dcd87a14cfae01d3bfebf031843abc72e72",
+      "bytes": 7773,
+      "mode": "100644"
+    },
+    "test/local-voice-command-queue.test.ts": {
+      "sha256": "ec71d60526264d615f841dafa46390ab15ed6a5e7469c85eca7ff44d1c8a75df",
+      "bytes": 14806,
+      "mode": "100644"
+    },
     "test/local-voice-command.test.ts": {
-      "sha256": "39e11a0161f5dd480c5425df776974bcef60452edd6693bab6edc32d1089ffc9",
-      "bytes": 25964,
+      "sha256": "d7ad3da3db3853a79427334977a4c8578b915b21991a8ca77dd54a67e7a897db",
+      "bytes": 20651,
       "mode": "100644"
     },
     "test/local-voice-model-recovery.test.ts": {
-      "sha256": "601b292ca8c67aff93d7b67f9a683d8126108946ae543f07b2644b8db85d1a8c",
-      "bytes": 4598,
+      "sha256": "2149dfd1640af13c00bc0f53d9dba4a4f21b023723dbf2b6407df91da5e57a23",
+      "bytes": 4494,
+      "mode": "100644"
+    },
+    "test/local-voice-runtime-assets.test.ts": {
+      "sha256": "1f3eb56c91b9a5dd856bc08a6f405e890006e57be3fdbfb52065cf4c390514fa",
+      "bytes": 7684,
+      "mode": "100644"
+    },
+    "test/local-voice-transcriber.test.ts": {
+      "sha256": "599b56021644f3903d1ec56c05ce6ca5036e5622c3bcb6e59b437375f6e932fc",
+      "bytes": 1812,
       "mode": "100644"
     },
     "test/monitor-direct-command-durability.test.ts": {
@@ -3140,8 +3195,8 @@
       "mode": "100644"
     },
     "test/voice-model-assets.test.ts": {
-      "sha256": "2e88209ae4888a4f4b02f16e3b53e469a44dab4a7861d3d17b614327d9fad544",
-      "bytes": 13316,
+      "sha256": "c99ff51af6aa3f197d2fa9857cc0197e8083dee423ddc4d0195f7d2eb23bf494",
+      "bytes": 14043,
       "mode": "100644"
     },
     "test/webrtc-negotiation.test.ts": {
@@ -3200,8 +3255,8 @@
       "mode": "100644"
     },
     "vite.config.ts": {
-      "sha256": "fbae0b0bd52087d4be27aff9fa69e30855a79c0a54fb6b6197f0b304a43ce33b",
-      "bytes": 2296,
+      "sha256": "de4ce39472d005c4e6b3f07da388ce0b40ffb2c396423c6a331cc3c52e69b131",
+      "bytes": 2406,
       "mode": "100644"
     },
     "wasm/lerobot-exporter/Cargo.lock": {

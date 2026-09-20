@@ -21,18 +21,19 @@ async function modelFixture(context: { after: (cleanup: () => Promise<void>) => 
     return rm(root, { recursive: true, force: true });
   });
   const payloads = new Map([
-    ["config.json", Buffer.from('{"model_type":"moonshine"}\n')],
-    ["onnx/encoder_model_q4.onnx", Buffer.from([8, 4, 18, 5, 10, 11, 12])],
+    ["streaming_config.json", Buffer.from('{"encoder_dim":320}\n')],
+    ["ort/encoder.ort", Buffer.from([8, 4, 18, 5, 10, 11, 12])],
   ]);
   const manifest = {
-    modelId: "onnx-community/test-voice-ONNX",
-    revision: "a".repeat(40),
+    modelId: "moonshine-ai/test-voice",
+    revision: "quantized_26_07_30",
+    downloadBaseUrl: "https://download.moonshine.ai/model/test-voice/quantized_26_07_30/",
     files: [...payloads].map(([file, bytes]) => ({ path: file, bytes: bytes.length, sha256: hash(bytes) })),
   };
   const directory = path.join(root, "public/models");
   const filePath = (file: string) => path.join(directory, manifest.modelId, file);
   const requests: string[] = [];
-  const baseUrl = `https://huggingface.co/${manifest.modelId}/resolve/${manifest.revision}/`;
+  const baseUrl = manifest.downloadBaseUrl;
   const fetcher = async (input: string) => {
     requests.push(input);
     assert.ok(input.startsWith(baseUrl), input);
@@ -156,7 +157,7 @@ test("offline and HTTP failures preserve existing files and give the recovery co
 });
 
 test("linked output ancestors and model directories are rejected without changing their targets", async context => {
-  for (const ancestor of ["public", "public/models", "public/models/onnx-community", "public/models/onnx-community/test-voice-ONNX", "public/models/onnx-community/test-voice-ONNX/onnx"]) {
+  for (const ancestor of ["public", "public/models", "public/models/moonshine-ai", "public/models/moonshine-ai/test-voice", "public/models/moonshine-ai/test-voice/ort"]) {
     await context.test(ancestor, async subcontext => {
       const fixture = await modelFixture(subcontext);
       const file = fixture.manifest.files[1];
@@ -203,21 +204,33 @@ test("download writes recheck ancestors after the network request", async contex
 
 test("manifest validation rejects unpinned revisions, unsafe paths and ambiguous assets", () => {
   const valid = {
-    modelId: "onnx-community/moonshine-tiny-ONNX",
-    revision: "a".repeat(40),
-    files: [{ path: "onnx/encoder.onnx", bytes: 1, sha256: "b".repeat(64) }],
+    modelId: "moonshine-ai/tiny-streaming-en",
+    revision: "quantized_26_07_30",
+    downloadBaseUrl: "https://download.moonshine.ai/model/tiny-streaming-en/quantized_26_07_30/",
+    files: [{ path: "ort/encoder.ort", bytes: 1, sha256: "b".repeat(64) }],
   };
   assert.equal(validateVoiceModelManifest(valid), valid);
-  for (const revision of ["main", "a6da124", "../main"]) {
+  for (const revision of ["main", "latest", "quantized", "quantized_26_7_30", "../quantized_26_07_30"]) {
     assert.throws(() => validateVoiceModelManifest({ ...valid, revision }), /Invalid/);
   }
-  for (const filePath of ["../secret", "/absolute", "onnx/../../secret", "onnx\\escape.onnx", "onnx//file.onnx", "onnx/file?download=1"]) {
+  for (const filePath of ["../secret", "/absolute", "ort/../../secret", "ort\\escape.ort", "ort//file.ort", "ort/file?download=1"]) {
     assert.throws(() => validateVoiceModelManifest({ ...valid, files: [{ ...valid.files[0], path: filePath }] }), /Invalid/);
   }
   for (const overrides of [{ bytes: 0 }, { bytes: 1.5 }, { sha256: "invalid" }]) {
     assert.throws(() => validateVoiceModelManifest({ ...valid, files: [{ ...valid.files[0], ...overrides }] }), /Invalid/);
   }
-  assert.throws(() => validateVoiceModelManifest({ ...valid, files: [valid.files[0], { ...valid.files[0], path: "ONNX/ENCODER.ONNX" }] }), /duplicate/);
+  assert.throws(() => validateVoiceModelManifest({ ...valid, files: [valid.files[0], { ...valid.files[0], path: "ORT/ENCODER.ORT" }] }), /duplicate/);
+  for (const downloadBaseUrl of [
+    undefined,
+    "https://download.moonshine.ai/model/tiny-streaming-en/latest/",
+    "https://download.moonshine.ai/model/tiny-streaming-en/quantized_26_07_30",
+    "https://download.moonshine.ai/model/other/quantized_26_07_30/",
+    "http://download.moonshine.ai/model/tiny-streaming-en/quantized_26_07_30/",
+    "https://example.com/model/tiny-streaming-en/quantized_26_07_30/",
+    `${valid.downloadBaseUrl}?redirect=elsewhere`,
+  ]) {
+    assert.throws(() => validateVoiceModelManifest({ ...valid, downloadBaseUrl }), /Invalid/);
+  }
 });
 
 test("CLI paths are relative to the project and invalid arguments fail", () => {

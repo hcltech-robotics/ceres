@@ -1,4 +1,7 @@
 import { workerErrorFromEvent } from "./worker-errors.js";
+import { LocalVoiceCommandQueue } from "./local-voice-command-queue.js";
+import { LOCAL_VOICE_COMMAND_INFERENCE_TIMEOUT_MS } from "./local-voice-command-timing.js";
+import type { LocalVoiceCommandAudioMessage } from "./local-voice-command-audio.js";
 
 import type { HandDisplaySettings } from "../shared/hand-display.js";
 
@@ -220,19 +223,19 @@ export function localVoiceCommandHandDisplaySettings(
   return null;
 }
 
-interface LocalVoiceCommandWorkerMessage {
-  type: "status" | "command" | "recognition";
-  status?: LocalVoiceCommandStatus;
-  command?: LocalVoiceCommand;
-  detail?: string;
-  failure?: LocalVoiceCommandFailure;
-  active?: boolean;
-  successful?: boolean;
-}
+type LocalVoiceCommandWorkerMessage =
+  | {
+    type: "status";
+    status: LocalVoiceCommandStatus;
+    detail?: string;
+    failure?: LocalVoiceCommandFailure;
+  }
+  | { type: "result"; requestId: number; command?: LocalVoiceCommand; successful: boolean };
 
 export interface LocalVoiceCommandControllerOptions {
   stream: MediaStream;
-  onCommand(command: LocalVoiceCommand): void;
+  getContext?(): string;
+  onCommand(command: LocalVoiceCommand, context?: string): void;
   onStatus(status: LocalVoiceCommandStatus, detail?: string, failure?: LocalVoiceCommandFailure): void;
   onRecognitionChange?(active: boolean): void;
   onRecognitionSuccess?(): void;
@@ -250,8 +253,10 @@ async function localVoiceCommandWorkletUrl() {
  * audio and is never delayed by model loading or inference.
  */
 export class LocalVoiceCommandController {
-  private readonly worker = new Worker(new URL("./local-voice-command.worker.ts", import.meta.url), { type: "module" });
+  private worker!: Worker;
+  private readonly queue = new LocalVoiceCommandQueue();
   private readonly stream: MediaStream;
+  private readonly getContext: LocalVoiceCommandControllerOptions["getContext"];
   private readonly onCommand: LocalVoiceCommandControllerOptions["onCommand"];
   private readonly onStatus: LocalVoiceCommandControllerOptions["onStatus"];
   private readonly onRecognitionChange: LocalVoiceCommandControllerOptions["onRecognitionChange"];
@@ -265,24 +270,37 @@ export class LocalVoiceCommandController {
   private workerFailed = false;
   private workerReady = false;
   private recognitionActive = false;
-  private lastCommand: LocalVoiceCommand | null = null;
-  private lastCommandAt = Number.NEGATIVE_INFINITY;
+  private consecutiveInferenceFailures = 0;
+  private inferenceTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(options: LocalVoiceCommandControllerOptions) {
     this.stream = options.stream;
+    this.getContext = options.getContext;
     this.onCommand = options.onCommand;
     this.onStatus = options.onStatus;
     this.onRecognitionChange = options.onRecognitionChange;
     this.onRecognitionSuccess = options.onRecognitionSuccess;
     this.onFatalError = options.onFatalError;
-    this.worker.addEventListener("message", (event: MessageEvent<LocalVoiceCommandWorkerMessage>) => this.receiveWorkerMessage(event.data));
-    this.worker.addEventListener("error", (event) => {
-      const error = workerErrorFromEvent(event) ?? new Error("Local voice command worker failed");      this.failWorker(error instanceof Error ? error.message : "Local voice command worker failed");
+    this.initialiseWorker();
+  }
+
+  private initialiseWorker() {
+    const worker = new Worker(new URL("./local-voice-command.worker.ts", import.meta.url), { type: "module" });
+    this.worker = worker;
+    worker.addEventListener("message", (event: MessageEvent<LocalVoiceCommandWorkerMessage>) => {
+      if (worker === this.worker) this.receiveWorkerMessage(event.data);
     });
-    this.worker.addEventListener("messageerror", () => {
-      const error = new Error("Local voice command worker returned an unreadable response");      this.failWorker(error.message);
+    worker.addEventListener("error", (event) => {
+      if (worker !== this.worker) return;
+      const error = workerErrorFromEvent(event) ?? new Error("Local voice command worker failed");
+      this.failWorker(error instanceof Error ? error.message : "Local voice command worker failed");
     });
-    this.worker.postMessage({ type: "initialise" });
+    worker.addEventListener("messageerror", () => {
+      if (worker !== this.worker) return;
+      const error = new Error("Local voice command worker returned an unreadable response");
+      this.failWorker(error.message);
+    });
+    worker.postMessage({ type: "initialise" });
   }
 
   async start() {
@@ -304,19 +322,11 @@ export class LocalVoiceCommandController {
       const silentOutput = audioContext.createGain();
       silentOutput.gain.value = 0;
       captureNode.addEventListener("processorerror", () => {
-        const error = new Error("Local voice command audio processor failed");        this.failWorker(error.message);
+        const error = new Error("Local voice command audio processor failed");
+        this.failWorker(error.message);
       });
-      captureNode.port.addEventListener("message", (event: MessageEvent<{ samples?: Float32Array; sampleRate?: number }>) => {
-        const samples = event.data.samples;
-        const sampleRate = event.data.sampleRate;
-        if (
-          this.disposed
-          || this.workerFailed
-          || !this.workerReady
-          || !(samples instanceof Float32Array)
-          || !Number.isFinite(sampleRate)
-        ) return;
-        this.worker.postMessage({ type: "audio", samples, sampleRate }, [samples.buffer]);
+      captureNode.port.addEventListener("message", (event: MessageEvent<LocalVoiceCommandAudioMessage>) => {
+        this.receiveAudioMessage(event.data);
       });
       captureNode.port.start();
       source.connect(captureNode).connect(silentOutput).connect(audioContext.destination);
@@ -325,7 +335,8 @@ export class LocalVoiceCommandController {
       this.captureNode = captureNode;
       this.silentOutput = silentOutput;
     } catch (error) {
-      if (audioContext.state !== "closed") await audioContext.close();      throw error;
+      if (audioContext.state !== "closed") await audioContext.close();
+      throw error;
     }
   }
 
@@ -333,6 +344,8 @@ export class LocalVoiceCommandController {
     if (this.disposed) return;
     this.setRecognitionActive(false);
     this.disposed = true;
+    this.clearInferenceTimer();
+    this.queue.clear();
     this.stopAudioForwarding();
     this.worker.terminate();
   }
@@ -353,6 +366,8 @@ export class LocalVoiceCommandController {
     if (this.disposed || this.workerFailed) return;
     this.workerFailed = true;
     this.workerReady = false;
+    this.clearInferenceTimer();
+    this.queue.clear();
     this.setRecognitionActive(false);
     this.stopAudioForwarding();
     this.worker.terminate();
@@ -361,25 +376,96 @@ export class LocalVoiceCommandController {
   }
 
   private receiveWorkerMessage(message: LocalVoiceCommandWorkerMessage) {
-    if (this.disposed) return;
-    if (message.type === "recognition" && typeof message.active === "boolean") {
-      this.setRecognitionActive(message.active);
-      if (!message.active && message.successful === true) this.onRecognitionSuccess?.();
-      return;
-    }
+    if (this.disposed || this.workerFailed) return;
     if (message.type === "status" && message.status) {
       if (message.status === "ready" || message.status === "fallback") this.workerReady = true;
       else if (message.status === "loading") this.workerReady = false;
-      if (message.status === "error") {      }
       this.onStatus(message.status, message.detail, message.failure);
+      this.dispatchPending();
       return;
     }
-    if (!this.workerReady || message.type !== "command" || !message.command) return;
-    const now = performance.now();
-    if (message.command === this.lastCommand && now - this.lastCommandAt < 1_500) return;
-    this.lastCommand = message.command;
-    this.lastCommandAt = now;
-    this.onCommand(message.command);
+    if (message.type !== "result") return;
+    const completed = this.queue.complete(message.requestId, performance.now());
+    if (!completed) return;
+    this.clearInferenceTimer();
+    this.setRecognitionActive(false);
+    this.consecutiveInferenceFailures = message.successful ? 0 : this.consecutiveInferenceFailures + 1;
+    if (this.consecutiveInferenceFailures >= 2) {
+      this.replaceWorker();
+      return;
+    }
+    try {
+      if (message.successful) this.onRecognitionSuccess?.();
+      if (message.successful && message.command && completed.fresh && this.contextMatches(completed.request.context)) {
+        this.onCommand(message.command, completed.request.context);
+      }
+    } finally {
+      this.dispatchPending();
+    }
+  }
+
+  private receiveAudioMessage(message: LocalVoiceCommandAudioMessage) {
+    if (this.disposed || this.workerFailed) return;
+    if (message.type === "speech-start") {
+      this.queue.start(message.utteranceId, performance.now(), this.getContext?.());
+    } else if (message.type === "speech-cancel") {
+      this.queue.cancel(message.utteranceId);
+    } else if (message.type === "audio" && message.samples instanceof Float32Array) {
+      this.queue.capture(message.utteranceId, message.samples, message.sampleRate, performance.now());
+      this.dispatchPending();
+    }
+  }
+
+  private dispatchPending() {
+    if (this.disposed || this.workerFailed || !this.workerReady) return;
+    const request = this.queue.next(performance.now());
+    if (!request) return;
+    if (!this.contextMatches(request.context)) {
+      this.queue.abandon(request.requestId);
+      return;
+    }
+    this.setRecognitionActive(true);
+    this.inferenceTimer = setTimeout(() => this.replaceStalledWorker(request.requestId), LOCAL_VOICE_COMMAND_INFERENCE_TIMEOUT_MS);
+    try {
+      this.worker.postMessage({
+        type: "audio",
+        requestId: request.requestId,
+        samples: request.samples,
+        sampleRate: request.sampleRate,
+      }, [request.samples.buffer]);
+    } catch (error) {
+      this.failWorker(error instanceof Error ? error.message : "Local voice command audio could not reach the worker");
+    }
+  }
+
+  private contextMatches(context: string | undefined) {
+    return !this.getContext || context === this.getContext();
+  }
+
+  private clearInferenceTimer() {
+    if (this.inferenceTimer !== null) clearTimeout(this.inferenceTimer);
+    this.inferenceTimer = null;
+  }
+
+  private replaceStalledWorker(requestId: number) {
+    if (this.disposed || this.workerFailed) return;
+    if (!this.queue.abandon(requestId)) return;
+    this.replaceWorker();
+  }
+
+  private replaceWorker() {
+    if (this.disposed || this.workerFailed) return;
+    this.clearInferenceTimer();
+    this.consecutiveInferenceFailures = 0;
+    this.workerReady = false;
+    this.setRecognitionActive(false);
+    this.worker.terminate();
+    this.onStatus("loading", "Restarting local voice recogniser");
+    try {
+      this.initialiseWorker();
+    } catch (error) {
+      this.failWorker(error instanceof Error ? error.message : "Local voice command worker could not restart");
+    }
   }
 
   private setRecognitionActive(active: boolean) {
