@@ -67,6 +67,8 @@ The Quest rig uses the supplied USDZ mesh, base colour, normal and material maps
 
 During replay, **Delay** selects earlier tracking, while negative values inspect later tracking. The adjustment changes the displayed hands and headset. Live hands always use the newest available tracking. Recordings, exported observations and camera frame associations retain their source timestamps.
 
+When a live camera frame has no valid headset association, a compact **Camera** inset shows the image in the scene. Spatial projection resumes when an associated frame arrives. The inset respects **RGB** visibility and gives way to a visible **Scene > Image > Preview**. It preserves the image aspect ratio and does not change recorded timing, camera associations or hand positions.
+
 ## Recording
 
 Choose a folder in **Recording > Destination**. Windows defaults to `D:\data\ceres-viewer\sessions`. Linux uses the `sessions` folder beneath the local data directory.

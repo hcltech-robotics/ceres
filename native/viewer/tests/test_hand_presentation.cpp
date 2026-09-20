@@ -1,4 +1,5 @@
 #include "ceres/detail/hand_presentation.hpp"
+#include "ceres/camera_presentation.hpp"
 #include <cmath>
 #include <iostream>
 #include <limits>
@@ -65,6 +66,54 @@ void newest_hands_ignore_video_and_inspection_delay() {
     check(ceres::detail::presentation_pose_offset_us(true, 125.f) == 125000 &&
               ceres::detail::presentation_pose_offset_us(true, -125.f) == -125000,
           "Replay inspection delay changed");
+}
+void unassociated_video_keeps_flat_image_and_latest_hands() {
+    ceres::SessionEvent video;
+    video.epoch = 1;
+    video.space_epoch = 2;
+    video.sequence = 7;
+    // A slower first frame can leave arrival-anchored RTP presentation time
+    // ahead of later arrivals. Keep those source times without placing the
+    // image at an unrelated current head pose.
+    video.time_us = 1400000;
+    video.receive_us = 1314000;
+    video.attributes = {{"capture_synchronised", false},
+                        {"video_time_domain", "receiver-arrival-anchored-rtp"}};
+    const auto original = video;
+    ceres::CameraPresentation camera{23, 1280, 960, video.sequence, true,
+                                    ceres::detail::associated_camera_head(video, 1, 2).has_value()};
+    check(camera.flat_preview(true, true, false),
+          "Decoded video without a head association disappeared instead of using the flat preview");
+    HandPresentation hands;
+    auto source = hand(10, .1f);
+    hands.update(1314000, &source, true, 1, 2, true);
+    source = hand(11, .9f);
+    hands.update(1324000, &source, true, 1, 2, true);
+    check(camera.sequence == 7 && close(hands.pose().values[0], .9f) && hands.pose().sequence == 11,
+          "Unassociated or frozen video delayed the latest hand position");
+    check(video.time_us == original.time_us && video.receive_us == original.receive_us &&
+              video.attributes == original.attributes,
+          "Flat presentation changed source video timing or invented an association");
+    check(!camera.flat_preview(true, false, false) && !camera.flat_preview(false, true, false),
+          "Flat preview ignored RGB off or changed replay presentation");
+    check(!camera.flat_preview(true, true, true),
+          "Flat inset duplicated an explicitly visible camera preview");
+    camera.in_current_space = false;
+    check(!camera.flat_preview(true, true, false), "An earlier reference-space image survived a reset");
+    camera.in_current_space = true;
+    video.attributes["head_pose"] = {0, 1.6, 0, 0, 0, 0, 1};
+    camera.spatially_placed = ceres::detail::associated_camera_head(video, 1, 2).has_value();
+    check(camera.spatially_placed && !camera.flat_preview(true, true, false),
+          "A spatially associated image retained a duplicate flat inset");
+    check(!ceres::detail::associated_camera_head(video, 1, 3) &&
+              !ceres::detail::associated_camera_head(video, 2, 2),
+          "Camera association crossed an epoch or reference-space change");
+    video.attributes["head_pose"] = {0, 1.6, 0, 0, 0, 0, 0};
+    check(!ceres::detail::associated_camera_head(video, 1, 2),
+          "An invalid associated rotation hid the flat preview");
+    video.attributes["head_pose"] = {0, "missing", 0, 0, 0, 0, 1};
+    check(!ceres::detail::associated_camera_head(video, 1, 2),
+          "A malformed camera association was accepted");
 }
 void independent_joint_loss_and_immediate_reacquisition() {
     HandPresentation presentation;
@@ -152,6 +201,7 @@ void contexts_and_independent_hands() {
 int main() {
     try {
         newest_hands_ignore_video_and_inspection_delay();
+        unassociated_video_keeps_flat_image_and_latest_hands();
         independent_joint_loss_and_immediate_reacquisition();
         whole_hand_loss_and_mesh_fallback();
         contexts_and_independent_hands();

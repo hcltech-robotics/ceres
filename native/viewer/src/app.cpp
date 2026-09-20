@@ -970,6 +970,65 @@ bool scene_task_overlay(const ReplayTask* task, float scene_width, float top, fl
     ImGui::End();
     return captures_mouse;
 }
+void scene_camera_preview(const Renderer& renderer, const ReceiverSnapshot& snapshot,
+                          bool live, bool rgb, const std::array<bool, 2>& explicit_preview,
+                          float scene_width, float top, float dpi, Json* metrics) {
+    if (metrics)
+        *metrics = {{"visible", false}, {"cameras", Json::array()}};
+    std::array<CameraPresentation, 2> cameras;
+    std::array<size_t, 2> shown{};
+    size_t count = 0;
+    for (size_t i = 0; i < cameras.size(); ++i) {
+        cameras[i] = renderer.camera_presentation(snapshot, i);
+        if (cameras[i].flat_preview(live, rgb, explicit_preview[i]))
+            shown[count++] = i;
+    }
+    if (!count)
+        return;
+    const float margin = 12.f * dpi, padding = 8.f * dpi;
+    const float gap = ImGui::GetStyle().ItemSpacing.x;
+    const float available_height = std::max(1.f, ImGui::GetIO().DisplaySize.y - top - margin * 2);
+    const float total_width = std::min(640.f * dpi, scene_width * .45f) - padding * 2;
+    float width = std::min(320.f * dpi, (total_width - gap * float(count - 1)) / float(count));
+    for (size_t n = 0; n < count; ++n) {
+        const auto& image = cameras[shown[n]];
+        width = std::min(width, available_height * .30f * image.width / image.height);
+    }
+    if (width < 1.f)
+        return;
+    ImGui::SetNextWindowPos({scene_width - margin, ImGui::GetIO().DisplaySize.y - margin},
+                            ImGuiCond_Always, {1, 1});
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(padding, padding));
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ui::colour::surface);
+    const bool visible = ImGui::Begin("Camera inset", nullptr,
+        ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
+        ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings |
+        ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoInputs);
+    if (visible) {
+        ImGui::TextUnformatted("Camera");
+        for (size_t n = 0; n < count; ++n) {
+            if (n)
+                ImGui::SameLine();
+            const auto index = shown[n];
+            const auto& image = cameras[index];
+            ImGui::Image(static_cast<ImTextureID>(image.texture),
+                         {width, width * image.height / image.width});
+            if (metrics) {
+                const auto minimum = ImGui::GetItemRectMin(), maximum = ImGui::GetItemRectMax();
+                (*metrics)["cameras"].push_back({{"index", index}, {"sequence", image.sequence},
+                    {"bounds", {{minimum.x, minimum.y}, {maximum.x, maximum.y}}}});
+            }
+        }
+        if (metrics) {
+            const auto position = ImGui::GetWindowPos(), size = ImGui::GetWindowSize();
+            (*metrics)["visible"] = true;
+            (*metrics)["bounds"] = {{position.x, position.y}, {position.x + size.x, position.y + size.y}};
+        }
+    }
+    ImGui::End();
+    ImGui::PopStyleColor();
+    ImGui::PopStyleVar();
+}
 void save_episodes(const std::filesystem::path& session, const std::vector<Episode>& episodes) {
     Json ranges = Json::array();
     for (const auto& episode : episodes) {
@@ -1811,6 +1870,7 @@ int run_app(const AppOptions& options) {
     std::map<std::string, uint64_t> scene_spatial_actions;
     Json sidebar_metrics, screenshot_sidebar_metrics, visibility_metrics, screenshot_visibility_metrics;
     Json export_ui_metrics, screenshot_export_ui_metrics;
+    Json camera_inset_metrics, screenshot_camera_inset_metrics;
     std::map<std::string, uint64_t> visibility_actions;
     std::map<std::string, uint64_t> recording_actions;
     double first = glfwGetTime(), previous = first;
@@ -2544,6 +2604,7 @@ int run_app(const AppOptions& options) {
         last_tab = tab;
         last_f11 = f11;
         const float scene_width = panels ? std::floor(io.DisplaySize.x * .8f) : io.DisplaySize.x;
+        std::array<bool, 2> explicit_video_preview{};
         auto scene_started = std::chrono::steady_clock::now();
         renderer->set_scene_width_fraction(panels ? .8f : 1.f);
         renderer->set_scene_top_fraction(instrument_height / std::max(1.f, io.DisplaySize.y));
@@ -3176,6 +3237,7 @@ int run_app(const AppOptions& options) {
                                 static_cast<ImTextureID>(renderer->video_texture(camera_index)),
                                 {width, width * renderer->video_height(camera_index) /
                                             std::max(1, renderer->video_width(camera_index))});
+                            explicit_video_preview[camera_index] = ImGui::IsItemVisible();
                         } else
                             ImGui::TextWrapped("No image");
                     }
@@ -4441,6 +4503,9 @@ int run_app(const AppOptions& options) {
                 }
             }
         }
+        scene_camera_preview(*renderer, snap, !replay, view.projection, explicit_video_preview,
+                             scene_width, instrument_height, dpi,
+                             options.metrics.empty() ? nullptr : &camera_inset_metrics);
         auto ui_submit_started = std::chrono::steady_clock::now();
         ImGui::Render();
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
@@ -4457,6 +4522,7 @@ int run_app(const AppOptions& options) {
             screenshot_sidebar_metrics = sidebar_metrics;
             screenshot_visibility_metrics = visibility_metrics;
             screenshot_export_ui_metrics = export_ui_metrics;
+            screenshot_camera_inset_metrics = camera_inset_metrics;
             screenshot_taken = true;
         }
         auto swap_started = std::chrono::steady_clock::now();
@@ -4699,6 +4765,8 @@ int run_app(const AppOptions& options) {
         {"exporter_present", exporter_present},
         {"export_ui", export_ui_metrics},
         {"export_ui_at_screenshot", screenshot_export_ui_metrics},
+        {"camera_inset", camera_inset_metrics},
+        {"camera_inset_at_screenshot", screenshot_camera_inset_metrics},
         {"record_count_in_seconds", recording_count_in_us / 1000000},
         {"record_count_in_cancelled", recording_count_in_cancelled},
         {"record_start_delay_seconds", recording_start_delay_seconds},

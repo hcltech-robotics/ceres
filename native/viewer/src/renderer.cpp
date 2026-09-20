@@ -2527,11 +2527,9 @@ void Renderer::draw(const ReceiverSnapshot& s, const Calibration& c, const ViewO
                               image.presented.space_epoch == s.space_epoch;
         glm::mat4 camera(1);
         bool have_camera = false, image_has_head = false;
-        auto values = image.presented.attributes.find("head_pose");
-        if (image_in_space && values != image.presented.attributes.end() && values->is_array() &&
-            values->size() == 7) {
-            auto v = values->get<std::array<float, 7>>();
-            camera = pose_transform(v.data());
+        if (const auto head = detail::associated_camera_head(image.presented, s.epoch, s.space_epoch);
+            image_in_space && head) {
+            camera = pose_transform(head->data());
             have_camera = image_has_head = true;
         } else if (p.held[0]) {
             camera = pose_transform(p.held[0]->values.data());
@@ -2789,6 +2787,19 @@ unsigned Renderer::video_texture(size_t camera_index) const {
         return 0;
     const auto& camera = impl_->cameras[camera_index];
     return camera.current < 0 ? 0 : camera.textures[camera.current].id;
+}
+CameraPresentation Renderer::camera_presentation(const ReceiverSnapshot& snapshot,
+                                                size_t camera_index) const {
+    if (camera_index >= impl_->cameras.size())
+        return {};
+    const auto& camera = impl_->cameras[camera_index];
+    const bool current = camera.current >= 0 && camera.presented.epoch == snapshot.epoch &&
+                         camera.presented.space_epoch == snapshot.space_epoch;
+    const bool placed = current && camera.have_conversion && camera.converted_calibration.side != "unknown" &&
+                        detail::associated_camera_head(camera.presented, snapshot.epoch,
+                                                       snapshot.space_epoch).has_value();
+    return {video_texture(camera_index), camera.width, camera.height, camera.presented.sequence,
+            current, placed};
 }
 int Renderer::video_width(size_t camera_index) const {
     return camera_index < impl_->cameras.size() ? impl_->cameras[camera_index].width : 0;
