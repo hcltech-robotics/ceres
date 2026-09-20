@@ -6,8 +6,8 @@ interface VoiceMessage {
   type: string;
   status?: string;
   detail?: string;
-  command?: string;
-  active?: boolean;
+  requestId?: number;
+  command?: string | null;
   successful?: boolean;
   failure?: { kind: string };
 }
@@ -16,6 +16,7 @@ interface VoiceProbe {
   workers: Worker[];
   messages: VoiceMessage[];
   microphones: MediaStream[];
+  resultTimes: Record<number, number>;
 }
 
 declare global {
@@ -26,8 +27,10 @@ const model = JSON.parse(readFileSync(resolve("shared/local-voice-model.json"), 
   modelId: string;
   files: Array<{ path: string }>;
 };
-const onnxPaths = model.files
-  .filter(file => file.path.endsWith(".onnx"))
+const runtime = JSON.parse(readFileSync(resolve("shared/local-voice-runtime.json"), "utf8")) as {
+  basePath: string;
+};
+const modelPaths = model.files
   .map(file => `/models/${model.modelId}/${file.path}`);
 const missingFilesMessage = "Voice command files are missing from this CERES installation. Repair the installation, then reload.";
 
@@ -60,7 +63,7 @@ async function observeLocalVoice(context: BrowserContext, baseURL: string) {
     }
   });
   await context.addInitScript(() => {
-    const probe: VoiceProbe = { workers: [], messages: [], microphones: [] };
+    const probe: VoiceProbe = { workers: [], messages: [], microphones: [], resultTimes: {} };
     window.__ceresVoiceModelProbe = probe;
     const NativeWorker = window.Worker;
     window.Worker = class extends NativeWorker {
@@ -68,7 +71,15 @@ async function observeLocalVoice(context: BrowserContext, baseURL: string) {
         super(scriptURL, options);
         if (!String(scriptURL).includes("local-voice-command.worker")) return;
         probe.workers.push(this);
-        this.addEventListener("message", event => probe.messages.push(event.data));
+        this.addEventListener("message", event => {
+          probe.messages.push(event.data);
+          if (event.data.type === "result" && typeof event.data.requestId === "number") {
+            probe.resultTimes[event.data.requestId] = performance.now();
+          }
+        });
+        this.addEventListener("error", event => {
+          probe.messages.push({ type: "worker-error", detail: event.message });
+        });
       }
     };
     const getUserMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
@@ -87,16 +98,17 @@ async function voiceMessages(page: Page) {
 
 async function expectVoiceReady(page: Page) {
   await page.waitForFunction(() => window.__ceresVoiceModelProbe.messages.some(message => (
-    message.type === "status" && ["ready", "error"].includes(message.status ?? "")
+    message.type === "worker-error"
+    || message.type === "status" && ["ready", "error"].includes(message.status ?? "")
   )), undefined, { timeout: 90_000 });
-  expect((await voiceMessages(page)).filter(message => message.type === "status").at(-1)).toMatchObject({
+  expect((await voiceMessages(page)).filter(message => ["status", "worker-error"].includes(message.type)).at(-1)).toMatchObject({
     status: "ready",
     detail: "Local voice commands ready",
   });
 }
 
-async function recognisePause(page: Page) {
-  await page.evaluate(async audio => {
+async function recognisePause(page: Page, requestId = 1) {
+  const submittedAt = await page.evaluate(async ({ audio, requestId }) => {
     const bytes = Uint8Array.from(atob(audio), character => character.charCodeAt(0));
     const audioContext = new AudioContext({ sampleRate: 16_000 });
     try {
@@ -104,17 +116,87 @@ async function recognisePause(page: Page) {
       const samples = decoded.getChannelData(0).slice();
       const worker = window.__ceresVoiceModelProbe.workers.at(-1);
       if (!worker) throw new Error("The local voice worker has not started");
-      worker.postMessage({ type: "audio", samples, sampleRate: decoded.sampleRate }, [samples.buffer]);
+      const submittedAt = performance.now();
+      worker.postMessage({ type: "audio", requestId, samples, sampleRate: decoded.sampleRate }, [samples.buffer]);
+      return submittedAt;
     } finally {
       await audioContext.close();
     }
-  }, pauseAudio);
+  }, { audio: pauseAudio, requestId });
   await expect.poll(async () => (await voiceMessages(page))
-    .filter(message => message.type === "command")
-    .map(message => message.command), { timeout: 60_000 }).toContain("pause");
-  await expect.poll(async () => (await voiceMessages(page)).some(message => (
-    message.type === "recognition" && message.active === false && message.successful === true
-  ))).toBe(true);
+    .filter(message => message.type === "result" && message.requestId === requestId), { timeout: 60_000 })
+    .toEqual([{ type: "result", requestId, successful: true, command: "pause" }]);
+  const receivedAt = await page.evaluate(id => window.__ceresVoiceModelProbe.resultTimes[id], requestId);
+  return { requestId, path: "worker", inferenceMs: receivedAt - submittedAt };
+}
+
+async function recognisePauseThroughWorklet(page: Page, workletUrl: string, amplitude: number, requestId: number) {
+  const captured = await page.evaluate(async ({ audio, workletUrl, amplitude, requestId }) => {
+    const bytes = Uint8Array.from(atob(audio), character => character.charCodeAt(0));
+    const audioContext = new AudioContext({ sampleRate: 16_000 });
+    try {
+      const decoded = await audioContext.decodeAudioData(bytes.buffer);
+      await audioContext.audioWorklet.addModule(workletUrl);
+      const source = audioContext.createBufferSource();
+      const leadingSilence = Math.round(audioContext.sampleRate * 0.3);
+      const trailingSilence = Math.round(audioContext.sampleRate * 0.6);
+      const padded = audioContext.createBuffer(1, leadingSilence + decoded.length + trailingSilence, audioContext.sampleRate);
+      padded.copyToChannel(decoded.getChannelData(0), 0, leadingSilence);
+      source.buffer = padded;
+      const gain = audioContext.createGain();
+      gain.gain.value = amplitude;
+      const worklet = new AudioWorkletNode(audioContext, "ceres-local-voice-capture");
+      const mute = audioContext.createGain();
+      mute.gain.value = 0;
+      source.connect(gain).connect(worklet).connect(mute).connect(audioContext.destination);
+      const worker = window.__ceresVoiceModelProbe.workers.at(-1);
+      if (!worker) throw new Error("The local voice worker has not started");
+      const events: string[] = [];
+      let speechStartedAt = 0;
+      const captured = await new Promise<{
+        events: string[];
+        sampleCount: number;
+        sampleRate: number;
+        submittedAt: number;
+        speechStartedAt: number;
+      }>((resolveCapture, reject) => {
+        const timeout = window.setTimeout(() => reject(new Error(`Voice worklet did not retain the phrase at amplitude ${amplitude}`)), 10_000);
+        worklet.port.onmessage = (event: MessageEvent<{ type: string; samples?: Float32Array; sampleRate?: number }>) => {
+          const message = event.data;
+          events.push(message.type);
+          if (message.type === "speech-start") speechStartedAt = performance.now();
+          if (message.type !== "audio" || !message.samples || !message.sampleRate) return;
+          window.clearTimeout(timeout);
+          const sampleCount = message.samples.length;
+          const submittedAt = performance.now();
+          worker.postMessage({ type: "audio", requestId, samples: message.samples, sampleRate: message.sampleRate }, [message.samples.buffer]);
+          resolveCapture({ events, sampleCount, sampleRate: message.sampleRate, submittedAt, speechStartedAt });
+        };
+        void audioContext.resume().then(() => source.start()).catch(reject);
+      });
+      source.disconnect();
+      gain.disconnect();
+      worklet.disconnect();
+      mute.disconnect();
+      return captured;
+    } finally {
+      await audioContext.close();
+    }
+  }, { audio: pauseAudio, workletUrl, amplitude, requestId });
+  expect(captured.events).toEqual(["speech-start", "audio"]);
+  expect(captured.sampleCount).toBeGreaterThan(captured.sampleRate * 0.28);
+  await expect.poll(async () => (await voiceMessages(page))
+    .filter(message => message.type === "result" && message.requestId === requestId), { timeout: 60_000 })
+    .toEqual([{ type: "result", requestId, successful: true, command: "pause" }]);
+  const receivedAt = await page.evaluate(id => window.__ceresVoiceModelProbe.resultTimes[id], requestId);
+  return {
+    requestId,
+    path: "worklet",
+    amplitude,
+    segmentMs: captured.sampleCount / captured.sampleRate * 1_000,
+    inferenceMs: receivedAt - captured.submittedAt,
+    speechStartToResultMs: receivedAt - captured.speechStartedAt,
+  };
 }
 
 test("the bundled voice worker recognises a command with an empty cache and no external connections", async ({ page, context, baseURL }) => {
@@ -131,17 +213,33 @@ test("the bundled voice worker recognises a command with an empty cache and no e
   }, `/assets/${workers[0]}`);
 
   await expectVoiceReady(page);
-  await recognisePause(page);
+  const timings = [await recognisePause(page), await recognisePause(page, 2)];
+  expect((await voiceMessages(page)).filter(message => message.type === "result")).toEqual([
+    { type: "result", requestId: 1, successful: true, command: "pause" },
+    { type: "result", requestId: 2, successful: true, command: "pause" },
+  ]);
+  const worklets = readdirSync(resolve("dist/assets"))
+    .filter(name => /^local-voice-command\.worklet-[^.]+\.js$/.test(name))
+    .filter(name => readFileSync(resolve("dist/assets", name), "utf8").includes("registerProcessor("));
+  expect(worklets).toHaveLength(1);
+  const workletTimings = [
+    await recognisePauseThroughWorklet(page, `/assets/${worklets[0]}`, 1, 3),
+    await recognisePauseThroughWorklet(page, `/assets/${worklets[0]}`, 0.1, 4),
+  ];
+  await test.info().attach("voice-desktop-timings", {
+    body: JSON.stringify([...timings, ...workletTimings], null, 2),
+    contentType: "application/json",
+  });
 
-  for (const path of onnxPaths) expect(network.requests).toContain(path);
-  expect(network.requests.some(path => /ort-wasm.*\.wasm$/.test(path))).toBe(true);
+  for (const path of modelPaths) expect(network.requests).toContain(path);
+  expect(network.requests).toContain(`${runtime.basePath}moonshine.wasm`);
   expect(network.external).toEqual([]);
 });
 
 test("missing voice files leave capture and microphone recording available and recover after repair and reload", async ({ page, context, baseURL }) => {
   test.setTimeout(240_000);
   const network = await observeLocalVoice(context, baseURL!);
-  const missingPath = onnxPaths[0];
+  const missingPath = modelPaths[0];
   expect(missingPath).toBeTruthy();
   let repaired = false;
   let missingRequests = 0;
@@ -236,6 +334,6 @@ test("missing voice files leave capture and microphone recording available and r
   await expectVoiceReady(page);
   await expect(page.locator("#local-voice-status")).not.toContainText(missingFilesMessage);
   await expect(page.locator("#join-camera-state")).toHaveText("OK");
-  await recognisePause(page);
+  await recognisePause(page, 10_001);
   expect(network.external).toEqual([]);
 });

@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 import { compileUIKit } from "@iwsdk/vite-plugin-uikitml";
+import { localVoiceRuntimeAssets } from "./scripts/local-voice-runtime-assets.js";
 
 const metadata = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8"));
 const sourceIdentity = new URL("./SOURCE.json", import.meta.url);
@@ -32,7 +33,7 @@ export default defineConfig({
     __CERES_BUILD_IDENTITY__: JSON.stringify(identity),
     __CERES_VERSION__: JSON.stringify(metadata.version),
   },
-  plugins: [compileUIKit({ sourceDir: "ui", outputDir: "public/ui", verbose: false })],
+  plugins: [localVoiceRuntimeAssets(), compileUIKit({ sourceDir: "ui", outputDir: "public/ui", verbose: false })],
   server: {
     host: "127.0.0.1", port: 8081, headers: isolationHeaders, https,
     proxy: Object.fromEntries(["/api", "/ws", "/invite-signal", "/j"].map(route => [route, {

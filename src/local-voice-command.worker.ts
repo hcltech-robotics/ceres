@@ -1,40 +1,26 @@
-import { env, pipeline } from "@huggingface/transformers";
-import onnxRuntimeModuleUrl from "../node_modules/@huggingface/transformers/dist/ort-wasm-simd-threaded.jsep.mjs?url";
-import onnxRuntimeWasmUrl from "../node_modules/@huggingface/transformers/dist/ort-wasm-simd-threaded.jsep.wasm?url";
+import type { Transcriber } from "@moonshine-ai/moonshine-wasm";
 import model from "../shared/local-voice-model.json";
-import { normaliseLocalVoiceCommand, type LocalVoiceCommandFailure } from "./local-voice-command.js";
+import runtime from "../shared/local-voice-runtime.json";
+import { localVoiceCommands, normaliseLocalVoiceCommand, type LocalVoiceCommandFailure } from "./local-voice-command.js";
 import { localVoiceCommandInitialisationRetryDelay } from "./local-voice-command-timing.js";
 import { LocalVoiceModelRecovery } from "./local-voice-model-recovery.js";
+import { transcribeLocalVoiceUtterance } from "./local-voice-transcriber.js";
 
-type VoicePipeline = (audio: Float32Array) => Promise<{ text?: string }>;
-
-let transcriber: VoicePipeline | null = null;
+let transcriber: Transcriber | null = null;
 let loading: Promise<void> | null = null;
-let processing = false;
-let recognitionActive = false;
-let lastStatus: "loading" | "ready" | "fallback" | "error" = "loading";
 let retryInitialisationAt = 0;
 let retryInitialisationTimer: ReturnType<typeof setTimeout> | null = null;
 let retryInitialisationAttempt = 0;
 const modelRecovery = new LocalVoiceModelRecovery();
-const createPipeline = pipeline as unknown as (...args: unknown[]) => Promise<unknown>;
 declare const __CERES_ALLOW_REMOTE_MODELS__: boolean;
 
-function postStatus(status: "loading" | "ready" | "fallback" | "error", detail?: string, failure?: LocalVoiceCommandFailure) {
-  lastStatus = status;
+function postStatus(status: "loading" | "ready" | "error", detail?: string, failure?: LocalVoiceCommandFailure) {
   postMessage({ type: "status", status, detail, failure });
-}
-
-function postRecognition(active: boolean, successful = false) {
-  if (recognitionActive === active) return;
-  recognitionActive = active;
-  postMessage({ type: "recognition", active, successful });
 }
 
 function scheduleInitialisationRetry() {
   if (retryInitialisationTimer !== null || transcriber || modelRecovery.blocked) return;
-  const delayMs = localVoiceCommandInitialisationRetryDelay(retryInitialisationAttempt);
-  retryInitialisationAttempt += 1;
+  const delayMs = localVoiceCommandInitialisationRetryDelay(retryInitialisationAttempt++);
   retryInitialisationAt = Date.now() + delayMs;
   retryInitialisationTimer = setTimeout(() => {
     retryInitialisationTimer = null;
@@ -49,34 +35,26 @@ async function initialise() {
   loading = (async () => {
     postStatus("loading", "Loading local voice commands");
     const allowRemoteModels = typeof __CERES_ALLOW_REMOTE_MODELS__ !== "undefined" && __CERES_ALLOW_REMOTE_MODELS__;
-    env.allowLocalModels = !allowRemoteModels;
-    env.allowRemoteModels = allowRemoteModels;
-    env.localModelPath = "/models/";
-    env.useBrowserCache = true;
-    // Quest Browser can expose cross-origin isolation without enough reliable
-    // worker capacity for ONNX Runtime's automatic thread count. One Wasm thread
-    // keeps inference in this dedicated worker and avoids a startup failure that
-    // leaves the XR status indicator red.
-    const onnxWasm = env.backends.onnx.wasm;
-    if (onnxWasm) {
-      onnxWasm.numThreads = 1;
-      // Transformers.js otherwise imports the ONNX runtime module from a CDN.
-      // Production permits worker scripts from this origin only. Vite emits both
-      // pinned runtime files as immutable application assets, so development,
-      // preview and production all import the same-origin module URL.
-      onnxWasm.wasmPaths = {
-        mjs: onnxRuntimeModuleUrl,
-        wasm: onnxRuntimeWasmUrl,
-      };
-    }
     try {
-      transcriber = await createPipeline("automatic-speech-recognition", model.modelId, {
-        // Keep inference off the WebXR GPU. Quest Browser can continue rendering
-        // while the worker downloads, compiles and runs the local recogniser.
-        device: "wasm",
-        dtype: "q4",
-        ...(!allowRemoteModels ? { revision: model.revision } : {}),
-      }) as VoicePipeline;
+      if (!globalThis.crossOriginIsolated) throw new Error("Moonshine WebAssembly requires cross-origin isolation");
+      // Keep the upstream module and its pthread entry together at our origin.
+      // The build packages them separately from the recorder and XR bundles.
+      const sdkUrl = new URL(`${runtime.basePath}index.js`, self.location.href).href;
+      const sdk = await import(/* @vite-ignore */ sdkUrl) as typeof import("@moonshine-ai/moonshine-wasm");
+      const baseUrl = allowRemoteModels
+        ? model.downloadBaseUrl
+        : new URL(`/models/${model.modelId}/`, self.location.href).href;
+      const files = Object.fromEntries(model.files.map(file => [file.path, new URL(file.path, baseUrl).href]));
+      transcriber = await sdk.Transcriber.loadFromUrls(files, {
+        modelArch: sdk.ModelArch.TinyStreaming,
+        options: {
+          // The audio worklet has already detected and bounded this utterance.
+          // A second smoothed VAD would discard brief one-word commands.
+          vad_threshold: "0",
+          keyterms: localVoiceCommands.join(","),
+          keyterm_boost: "2.0",
+        },
+      });
       retryInitialisationAttempt = 0;
       retryInitialisationAt = 0;
       postStatus("ready", "Local voice commands ready");
@@ -91,41 +69,31 @@ async function initialise() {
   return loading;
 }
 
-function resample(samples: Float32Array, sourceRate: number, targetRate = 16_000) {
-  if (sourceRate === targetRate) return samples;
-  const length = Math.floor(samples.length * targetRate / sourceRate);
-  const output = new Float32Array(length);
-  const ratio = sourceRate / targetRate;
-  for (let index = 0; index < length; index += 1) {
-    const position = index * ratio;
-    const lower = Math.floor(position);
-    const upper = Math.min(lower + 1, samples.length - 1);
-    output[index] = samples[lower] + (samples[upper] - samples[lower]) * (position - lower);
-  }
-  return output;
-}
-
-self.addEventListener("message", async (event: MessageEvent<{ type?: string; samples?: Float32Array; sampleRate?: number }>) => {
+self.addEventListener("message", async (event: MessageEvent<{
+  type?: string;
+  requestId?: number;
+  samples?: Float32Array;
+  sampleRate?: number;
+}>) => {
   if (event.data.type === "initialise") {
     await initialise();
     return;
   }
-  if (event.data.type !== "audio" || processing || !(event.data.samples instanceof Float32Array) || !Number.isFinite(event.data.sampleRate)) return;
-  processing = true;
-  let recognitionSucceeded = false;
+  const { requestId, samples, sampleRate } = event.data;
+  if (event.data.type !== "audio" || !Number.isSafeInteger(requestId)) return;
+  let successful = false;
+  let command = null;
   try {
-    await initialise();
-    if (!transcriber) return;
-    postRecognition(true);
-    const result = await transcriber(resample(event.data.samples, event.data.sampleRate!));
-    recognitionSucceeded = true;
-    if (lastStatus === "error") postStatus("ready", "Local voice commands ready");
-    const command = normaliseLocalVoiceCommand(result.text ?? "");
-    if (command) postMessage({ type: "command", command });
-  } catch (error) {
-    postStatus("error", error instanceof Error ? error.message : "Local voice recognition failed");
+    if (!transcriber || !(samples instanceof Float32Array)
+      || !samples.length || !Number.isFinite(sampleRate) || sampleRate! <= 0) return;
+    // The controller serialises requests and keeps a bounded retry independently
+    // of this synchronous Wasm call. Its main-thread deadline can replace a hang.
+    command = normaliseLocalVoiceCommand(transcribeLocalVoiceUtterance(transcriber, samples, sampleRate!));
+    successful = true;
+  } catch {
+    // A failed utterance does not disable listening or impose a retry cooldown.
+    // The next request starts a new stream while retaining the loaded model.
   } finally {
-    postRecognition(false, recognitionSucceeded);
-    processing = false;
+    postMessage({ type: "result", requestId, successful, command });
   }
 });

@@ -4,7 +4,7 @@ import model from "../shared/local-voice-model.json";
 import { LOCAL_VOICE_MODEL_ASSETS_MISSING_MESSAGE } from "../src/local-voice-command.js";
 import { LocalVoiceModelRecovery } from "../src/local-voice-model-recovery.js";
 
-const missingFileError = new Error('`env.allowRemoteModels=false` and file was not found locally at "/models/onnx-community/moonshine-tiny-ONNX/onnx/encoder_model_q4.onnx".');
+const missingFileError = new Error("Could not fetch local Moonshine model file");
 
 for (const status of [404, 410]) {
   test(`stops retrying only after a same-origin model resource returns ${status}`, async () => {
@@ -17,7 +17,7 @@ for (const status of [404, 410]) {
         assert.equal(options?.cache, "no-store");
         assert.equal(options?.redirect, "error");
         assert.ok(options?.signal instanceof AbortSignal);
-        return new Response(null, { status: String(input).endsWith("encoder_model_q4.onnx") ? status : 200 });
+        return new Response(null, { status: String(input).endsWith("encoder.ort") ? status : 200 });
       },
     });
     assert.deepEqual(requests.sort(), model.files.map(file => `/models/${model.modelId}/${file.path}`).sort());

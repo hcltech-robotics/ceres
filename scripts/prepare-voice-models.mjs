@@ -13,9 +13,13 @@ const preparationHint = "Run npm run models:prepare to prepare the local voice m
 export function validateVoiceModelManifest(manifest) {
   if (!manifest || typeof manifest !== "object"
     || !/^[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*$/.test(manifest.modelId ?? "")
-    || !/^[a-f0-9]{40}$/.test(manifest.revision ?? "")
+    || !/^quantized_\d{2}_\d{2}_\d{2}$/.test(manifest.revision ?? "")
     || !Array.isArray(manifest.files) || manifest.files.length === 0) {
     throw new Error("Invalid local voice model manifest identity or file list");
+  }
+  const modelName = manifest.modelId.split("/")[1];
+  if (manifest.downloadBaseUrl !== `https://download.moonshine.ai/model/${modelName}/${manifest.revision}/`) {
+    throw new Error("Invalid local voice model download URL: expected the pinned Moonshine release");
   }
   const paths = new Set();
   for (const file of manifest.files) {
@@ -68,7 +72,7 @@ export async function verifyVoiceModels({ directory, manifest }) {
 }
 
 async function downloadFile({ filename, file, manifest, fetcher }) {
-  const url = `https://huggingface.co/${manifest.modelId}/resolve/${manifest.revision}/${file.path}`;
+  const url = new URL(file.path, manifest.downloadBaseUrl).href;
   const temporary = path.join(path.dirname(filename), `.${path.basename(filename)}.${randomUUID()}.tmp`);
   let temporaryCreated = false;
   let response;

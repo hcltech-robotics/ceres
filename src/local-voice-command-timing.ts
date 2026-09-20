@@ -1,11 +1,7 @@
-export const LOCAL_VOICE_COMMAND_MIN_UTTERANCE_SECONDS = 1;
+export const LOCAL_VOICE_COMMAND_MAX_AGE_MS = 4_000;
+export const LOCAL_VOICE_COMMAND_INFERENCE_TIMEOUT_MS = 5_000;
 export const LOCAL_VOICE_COMMAND_INITIALISATION_RETRY_BASE_MS = 30_000;
 export const LOCAL_VOICE_COMMAND_INITIALISATION_RETRY_MAX_MS = 120_000;
-
-export function localVoiceCommandMinimumUtteranceFrames(sampleRate: number) {
-  if (!Number.isFinite(sampleRate) || sampleRate <= 0) return 0;
-  return Math.ceil(sampleRate * LOCAL_VOICE_COMMAND_MIN_UTTERANCE_SECONDS);
-}
 
 export function localVoiceCommandInitialisationRetryDelay(attempt: number) {
   const boundedAttempt = Number.isFinite(attempt)

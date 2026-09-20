@@ -1,0 +1,5 @@
+{
+  "package": "@moonshine-ai/moonshine-wasm",
+  "version": "0.1.5",
+  "basePath": "/vendor/moonshine/0.1.5-ceres1/"
+}

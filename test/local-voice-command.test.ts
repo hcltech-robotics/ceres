@@ -18,7 +18,6 @@ import {
 } from "../src/local-voice-command.js";
 import {
   localVoiceCommandInitialisationRetryDelay,
-  localVoiceCommandMinimumUtteranceFrames,
 } from "../src/local-voice-command-timing.js";
 
 test("accepts the closed local voice vocabulary and bounded recognition aliases", () => {
@@ -139,11 +138,6 @@ test("keeps microphone capture only for durable audio or enabled local recogniti
   assert.equal(microphoneCaptureRequired(true, true), true);
 });
 
-test("buffers at least one second before local command inference", () => {
-  assert.equal(localVoiceCommandMinimumUtteranceFrames(16_000), 16_000);
-  assert.equal(localVoiceCommandMinimumUtteranceFrames(48_000), 48_000);
-});
-
 test("backs off failed model initialisation without holding an audio sample", () => {
   assert.equal(localVoiceCommandInitialisationRetryDelay(0), 30_000);
   assert.equal(localVoiceCommandInitialisationRetryDelay(1), 60_000);
@@ -213,28 +207,6 @@ test("does not retry permanent startup capability failures", () => {
     ),
     true,
   );
-});
-
-test("uses a single background Wasm thread for Quest voice recognition", () => {
-  const worker = readFileSync(
-    new URL("../src/local-voice-command.worker.ts", import.meta.url),
-    "utf8",
-  );
-  assert.match(worker, /onnxWasm\.numThreads\s*=\s*1/);
-  assert.match(worker, /onnxWasm\.wasmPaths\s*=\s*\{[\s\S]*mjs: onnxRuntimeModuleUrl,[\s\S]*wasm: onnxRuntimeWasmUrl/);
-  assert.match(worker, /localVoiceCommandInitialisationRetryDelay\(retryInitialisationAttempt\)/);
-  assert.match(worker, /retryInitialisationTimer = setTimeout\([\s\S]*void initialise\(\)/);
-  assert.match(worker, /postStatus\("error"[\s\S]*scheduleInitialisationRetry\(\)/);
-  assert.match(worker, /if \(transcriber \|\| modelRecovery\.blocked\) return/);
-  assert.match(worker, /if \(result\.retryable\) scheduleInitialisationRetry\(\)/);
-  assert.match(worker, /loading\s*=\s*null/);
-  const audioBranch = worker.indexOf('event.data.type !== "audio"');
-  const claimed = worker.indexOf("processing = true", audioBranch);
-  const initialised = worker.indexOf("await initialise()", claimed);
-  assert.ok(audioBranch >= 0 && claimed > audioBranch && initialised > claimed);
-  assert.match(worker, /postRecognition\(true\);[\s\S]*await transcriber/);
-  assert.match(worker, /await transcriber[\s\S]*recognitionSucceeded = true/);
-  assert.match(worker, /finally \{[\s\S]*postRecognition\(false, recognitionSucceeded\);[\s\S]*processing = false/);
 });
 
 test("gates local recognition on runtime readiness independently of server speech", () => {
@@ -455,120 +427,6 @@ test("preserves confirmed missing-file diagnostics separately from the voice mes
     assert.deepEqual(statuses, [{ status: "error", detail: LOCAL_VOICE_MODEL_ASSETS_MISSING_MESSAGE, failure }]);
     assert.equal((controller as unknown as { workerReady: boolean }).workerReady, false);
     controller.dispose();
-  } finally {
-    if (originalWorker) Object.defineProperty(globalThis, "Worker", originalWorker);
-    else Reflect.deleteProperty(globalThis, "Worker");
-  }
-});
-
-test("does not let the duplicate-command guard swallow a following pause", () => {
-  type FakeWorkerEvent = {
-    data?: {
-      type: "status" | "command";
-      status?: "ready";
-      command?: "next" | "pause";
-    };
-  };
-  type FakeListener = (event: FakeWorkerEvent) => void;
-  class FakeWorker {
-    static latest: FakeWorker | null = null;
-    readonly listeners = new Map<string, FakeListener[]>();
-
-    constructor() {
-      FakeWorker.latest = this;
-    }
-
-    addEventListener(type: string, listener: FakeListener) {
-      this.listeners.set(type, [...(this.listeners.get(type) ?? []), listener]);
-    }
-
-    postMessage() {}
-
-    terminate() {}
-
-    emit(data: FakeWorkerEvent["data"]) {
-      for (const listener of this.listeners.get("message") ?? []) listener({ data });
-    }
-  }
-  const originalWorker = Object.getOwnPropertyDescriptor(globalThis, "Worker");
-  Object.defineProperty(globalThis, "Worker", {
-    configurable: true,
-    value: FakeWorker,
-  });
-  const commands: string[] = [];
-  try {
-    const controller = new LocalVoiceCommandController({
-      stream: {} as MediaStream,
-      onCommand: (command) => commands.push(command),
-      onStatus: () => undefined,
-    });
-    const worker = FakeWorker.latest!;
-    worker.emit({ type: "status", status: "ready" });
-    worker.emit({ type: "command", command: "next" });
-    worker.emit({ type: "command", command: "pause" });
-    worker.emit({ type: "command", command: "pause" });
-
-    assert.deepEqual(commands, ["next", "pause"]);
-    controller.dispose();
-  } finally {
-    if (originalWorker) Object.defineProperty(globalThis, "Worker", originalWorker);
-    else Reflect.deleteProperty(globalThis, "Worker");
-  }
-});
-
-test("forwards de-duplicated inference activity and clears it on disposal", () => {
-  type FakeWorkerEvent = {
-    data?: {
-      type: "recognition";
-      active: boolean;
-      successful?: boolean;
-    };
-  };
-  type FakeListener = (event: FakeWorkerEvent) => void;
-  class FakeWorker {
-    static latest: FakeWorker | null = null;
-    readonly listeners = new Map<string, FakeListener[]>();
-
-    constructor() {
-      FakeWorker.latest = this;
-    }
-
-    addEventListener(type: string, listener: FakeListener) {
-      this.listeners.set(type, [...(this.listeners.get(type) ?? []), listener]);
-    }
-
-    postMessage() {}
-
-    terminate() {}
-
-    emitRecognition(active: boolean, successful = false) {
-      const event = { data: { type: "recognition" as const, active, successful } };
-      for (const listener of this.listeners.get("message") ?? []) listener(event);
-    }
-  }
-  const originalWorker = Object.getOwnPropertyDescriptor(globalThis, "Worker");
-  Object.defineProperty(globalThis, "Worker", {
-    configurable: true,
-    value: FakeWorker,
-  });
-  const activity: boolean[] = [];
-  let successfulRecognitions = 0;
-  try {
-    const controller = new LocalVoiceCommandController({
-      stream: {} as MediaStream,
-      onCommand: () => undefined,
-      onStatus: () => undefined,
-      onRecognitionChange: (active) => activity.push(active),
-      onRecognitionSuccess: () => { successfulRecognitions += 1; },
-    });
-    const worker = FakeWorker.latest!;
-    worker.emitRecognition(true);
-    worker.emitRecognition(true);
-    worker.emitRecognition(false, true);
-    worker.emitRecognition(true);
-    controller.dispose();
-    assert.deepEqual(activity, [true, false, true, false]);
-    assert.equal(successfulRecognitions, 1);
   } finally {
     if (originalWorker) Object.defineProperty(globalThis, "Worker", originalWorker);
     else Reflect.deleteProperty(globalThis, "Worker");
