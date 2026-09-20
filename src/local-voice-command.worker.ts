@@ -1,8 +1,10 @@
 import { env, pipeline } from "@huggingface/transformers";
 import onnxRuntimeModuleUrl from "../node_modules/@huggingface/transformers/dist/ort-wasm-simd-threaded.jsep.mjs?url";
 import onnxRuntimeWasmUrl from "../node_modules/@huggingface/transformers/dist/ort-wasm-simd-threaded.jsep.wasm?url";
-import { normaliseLocalVoiceCommand } from "./local-voice-command.js";
+import model from "../shared/local-voice-model.json";
+import { normaliseLocalVoiceCommand, type LocalVoiceCommandFailure } from "./local-voice-command.js";
 import { localVoiceCommandInitialisationRetryDelay } from "./local-voice-command-timing.js";
+import { LocalVoiceModelRecovery } from "./local-voice-model-recovery.js";
 
 type VoicePipeline = (audio: Float32Array) => Promise<{ text?: string }>;
 
@@ -14,12 +16,13 @@ let lastStatus: "loading" | "ready" | "fallback" | "error" = "loading";
 let retryInitialisationAt = 0;
 let retryInitialisationTimer: ReturnType<typeof setTimeout> | null = null;
 let retryInitialisationAttempt = 0;
+const modelRecovery = new LocalVoiceModelRecovery();
 const createPipeline = pipeline as unknown as (...args: unknown[]) => Promise<unknown>;
 declare const __CERES_ALLOW_REMOTE_MODELS__: boolean;
 
-function postStatus(status: "loading" | "ready" | "fallback" | "error", detail?: string) {
+function postStatus(status: "loading" | "ready" | "fallback" | "error", detail?: string, failure?: LocalVoiceCommandFailure) {
   lastStatus = status;
-  postMessage({ type: "status", status, detail });
+  postMessage({ type: "status", status, detail, failure });
 }
 
 function postRecognition(active: boolean, successful = false) {
@@ -29,7 +32,7 @@ function postRecognition(active: boolean, successful = false) {
 }
 
 function scheduleInitialisationRetry() {
-  if (retryInitialisationTimer !== null || transcriber) return;
+  if (retryInitialisationTimer !== null || transcriber || modelRecovery.blocked) return;
   const delayMs = localVoiceCommandInitialisationRetryDelay(retryInitialisationAttempt);
   retryInitialisationAttempt += 1;
   retryInitialisationAt = Date.now() + delayMs;
@@ -40,7 +43,7 @@ function scheduleInitialisationRetry() {
 }
 
 async function initialise() {
-  if (transcriber) return;
+  if (transcriber || modelRecovery.blocked) return;
   if (loading) return loading;
   if (Date.now() < retryInitialisationAt) return;
   loading = (async () => {
@@ -67,18 +70,20 @@ async function initialise() {
       };
     }
     try {
-      transcriber = await createPipeline("automatic-speech-recognition", "onnx-community/moonshine-tiny-ONNX", {
+      transcriber = await createPipeline("automatic-speech-recognition", model.modelId, {
         // Keep inference off the WebXR GPU. Quest Browser can continue rendering
         // while the worker downloads, compiles and runs the local recogniser.
         device: "wasm",
         dtype: "q4",
+        ...(!allowRemoteModels ? { revision: model.revision } : {}),
       }) as VoicePipeline;
       retryInitialisationAttempt = 0;
       retryInitialisationAt = 0;
       postStatus("ready", "Local voice commands ready");
     } catch (error) {
-      postStatus("error", error instanceof Error ? error.message : "Local voice commands could not load");
-      scheduleInitialisationRetry();
+      const result = await modelRecovery.failure(error, allowRemoteModels);
+      postStatus("error", result.detail, result.failure);
+      if (result.retryable) scheduleInitialisationRetry();
     } finally {
       loading = null;
     }

@@ -6,6 +6,10 @@ const lock = JSON.parse(readFileSync(path.join(root,"package-lock.json"),"utf8")
 const output = path.join(root,"third-party");
 mkdirSync(output,{recursive:true});
 const entries=[];
+const voiceModel = JSON.parse(readFileSync(path.join(root,"shared/local-voice-model.json"),"utf8"));
+writeFileSync(path.join(output,"moonshine-LICENCE.txt"),readFileSync(path.join(root,"models/moonshine-LICENCE.txt")));
+writeFileSync(path.join(output,"moonshine-model.json"),JSON.stringify(voiceModel,null,2)+"\n");
+entries.push({name:voiceModel.modelId,version:voiceModel.revision,licence:"MIT",file:"moonshine-LICENCE.txt"});
 for(const [directory, value] of Object.entries(lock.packages)) {
   if(!directory || !existsSync(path.join(root,directory))) continue;
   const name = value.name ?? directory.split("node_modules/").at(-1);

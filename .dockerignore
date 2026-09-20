@@ -2,6 +2,9 @@
 !dist/**
 !dist-server/**
 !third-party/**
+!scripts/prepare-voice-models.mjs
+!shared/local-voice-model.json
+!models/moonshine-LICENCE.txt
 !LICENCE.md
 !CITATION.cff
 !citation.bib

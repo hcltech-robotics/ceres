@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { copyFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -63,6 +63,33 @@ test("source maps permit only the shared Parquet helper from the replay source f
     assert.notEqual(rejected.status, 0);
     assert.ok(rejected.stderr.includes(`Excluded source map entry: ${file}`), rejected.stderr);
   }
+});
+
+test("only pinned generated voice model assets pass export verification", async context => {
+  const fixture = await boundaryFixture(context);
+  const digest = (value: string) => createHash("sha256").update(value).digest("hex");
+  const modelFile = "public/models/onnx-community/moonshine-tiny-ONNX/onnx/encoder_model_q4.onnx";
+  const modelBytes = "verified model fixture";
+  const modelManifest = JSON.stringify({
+    modelId: "onnx-community/moonshine-tiny-ONNX",
+    files: [{ path: "onnx/encoder_model_q4.onnx", bytes: Buffer.byteLength(modelBytes), sha256: digest(modelBytes) }],
+  });
+  await fixture.write("shared/local-voice-model.json", modelManifest);
+  const checker = await readFile(new URL("../scripts/check-public-boundary.mjs", import.meta.url), "utf8");
+  const files = {
+    "package-lock.json": { sha256: digest('{"packages":{}}') },
+    "scripts/check-public-boundary.mjs": { sha256: digest(checker) },
+    "shared/local-voice-model.json": { sha256: digest(modelManifest) },
+  };
+  await fixture.write("EXPORT-MANIFEST.json", JSON.stringify({ version: 2, files, treeDigest: digest(JSON.stringify(files)) }));
+  await fixture.write(modelFile, modelBytes);
+  const accepted = fixture.run("--verify-export");
+  assert.equal(accepted.status, 0, accepted.stderr);
+  await fixture.write(modelFile, "damaged model");
+  assert.match(fixture.run("--verify-export").stderr, /Voice model asset differs from manifest/);
+  await fixture.write(modelFile, modelBytes);
+  await fixture.write("public/models/unrelated.onnx", "unclassified");
+  assert.match(fixture.run("--verify-export").stderr, /Unclassified voice model asset/);
 });
 
 test("export manifests cannot classify native build products as public source", async context => {

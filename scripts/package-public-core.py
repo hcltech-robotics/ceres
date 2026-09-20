@@ -11,6 +11,9 @@ root = Path(__file__).resolve().parent.parent
 os.chdir(root)
 metadata = json.loads((root / "package.json").read_text())
 version = metadata["version"]
+subprocess.run(["node", "scripts/prepare-voice-models.mjs", "--check", "--directory", "dist/models"], check=True)
+if (root / "third-party/moonshine-LICENCE.txt").read_bytes() != (root / "models/moonshine-LICENCE.txt").read_bytes():
+    raise ValueError("The runtime must include the Moonshine licence notice")
 commit = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
 epoch = int(subprocess.check_output(["git", "show", "-s", "--format=%ct", "HEAD"], text=True).strip())
 release = root / "release"
@@ -44,7 +47,8 @@ for directory in ["dist", "dist-server", "third-party"]:
             raise ValueError("Runtime package must contain regular files")
         if item.is_file():
             runtime.append((item.relative_to(root).as_posix(), item.read_bytes(), 0o644))
-for filename in ["LICENCE.md", "CITATION.cff", "citation.bib", "README.md", "compose.yaml", "Dockerfile", "start.ps1"]:
+for filename in ["LICENCE.md", "CITATION.cff", "citation.bib", "README.md", "compose.yaml", "Dockerfile", "start.ps1",
+                 "scripts/prepare-voice-models.mjs", "shared/local-voice-model.json", "models/moonshine-LICENCE.txt"]:
     runtime.append((filename, (root / filename).read_bytes(), 0o644))
 runtime.append(("SOURCE.json", identity, 0o644))
 archive(f"ceres-{version}-runtime.tar.gz", runtime)

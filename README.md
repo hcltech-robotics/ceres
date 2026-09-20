@@ -213,6 +213,25 @@ The source build uses Node.js 22 and Rust 1.91.0, selected by `rust-toolchain.to
 The runtime archive starts with `node dist-server/ceres-server.cjs`, or `./start.ps1`
 on Windows.
 
+Source builds and `npm run dev` prepare the Moonshine voice-command model
+automatically. The first preparation downloads approximately 59 MB from a pinned
+Hugging Face revision. Subsequent builds reuse the verified local files and work
+without a model download. Runtime archives and container images include these
+files, so voice commands work without internet access.
+
+To check or repair model files in a source checkout:
+
+```sh
+npm run models:check
+npm run models:prepare
+npm run build
+```
+
+Reload the headset page after rebuilding. If a runtime archive or container
+reports missing voice-command files, replace it with a complete release archive
+or image and reload. Recording and microphone audio remain available while
+voice commands are unavailable.
+
 ### Run the container
 
 Download `ceres-container.tar.gz` from the
@@ -231,9 +250,10 @@ Compose uses the loaded image and persistent local storage.
 
 Hugging Face uploads and Gist imports are enabled separately with
 `CERES_ALLOW_HUGGING_FACE=1` and `CERES_ALLOW_GIST=1`. Core capture and local export
-use local assets and make no external service calls. Voice model files are served
-from `/models/` on the same host. Speech recognition is enabled with
-`CERES_SPEECH_ENABLED=1` and a local ASR endpoint.
+use local assets and make no external service calls. Browser voice commands use
+the bundled Moonshine model served from `/models/` on the same host. Optional
+server speech recognition uses `CERES_SPEECH_ENABLED=1` and a local ASR endpoint.
+That setting does not disable browser voice commands or microphone recording.
 
 ## Develop the core
 

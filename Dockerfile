@@ -7,7 +7,12 @@ WORKDIR /app
 COPY --chown=node:node dist ./dist
 COPY --chown=node:node dist-server ./dist-server
 COPY --chown=node:node third-party ./third-party
+COPY scripts/prepare-voice-models.mjs ./scripts/
+COPY shared/local-voice-model.json ./shared/
+COPY models/moonshine-LICENCE.txt ./models/
 COPY LICENCE.md CITATION.cff citation.bib ./
+RUN node scripts/prepare-voice-models.mjs --check --directory dist/models \
+    && cmp models/moonshine-LICENCE.txt third-party/moonshine-LICENCE.txt
 RUN mkdir /data && chown node:node /data
 USER node
 ENV NODE_ENV=production CERES_BIND_HOST=0.0.0.0 CERES_DATA_DIR=/data CERES_SPEECH_ENABLED=0 PORT=4317
