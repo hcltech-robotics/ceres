@@ -395,6 +395,10 @@ struct ExportJob::Impl {
     std::atomic<bool> cancelled{false};
     std::thread worker;
 
+    fs::path resolve_helper() const {
+        return helper.empty() ? ExportJob::discover_helper() : find_executable(helper, false);
+    }
+
     void execute(Json job, fs::path job_path, fs::path executable) {
         std::string diagnostic, structured_error;
         bool completed = false;
@@ -543,6 +547,13 @@ fs::path ExportJob::discover_helper() {
 fs::path ExportJob::discover_ffmpeg() {
     return find_executable("ffmpeg", true);
 }
+bool ExportJob::exporter_available() const noexcept {
+    try {
+        return !impl_->resolve_helper().empty();
+    } catch (...) {
+        return false;
+    }
+}
 void import_lerobot_replay(const fs::path& dataset_directory, const fs::path& output_mcap,
                            std::stop_token stop) {
     if (stop.stop_requested())
@@ -642,8 +653,7 @@ bool ExportJob::start(Json job, const fs::path& requested_path) {
         const auto job_path = fs::absolute(requested_path);
         if (job_path.filename().empty() || !job.is_object())
             throw std::runtime_error("Invalid export job path or manifest");
-        const auto helper =
-            impl_->helper.empty() ? discover_helper() : find_executable(impl_->helper, false);
+        const auto helper = impl_->resolve_helper();
         if (helper.empty())
             throw std::runtime_error("Native exporter executable was not found");
         auto ffmpeg = fs::path{};

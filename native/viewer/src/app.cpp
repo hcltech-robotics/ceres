@@ -1110,6 +1110,9 @@ int run_app(const AppOptions& options) {
     };
     Recorder recorder;
     ExportJob exporter(options.helper, options.ffmpeg);
+    bool exporter_present = exporter.exporter_available();
+    std::future<bool> exporter_presence_check;
+    double exporter_presence_due = glfwGetTime() + 1.;
     HuggingFaceClient hugging_face(config_directory() / "private");
     Calibration calibration = Calibration::quest(640, 480, "right");
     ViewOptions view;
@@ -1806,6 +1809,7 @@ int run_app(const AppOptions& options) {
     Json scene_spatial_controls, screenshot_spatial_controls;
     std::map<std::string, uint64_t> scene_spatial_actions;
     Json sidebar_metrics, screenshot_sidebar_metrics, visibility_metrics, screenshot_visibility_metrics;
+    Json export_ui_metrics, screenshot_export_ui_metrics;
     std::map<std::string, uint64_t> visibility_actions;
     std::map<std::string, uint64_t> recording_actions;
     double first = glfwGetTime(), previous = first;
@@ -1862,6 +1866,17 @@ int run_app(const AppOptions& options) {
                dt = std::min(.1, elapsed_frame);
         previous = now;
         try {
+            if (exporter_presence_check.valid() &&
+                exporter_presence_check.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+                exporter_present = exporter_presence_check.get();
+                exporter_presence_due = now + 1.;
+            }
+            if (!exporter_presence_check.valid() && now >= exporter_presence_due) {
+                exporter_presence_due = now + 1.;
+                exporter_presence_check = std::async(std::launch::async, [&exporter] {
+                    return exporter.exporter_available();
+                });
+            }
             collect_map_snapshots();
             if (map_loader) {
                 const auto status = map_loader->status();
@@ -2613,6 +2628,9 @@ int run_app(const AppOptions& options) {
         auto scene_finished = std::chrono::steady_clock::now();
         auto record_status = recorder.status();
         auto export_status = exporter.status();
+        if (!options.metrics.empty())
+            export_ui_metrics = {{"exporter_present", exporter_present}, {"disclosure", nullptr},
+                                 {"action", nullptr}};
         const auto hf_status = hugging_face.status();
         if (hf_new_code && !hf_status.running) {
             hf_new_code = false;
@@ -3374,7 +3392,13 @@ int run_app(const AppOptions& options) {
                     }
                     ImGui::EndDisabled();
                 }
-                if (ui::disclosure("Export")) {
+                const bool export_open = ui::disclosure("Export");
+                if (!options.metrics.empty()) {
+                    const auto first = ImGui::GetItemRectMin(), last = ImGui::GetItemRectMax();
+                    export_ui_metrics["disclosure"] = {{"open", export_open},
+                        {"bounds", {{first.x, first.y}, {last.x, last.y}}}};
+                }
+                if (export_open) {
                     pane_text_input("Destination##LeRobot", export_path, sizeof(export_path));
                     if (episodes.empty()) {
                         ImGui::BeginDisabled(record_status.recording || episode_load.valid());
@@ -3394,9 +3418,25 @@ int run_app(const AppOptions& options) {
                         ImGui::EndDisabled();
                     }
                     if (!export_status.running) {
-                        ImGui::BeginDisabled(episodes.empty() || record_status.recording ||
-                                             episode_load.valid());
-                        if (ui::primary_button("Export###RunExport")) {
+                        const bool export_unavailable = !exporter_present || episodes.empty() ||
+                            record_status.recording || episode_load.valid();
+                        ImGui::BeginDisabled(export_unavailable);
+                        const bool request_export = ui::primary_button(exporter_present ? "Export###RunExport" :
+                                                                                       "Exporter not present###RunExport");
+                        if (!options.metrics.empty()) {
+                            const auto first = ImGui::GetItemRectMin(), last = ImGui::GetItemRectMax();
+                            export_ui_metrics["action"] = {
+                                {"label", exporter_present ? "Export" : "Exporter not present"},
+                                {"enabled", !export_unavailable && !accordion.moving() &&
+                                            visible_section == preferences.section},
+                                {"visible", ImGui::IsItemVisible()},
+                                {"reason", !exporter_present ? "Exporter not present" :
+                                    episodes.empty() ? "No episodes selected" :
+                                    record_status.recording ? "Recording is active" :
+                                    episode_load.valid() ? "Episodes are loading" : ""},
+                                {"bounds", {{first.x, first.y}, {last.x, last.y}}}};
+                        }
+                        if (request_export) {
                             try {
                                 std::filesystem::path input =
                                     replay ? replay->path() : closed_recording;
@@ -3443,6 +3483,9 @@ int run_app(const AppOptions& options) {
                             }
                         }
                         ImGui::EndDisabled();
+                        if (!exporter_present)
+                            ImGui::TextWrapped("Install the native exporter to create a LeRobot dataset "
+                                               "from this recording.");
                     } else {
                         ImGui::ProgressBar(export_status.progress);
                         if (ImGui::Button("Cancel export"))
@@ -4434,6 +4477,7 @@ int run_app(const AppOptions& options) {
             screenshot_spatial_controls = scene_spatial_controls;
             screenshot_sidebar_metrics = sidebar_metrics;
             screenshot_visibility_metrics = visibility_metrics;
+            screenshot_export_ui_metrics = export_ui_metrics;
             screenshot_taken = true;
         }
         auto swap_started = std::chrono::steady_clock::now();
@@ -4672,6 +4716,9 @@ int run_app(const AppOptions& options) {
         {"sidebar_at_screenshot", screenshot_sidebar_metrics},
         {"visibility", visibility_metrics},
         {"visibility_at_screenshot", screenshot_visibility_metrics},
+        {"exporter_present", exporter_present},
+        {"export_ui", export_ui_metrics},
+        {"export_ui_at_screenshot", screenshot_export_ui_metrics},
         {"record_count_in_seconds", recording_count_in_us / 1000000},
         {"record_count_in_cancelled", recording_count_in_cancelled},
         {"record_start_delay_seconds", recording_start_delay_seconds},

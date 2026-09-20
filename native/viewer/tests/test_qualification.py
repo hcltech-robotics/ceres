@@ -49,6 +49,7 @@ class QualificationTests(unittest.TestCase):
                                      "compiler": "19.44"}, "ffmpeg": {"version": "ffmpeg version 8.0"},
                        "runtime_dependencies": {"bin/ffmpeg.exe": "1" * 64, "bin/ffprobe.exe": "2" * 64,
                                                 "vcruntime140.dll": "3" * 64}}
+        self.enterContext(patch.dict(os.environ, {"GITHUB_SHA": self.inputs["source_revision"]}))
 
     def receipt(self, target, expected):
         return {"schema": "ceres-native-hardware-qualification", "version": 1, "status": "passed",

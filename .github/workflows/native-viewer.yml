@@ -45,6 +45,7 @@ jobs:
         run: |
           python3 -m unittest discover -s native/viewer/tests -p test_video_configuration.py
           python3 -m unittest discover -s native/viewer/tests -p test_package.py
+          python3 -m unittest discover -s native/viewer/tests -p test_exporter_build.py
           python3 -m unittest discover -s native/viewer/tests -p test_qualification.py
       - id: identity
         name: Resolve the package version and source commit

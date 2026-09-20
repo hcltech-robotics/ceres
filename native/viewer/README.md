@@ -144,11 +144,15 @@ Enter the organisation or username, repository and optional folder. **Create a p
 
 The reusable Rust exporter lives in the sibling `native/lerobot-exporter` directory and is built from the same repository revision as the viewer. The distribution includes the exporter and FFmpeg. The exporter job protocol is documented in `native/lerobot-exporter/README.md`.
 
+If the exporter is missing, the export button is disabled and reads **Exporter not present**. The viewer checks again while running and enables export when the executable is restored and a completed recording has selected episodes.
+
 [Export compatibility](docs/export-compatibility.md) describes the dataset contract shared by the official LeRobot reader and the CERES Hugging Face dataset viewer.
 
 ## Build
 
-Requirements are CMake 3.25 or newer, a C++20 compiler, Ninja, CUDA, a compatible NVIDIA driver and Git for fetching dependencies. Packaging also requires Rust 1.91 or newer, Python 3.11 or newer and an FFmpeg distribution with the `libx264` encoder. Run these commands from `native/viewer` within the CERES source tree.
+Requirements are CMake 3.25 or newer, a C++20 compiler, Rust 1.91 or newer with Cargo, Ninja, CUDA, a compatible NVIDIA driver and Git for fetching dependencies. Packaging also requires Python 3.11 or newer and an FFmpeg distribution with the `libx264` encoder. Run these commands from `native/viewer` within the CERES source tree.
+
+Every viewer build checks the sibling Rust exporter with a locked release build and places `ceres-native-exporter` beside the viewer executable. This also applies to an explicit `ceres-viewer` target build and to each configuration in a multi-configuration generator. Cargo reuses unchanged compilation outputs under the viewer build directory's `exporter-target` folder. The `ViewerRuntime` installation component includes both executables.
 
 On Windows, use Visual Studio 2022 Build Tools with the C++ workload and CUDA. From a developer command prompt:
 
@@ -171,7 +175,7 @@ ctest --test-dir build-native --output-on-failure
 
 On Jetson Orin with JetPack 6, use the [Jetson build](docs/jetson.md). CMake selects the Jetson V4L2 decoder on Jetson Linux R36 and defaults to CUDA target `87`. `CERES_VIDEO_BACKEND=CUVID` selects the desktop decoder and `CERES_VIDEO_BACKEND=JETSON` selects the JetPack decoder explicitly.
 
-The protocol, session, calibration, queue and exporter process tests can also run without a GPU application build:
+The protocol, session, calibration, queue and exporter process tests can also run without a GPU application build or Rust toolchain:
 
 ```sh
 cmake -S . -B build-core -DCERES_BUILD_APP=OFF

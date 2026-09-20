@@ -32,7 +32,7 @@ The JetPack backend links NVIDIA's `libv4l2.so.0` and `libnvbufsurface.so`. It d
 
 ## Package
 
-Build and package on the same JetPack installation. Install Python 3.11 or newer and Rust 1.91 or newer for packaging, then supply an ARM64 FFmpeg distribution with `libx264` and its licence notices:
+Build and package on the same JetPack installation. The viewer build requires Rust 1.91 or newer with Cargo and includes the native exporter. For packaging, install Python 3.11 or newer and supply an ARM64 FFmpeg distribution with `libx264` and its licence notices:
 
 ```sh
 BUILD_DIRECTORY="$PWD/build-jetson" \

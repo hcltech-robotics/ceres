@@ -33,9 +33,93 @@ Json export_capabilities(bool source_dimensions = true) {
             {"source_video_dimensions", source_dimensions},
             {"profiles", {"ceres-bridge-lerobot3-v1", "ceres-bridge-observation-v1"}}};
 }
+void set_search_path(const fs::path& directory) {
+#ifdef _WIN32
+    require(_wputenv_s(L"PATH", directory.c_str()) == 0, "Cannot set fixture search path");
+#else
+    require(setenv("PATH", directory.c_str(), 1) == 0, "Cannot set fixture search path");
+#endif
+}
+void availability_tests(const fs::path& self) {
+    // This runs in a copied fixture process with an isolated executable directory.
+    const auto root = self.parent_path();
+    const auto first_directory = root / "first path";
+    const auto second_directory = root / "second path";
+    fs::create_directories(first_directory);
+    fs::create_directories(second_directory);
+    const auto name = "ceres-native-exporter" + self.extension().string();
+    const auto first = first_directory / name;
+    const auto second = second_directory / name;
+    const auto packaged = root / name;
+    const auto packaged_bin = root / "bin" / name;
+    const Json manifest{{"output", (root / "dataset").string()}};
+    set_search_path(first_directory);
+    ceres::ExportJob discovered({}, self);
+    require(ceres::ExportJob::discover_helper().empty() && !discovered.exporter_available(),
+            "Absent exporter was reported as available");
+    require(!discovered.start(manifest, root / "missing.json") &&
+                !fs::exists(root / "missing.json"),
+            "Absent exporter started or wrote an export job");
+    fs::create_directory(first);
+    require(!discovered.exporter_available(), "An exporter directory was treated as executable");
+    fs::remove(first);
+    fs::copy_file(self, first);
+#ifndef _WIN32
+    fs::permissions(first, fs::perms::owner_exec | fs::perms::group_exec | fs::perms::others_exec,
+                    fs::perm_options::remove);
+    require(!discovered.exporter_available(), "A non-executable exporter was accepted");
+    fs::permissions(first, fs::perms::owner_exec, fs::perm_options::add);
+#endif
+    const auto probe_marker = first_directory / "availability-probed";
+    std::ofstream(first_directory / "availability-watch").put('\n');
+    for (int check = 0; check < 3; ++check)
+        require(discovered.exporter_available(), "Exporter installation was not detected");
+    require(ceres::ExportJob::discover_helper() == first && !fs::exists(probe_marker),
+            "Availability did not use discovery or started an exporter process");
+    require(discovered.start(manifest, root / "installed.json") && wait(discovered).error.empty() &&
+                fs::is_regular_file(probe_marker),
+            "Installed exporter could not complete an export");
+    fs::remove(first);
+    require(!discovered.exporter_available() &&
+                !discovered.start(manifest, root / "removed.json") &&
+                !fs::exists(root / "removed.json"),
+            "Removed exporter left a stale executable path");
+    fs::copy_file(self, second);
+    set_search_path(second_directory);
+    require(discovered.exporter_available() && ceres::ExportJob::discover_helper() == second &&
+                discovered.start(manifest, root / "reinstalled.json") &&
+                wait(discovered).error.empty(),
+            "Exporter relocation did not recover after removal");
+    fs::copy_file(self, packaged);
+    require(ceres::ExportJob::discover_helper() == packaged && discovered.exporter_available(),
+            "Packaged exporter did not take precedence over PATH");
+    fs::remove(packaged);
+    fs::create_directory(packaged_bin.parent_path());
+    fs::copy_file(self, packaged_bin);
+    require(ceres::ExportJob::discover_helper() == packaged_bin && discovered.exporter_available(),
+            "Packaged bin exporter was not discovered");
+    fs::remove(packaged_bin);
+    require(ceres::ExportJob::discover_helper() == second && discovered.exporter_available(),
+            "Removing the packaged exporter did not restore PATH discovery");
+
+    const auto explicit_path = root / ("explicit exporter" + self.extension().string());
+    ceres::ExportJob explicit_job(explicit_path, self);
+    require(!explicit_job.exporter_available(), "Missing explicit exporter fell back to PATH");
+    fs::copy_file(self, explicit_path);
+    require(explicit_job.exporter_available() &&
+                explicit_job.start(manifest, root / "explicit.json") &&
+                wait(explicit_job).error.empty(),
+            "Explicit exporter installation was not detected");
+    fs::remove(explicit_path);
+    require(!explicit_job.exporter_available() &&
+                !explicit_job.start(manifest, root / "explicit-removed.json"),
+            "Removed explicit exporter remained available or fell back to PATH");
+}
 int helper(int argc, char** argv) {
     const auto executable = from_utf8(argv[0]);
     if (std::string(argv[1]) == "--capabilities") {
+        if (fs::exists(executable.parent_path() / "availability-watch"))
+            std::ofstream(executable.parent_path() / "availability-probed").put('\n');
         auto capabilities = export_capabilities(executable.filename().string().find("legacy") == std::string::npos);
         if (executable.stem() == "ceres-native-exporter") {
             std::ifstream file(executable.parent_path() / "replay-capabilities.json");
@@ -59,6 +143,8 @@ int helper(int argc, char** argv) {
     std::ifstream input(from_utf8(argv[2]));
     const auto job = Json::parse(input);
     const auto scenario = job.value("test_scenario", "success");
+    if (scenario == "availability")
+        availability_tests(executable);
     if (scenario == "replay-capability") {
         try {
             ceres::import_lerobot_replay(from_utf8(job.at("dataset").get<std::string>()),
@@ -160,6 +246,17 @@ int main(int argc, char** argv) {
         fs::create_directories(root);
         const auto self = fs::absolute(from_utf8(argv[0]));
         replay_capability_tests(root / "replay capabilities", self);
+        const auto discovery_directory = root / "exporter discovery";
+        fs::create_directory(discovery_directory);
+        const auto discovery_driver = discovery_directory / ("driver" + self.extension().string());
+        fs::copy_file(self, discovery_driver);
+        ceres::ExportJob discovery(discovery_driver, self);
+        require(discovery.start(Json{{"output", (root / "discovery output").string()},
+                                     {"test_scenario", "availability"}}, root / "discovery.json"),
+                "Could not start exporter availability tests");
+        const auto discovery_status = wait(discovery);
+        if (!discovery_status.error.empty())
+            throw std::runtime_error(discovery_status.error);
 #ifdef _WIN32
         const auto executable = root / "helper with spaces.exe";
 #else
