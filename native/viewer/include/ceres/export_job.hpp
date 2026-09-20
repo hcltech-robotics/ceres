@@ -17,6 +17,9 @@ class ExportJob {
     ~ExportJob();
     ExportJob(const ExportJob&) = delete;
     ExportJob& operator=(const ExportJob&) = delete;
+    // Checks current executable presence without starting a process. UI callers
+    // can refresh periodically, while start always resolves the executable again.
+    bool exporter_available() const noexcept;
     bool start(Json job, const std::filesystem::path& job_path);
     void cancel();
     ExportStatus status() const;

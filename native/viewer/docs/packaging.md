@@ -12,6 +12,8 @@ The ARM64 package targets SBSA machines with compatible NVIDIA graphics and vide
 
 The root `package.json` supplies the viewer version. The exporter is built from the sibling `native/lerobot-exporter` directory using its Cargo lock and the same repository revision. Source archives can be built without Git metadata. When packaging an extracted source archive, set `CERES_SOURCE_REVISION` to its full release commit and `SOURCE_DATE_EPOCH` to that commit's Unix timestamp. `CERES_RELEASE_VERSION`, when supplied, must match the root package version.
 
+The viewer build compiles and stages the exporter beside the application. Packaging refreshes that same CMake target and installs both executables through `ViewerRuntime`, reusing the viewer build directory's Cargo outputs.
+
 ## Windows
 
 From `native/viewer`, after building the application:
