@@ -2,7 +2,7 @@
   "version": 2,
   "packageVersion": "1.1.3",
   "generator": "ceres-public-core/2",
-  "treeDigest": "1a32d0e0a48c71b67a653fb9c0bc5b252a7a9192c10911dd40e29a8ce00b321e",
+  "treeDigest": "63e46ce1cd60968ae06ddc8ccc455da3e91fb1ce3b335c529311d304804f2013",
   "files": {
     ".dockerignore": {
       "sha256": "c42f073a38c93eb50ac7cafd943c2ed01e7481ee36435bc1c7d5903977af839f",
@@ -260,8 +260,8 @@
       "mode": "100644"
     },
     "native/viewer/README.md": {
-      "sha256": "e1e173846b30e03c443c2f72f599656f40d33e6c7aa78057c08486c28f09f977",
-      "bytes": 25021,
+      "sha256": "a36a6e898fb1bb3ec666e6362a2dd6b385fd2ad19c35a30f18b1c9539384e65c",
+      "bytes": 25405,
       "mode": "100644"
     },
     "native/viewer/assets/README.md": {
@@ -444,6 +444,11 @@
       "bytes": 812,
       "mode": "100644"
     },
+    "native/viewer/include/ceres/camera_presentation.hpp": {
+      "sha256": "43623ba29e456ce0bb36de69f8303dfa293f7e8b856d6ac618ab98ccc519aa37",
+      "bytes": 1738,
+      "mode": "100644"
+    },
     "native/viewer/include/ceres/depth.hpp": {
       "sha256": "08bd3299a19a1fee3bbf19659022eaab9d079facc7ead493558441c2ba07a3f6",
       "bytes": 2082,
@@ -560,8 +565,8 @@
       "mode": "100644"
     },
     "native/viewer/include/ceres/renderer.hpp": {
-      "sha256": "d9053cc0c1ea872da8477e15009783f2b6b4e3a8ab5d4efc6d0fa7ee5485887e",
-      "bytes": 6844,
+      "sha256": "f65be7bcd2f0c877eb96161469faafa8e21640069d00307f0412b6b5dfee889d",
+      "bytes": 6988,
       "mode": "100644"
     },
     "native/viewer/include/ceres/replay_task.hpp": {
@@ -750,8 +755,8 @@
       "mode": "100644"
     },
     "native/viewer/src/app.cpp": {
-      "sha256": "b5dd56d2c3467f61c86a3ee82e7530320ac3e58fc60d5a8fab4dd55ab384539a",
-      "bytes": 258961,
+      "sha256": "10046f06957b811c778677a878d39de65d58488855dda7898151703011b5ec47",
+      "bytes": 262623,
       "mode": "100644"
     },
     "native/viewer/src/bridge.cpp": {
@@ -835,8 +840,8 @@
       "mode": "100644"
     },
     "native/viewer/src/renderer.cpp": {
-      "sha256": "16e42739f25c2c822cac5ddc20bbdd5f5dc0a3da16ada4a973cc93177a6293d9",
-      "bytes": 133010,
+      "sha256": "15b4a0cae31b478e7315f25912fae759f9651f9a2b0d2fa48dbaba3e1e2ede59",
+      "bytes": 133767,
       "mode": "100644"
     },
     "native/viewer/src/replay_task.cpp": {
@@ -995,8 +1000,8 @@
       "mode": "100644"
     },
     "native/viewer/tests/test_hand_presentation.cpp": {
-      "sha256": "cb95750382cc0ef22bb29866fb7c1ae4a746817229c0af4e941a1368565c7d09",
-      "bytes": 8219,
+      "sha256": "78af5c6f1faf6b8cc2a7d4c10769be881e80d254194aac0174262c89de3f67fd",
+      "bytes": 11221,
       "mode": "100644"
     },
     "native/viewer/tests/test_hand_trails.cpp": {

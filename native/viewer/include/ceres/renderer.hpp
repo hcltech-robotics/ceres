@@ -1,4 +1,5 @@
 #pragma once
+#include "ceres/camera_presentation.hpp"
 #include "calibration.hpp"
 #include "depth_display.hpp"
 #include "hand_display.hpp"
@@ -134,6 +135,7 @@ class Renderer {
     void finish_frame();
     void notify_presented();
     unsigned video_texture(size_t camera = 0) const;
+    CameraPresentation camera_presentation(const ReceiverSnapshot& snapshot, size_t camera = 0) const;
     int video_width(size_t camera = 0) const;
     int video_height(size_t camera = 0) const;
     double gpu_ms() const;
