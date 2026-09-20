@@ -2,7 +2,7 @@
   "version": 2,
   "packageVersion": "1.1.3",
   "generator": "ceres-public-core/2",
-  "treeDigest": "0555b2fd46f8630fdb61d6dae2c0974927813575eb93586f657a65caef7834f3",
+  "treeDigest": "7a78ebe0d5aa60687448a87cd91407c6d996c26aaf22f132e5ec7a482acf1547",
   "files": {
     ".dockerignore": {
       "sha256": "f4f0799e0c8f318b0d36a430909ba9dcb3eeca1d1b0ae8b3b7907b44cc2bedca",
@@ -40,8 +40,8 @@
       "mode": "100644"
     },
     ".github/workflows/native-viewer.yml": {
-      "sha256": "35fe1525e8b5915f90c04d87afbff1f7072504d5df6d176d1e80e8f333a5b17a",
-      "bytes": 17247,
+      "sha256": "ba1a5cd6c9b7d80df1b9d10af976d06e10f43289be67cf2b067236460ad6a011",
+      "bytes": 17417,
       "mode": "100644"
     },
     ".github/workflows/release.yml": {
@@ -245,8 +245,8 @@
       "mode": "100644"
     },
     "native/viewer/CMakeLists.txt": {
-      "sha256": "ff140e29ff1ac1b050f72532c51a080d219237550cc9c81b098f7ba45061801d",
-      "bytes": 12599,
+      "sha256": "5f8e588c342cce88e81eb2227823c34c11f84c54e52fc4228d47cf86dfbfb5af",
+      "bytes": 12770,
       "mode": "100644"
     },
     "native/viewer/LICENCE.md": {
@@ -255,8 +255,8 @@
       "mode": "100644"
     },
     "native/viewer/README.md": {
-      "sha256": "7d913dc58fa4ab9daec18176082b16e72929b6d77ddff9ab528b1d3e04657638",
-      "bytes": 23797,
+      "sha256": "a9e0961982c5482c8e03215a2a96a3aace4d9b7deddc57a8fe3ff0de50a4ef7f",
+      "bytes": 23808,
       "mode": "100644"
     },
     "native/viewer/assets/README.md": {
@@ -385,8 +385,8 @@
       "mode": "100644"
     },
     "native/viewer/docs/packaging.md": {
-      "sha256": "62a84fcdfe9624ce84a5f6a05454dafd95538debb640c01b34be6607f49b8000",
-      "bytes": 5475,
+      "sha256": "e9d259a21dd68589a7967d4a4f79350ecadef871152bdde86ab26bae81bd35af",
+      "bytes": 6171,
       "mode": "100644"
     },
     "native/viewer/docs/qualification.md": {

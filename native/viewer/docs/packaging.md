@@ -6,9 +6,9 @@ Each CERES release provides a separate viewer download. The archive contains the
 | --- | --- | --- |
 | `ceres-viewer-VERSION-windows-x64.zip` | Windows x64, CUDA 12.4.1 | 75, 86 and 89 |
 | `ceres-viewer-VERSION-linux-x64.tar.gz` | Ubuntu 22.04 x64, CUDA 12.9.1 | 75, 86, 89 and 120 |
-| `ceres-viewer-VERSION-linux-arm64.tar.gz` | Ubuntu 24.04 ARM64 SBSA, CUDA 13.0.2 | 121, NVIDIA GB10 |
+| `ceres-viewer-VERSION-linux-arm64.tar.gz` | Ubuntu 24.04 ARM64 SBSA, CUDA 13.0.2 | 75, 80, 86, 89, 90, 100, 120 and 121 |
 
-The ARM64 package targets SBSA machines such as DGX Spark. Jetson requires its own JetPack build. Apple builds are separate from this NVIDIA release matrix.
+The ARM64 package targets SBSA machines with compatible NVIDIA graphics and video decoding support. DGX Spark is the ARM64 hardware qualification host. Its compute capability does not set the package's minimum GPU target. Jetson requires its own JetPack build. Apple builds are separate from this NVIDIA release matrix.
 
 The root `package.json` supplies the viewer version. The exporter is built from the sibling `native/lerobot-exporter` directory using its Cargo lock and the same repository revision. Source archives can be built without Git metadata. When packaging an extracted source archive, set `CERES_SOURCE_REVISION` to its full release commit and `SOURCE_DATE_EPOCH` to that commit's Unix timestamp. `CERES_RELEASE_VERSION`, when supplied, must match the root package version.
 
@@ -39,7 +39,11 @@ FFMPEG_ROOT=/opt/ceres-ffmpeg \
 bash scripts/package-linux.sh
 ```
 
-Use `PACKAGE_PLATFORM=linux-arm64` for the GB10 build and configure CMake with `-DCMAKE_CUDA_ARCHITECTURES=121`. `PACKAGE_NAME` overrides the versioned default name. `CUDA_ROOT` selects the build toolkit when it cannot be derived from the configured CUDA compiler.
+Use `PACKAGE_PLATFORM=linux-arm64` for an ARM64 SBSA build. The release workflow supplies the CUDA device targets listed above explicitly. To reproduce its ARM64 configuration, pass `'-DCMAKE_CUDA_ARCHITECTURES=75;80;86;89;90;100;120;121'` to CMake with CUDA 13.0.2.
+
+ARM64 source builds default to `75;80;86;89;90`, which CUDA 12.x can compile. These numeric targets include both native GPU code and PTX for later GPUs. Set `CMAKE_CUDA_ARCHITECTURES` explicitly to select another target set supported by the installed toolkit. Use a fresh build directory or set this option when changing an existing build's cached targets.
+
+`PACKAGE_NAME` overrides the versioned default name. `CUDA_ROOT` selects the build toolkit when it cannot be derived from the configured CUDA compiler.
 
 FFmpeg and FFprobe can be in the supplied directory or its `bin` subdirectory. The distribution must contain its licence and source notices, or `FFMPEG_LICENCES` must name their directory. The release workflow builds FFmpeg and x264 from pinned source revisions, with their source archives and build recipe included in the package. FFmpeg must expose the `libx264` encoder.
 

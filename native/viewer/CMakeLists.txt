@@ -10,7 +10,9 @@ option(CERES_BUILD_APP "Build the native NVIDIA viewer" ON)
 option(CERES_BUILD_TESTS "Build deterministic acceptance tests" ON)
 if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
   if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64|ARM64)$")
-    set(CMAKE_CUDA_ARCHITECTURES "121" CACHE STRING "CUDA device architectures")
+    # Include PTX for newer GPUs without requiring a Blackwell-capable toolkit.
+    # The release workflow pins its wider set of native GPU targets separately.
+    set(CMAKE_CUDA_ARCHITECTURES "75;80;86;89;90" CACHE STRING "CUDA device architectures")
   elseif(NOT WIN32)
     set(CMAKE_CUDA_ARCHITECTURES "75;86;89;120" CACHE STRING "CUDA device architectures")
   else()
