@@ -2,7 +2,7 @@
   "version": 2,
   "packageVersion": "1.1.3",
   "generator": "ceres-public-core/2",
-  "treeDigest": "7a78ebe0d5aa60687448a87cd91407c6d996c26aaf22f132e5ec7a482acf1547",
+  "treeDigest": "c87c12e065cad35ebc6b8c16c7cd6daae7bddb6d89c4cf8e72cccfcaf69a5616",
   "files": {
     ".dockerignore": {
       "sha256": "f4f0799e0c8f318b0d36a430909ba9dcb3eeca1d1b0ae8b3b7907b44cc2bedca",
@@ -30,8 +30,8 @@
       "mode": "100644"
     },
     ".github/scripts/native-viewer-inputs.py": {
-      "sha256": "4c7c95e0868709d841eafe930622ab0d4463cf4b8b3c8117ab0bfdefff4f10b7",
-      "bytes": 4247,
+      "sha256": "097d7d245732fae4ba37dc9031bd43526864703494b48d0aa31a292773195696",
+      "bytes": 4668,
       "mode": "100644"
     },
     ".github/workflows/bridge-receiver.yml": {
@@ -40,8 +40,8 @@
       "mode": "100644"
     },
     ".github/workflows/native-viewer.yml": {
-      "sha256": "ba1a5cd6c9b7d80df1b9d10af976d06e10f43289be67cf2b067236460ad6a011",
-      "bytes": 17417,
+      "sha256": "6eb79528c2743d10889fb41e9b509866b504fb2e8519ac47363df924dee012d7",
+      "bytes": 17799,
       "mode": "100644"
     },
     ".github/workflows/release.yml": {
@@ -245,8 +245,8 @@
       "mode": "100644"
     },
     "native/viewer/CMakeLists.txt": {
-      "sha256": "5f8e588c342cce88e81eb2227823c34c11f84c54e52fc4228d47cf86dfbfb5af",
-      "bytes": 12770,
+      "sha256": "2a8805fcf1ea4198cc1ce8c1386af28b5d6580d81c97d0414be7ce552941d217",
+      "bytes": 13195,
       "mode": "100644"
     },
     "native/viewer/LICENCE.md": {
@@ -255,8 +255,8 @@
       "mode": "100644"
     },
     "native/viewer/README.md": {
-      "sha256": "a9e0961982c5482c8e03215a2a96a3aace4d9b7deddc57a8fe3ff0de50a4ef7f",
-      "bytes": 23808,
+      "sha256": "495d09ee35790849ea9f408297090d8782ad96e0e47e081a0782e973e8bc5ad6",
+      "bytes": 24101,
       "mode": "100644"
     },
     "native/viewer/assets/README.md": {
@@ -364,6 +364,11 @@
       "bytes": 7185,
       "mode": "100644"
     },
+    "native/viewer/cmake/VideoBackend.cmake": {
+      "sha256": "8c6b9b01ca03370b4d8667ecc83f61e7f684ef236199b4964e4dae858f2bbbff",
+      "bytes": 2983,
+      "mode": "100644"
+    },
     "native/viewer/docs/calibration.md": {
       "sha256": "11803a9b450f5882e7186cc61fca0628a480df35464576bcda16d5122040deed",
       "bytes": 1745,
@@ -384,9 +389,14 @@
       "bytes": 9296,
       "mode": "100644"
     },
+    "native/viewer/docs/jetson.md": {
+      "sha256": "8a95ee8d5e5fc9f8c0a87ffca56d4e78e4663b1ae750d291c963e124d321b3f7",
+      "bytes": 4328,
+      "mode": "100644"
+    },
     "native/viewer/docs/packaging.md": {
-      "sha256": "e9d259a21dd68589a7967d4a4f79350ecadef871152bdde86ab26bae81bd35af",
-      "bytes": 6171,
+      "sha256": "7eda81dc98f3aae94a0f3af66a5fbbfe2e12e218130f629beb433fe56ab4a340",
+      "bytes": 6579,
       "mode": "100644"
     },
     "native/viewer/docs/qualification.md": {
@@ -469,9 +479,14 @@
       "bytes": 2799,
       "mode": "100644"
     },
+    "native/viewer/include/ceres/detail/video_backend.hpp": {
+      "sha256": "a3050e2373b4c515e2c36aebf42f51fab24526f276d30382f31b59cc944eabc9",
+      "bytes": 1377,
+      "mode": "100644"
+    },
     "native/viewer/include/ceres/detail/video_queue.hpp": {
-      "sha256": "858a536b49f8e8edd6c3082038721077860ac8ec1c64afacaa170c6de1ecebad",
-      "bytes": 6380,
+      "sha256": "b75a58bf05ede5c5ff7040314d982fc3e205f7b9294149a496ffeee2bc2a904e",
+      "bytes": 6955,
       "mode": "100644"
     },
     "native/viewer/include/ceres/export_job.hpp": {
@@ -595,8 +610,8 @@
       "mode": "100644"
     },
     "native/viewer/include/ceres/video.hpp": {
-      "sha256": "c04114a0f14867848923a3b80a1fa51d134d5ab42b363a185bbf9bde36886856",
-      "bytes": 1346,
+      "sha256": "a978dadb87237314d558501fcaacf1b8b40df1662e58a73ebd44e6bddf20ec71",
+      "bytes": 1355,
       "mode": "100644"
     },
     "native/viewer/include/ceres/voxel_config.hpp": {
@@ -622,6 +637,11 @@
     "native/viewer/qualification/windows-x64.json": {
       "sha256": "f31e0d5ad6691fb79a83ad71bff6dd7d2cd4f4bb6271b8237307b396717de708",
       "bytes": 2381,
+      "mode": "100644"
+    },
+    "native/viewer/scripts/build-jetson.sh": {
+      "sha256": "7d2dcc93cf038798cb3889e521ae72507c012415509981a76f2d077c771b3bfb",
+      "bytes": 915,
       "mode": "100644"
     },
     "native/viewer/scripts/build-windows.cmd": {
@@ -655,13 +675,13 @@
       "mode": "100644"
     },
     "native/viewer/scripts/package-common.py": {
-      "sha256": "03d91992bb80ce7feed28797c73d84adcd5ac78e24651285db66f7375460b199",
-      "bytes": 11389,
+      "sha256": "df0eccf4a2d07dbdcffc1a93083ef940f8544da0d3d01236ef7e42c08bf83578",
+      "bytes": 12276,
       "mode": "100644"
     },
     "native/viewer/scripts/package-linux.sh": {
-      "sha256": "6d09f312acc8da1980d8ef3232cbd8d730df795b25d8392764ca686a1fc52112",
-      "bytes": 1909,
+      "sha256": "3cca92d0164d5bb02ffa85f1ea38ecb78215a22ff80f7dcb379241074d57a257",
+      "bytes": 2185,
       "mode": "100644"
     },
     "native/viewer/scripts/package-windows.ps1": {
@@ -670,13 +690,13 @@
       "mode": "100644"
     },
     "native/viewer/scripts/package.cmake": {
-      "sha256": "bad05d1fc5ec244e1f8b7f5f1154fbb8f2e247b65b5c05788976ce2b6b0aeadf",
-      "bytes": 14625,
+      "sha256": "93cf338a833162a3df09a1403a659524c9a7cdba0dc7eac38ea79adb136de720",
+      "bytes": 15906,
       "mode": "100644"
     },
     "native/viewer/scripts/qualification.py": {
-      "sha256": "9456b411a76ed6fad5bd65f23b2a14f64d41a98bbce0ccdf15bdf89a4f2cbf0a",
-      "bytes": 12855,
+      "sha256": "b51aad14760fd326459818e12e0a4f6c198b6b927d3751d4132a72bd4ec7868b",
+      "bytes": 13200,
       "mode": "100644"
     },
     "native/viewer/scripts/qualify-session.py": {
@@ -685,8 +705,8 @@
       "mode": "100644"
     },
     "native/viewer/scripts/qualify_hardware.py": {
-      "sha256": "686cc4b2ab1570a7e1204856f4aa8de53d8c4a3440f48f53cc9f3a70e0aadad0",
-      "bytes": 20079,
+      "sha256": "eb156b64dc08204973cbf1088dbfbbddde4287091062686073fc68c0cd88a0a9",
+      "bytes": 20794,
       "mode": "100644"
     },
     "native/viewer/scripts/verify-dataset.py": {
@@ -695,8 +715,8 @@
       "mode": "100644"
     },
     "native/viewer/scripts/verify-package.py": {
-      "sha256": "cf53bcad1ab98e06716bce614f7aff5fc799eccdf6ad13a92bc8eea6028e4c68",
-      "bytes": 25202,
+      "sha256": "dad3110c7a403aa0fc4dfd95669fcea1df31cfb047f58b25b86b4acd9f22f109",
+      "bytes": 25997,
       "mode": "100644"
     },
     "native/viewer/scripts/verify-recording.py": {
@@ -705,8 +725,8 @@
       "mode": "100644"
     },
     "native/viewer/src/app.cpp": {
-      "sha256": "4cdbf9a30aa7c5150257af5c9edf1237e132f8ac5c63ff7ff67e1ee471f09da9",
-      "bytes": 256798,
+      "sha256": "95c48aa231cea00156c2d80250ae19385d83bd792ffa389b8baf4e0d91547bd7",
+      "bytes": 256901,
       "mode": "100644"
     },
     "native/viewer/src/bridge.cpp": {
@@ -770,8 +790,18 @@
       "mode": "100644"
     },
     "native/viewer/src/nvdec.cpp": {
-      "sha256": "e585e1345c9a103fdc6246b217e89eb153c83878280db8b1f45af4a2cdd87de5",
-      "bytes": 16794,
+      "sha256": "f2ecb96c9a24c023c54478b0e11b40f9b3bd23861656c8b5821ae0064d707189",
+      "bytes": 9785,
+      "mode": "100644"
+    },
+    "native/viewer/src/nvdec_cuvid.cpp": {
+      "sha256": "15742d446c47d6fc0b14e22d44f07d4c0b3c111baad9287fe12bafd4232a91b0",
+      "bytes": 10238,
+      "mode": "100644"
+    },
+    "native/viewer/src/nvdec_jetson.cpp": {
+      "sha256": "351781ff52b1d75a7e328e4da5d5caf31eefded4bb65ee93fb65a8d5e0b914e1",
+      "bytes": 13406,
       "mode": "100644"
     },
     "native/viewer/src/protocol.cpp": {
@@ -955,13 +985,13 @@
       "mode": "100644"
     },
     "native/viewer/tests/test_nvdec.cpp": {
-      "sha256": "5a008edfaf80bc53fdde23f9647886ef64fa3e23eef8dda38736a3bdd11a960a",
-      "bytes": 15316,
+      "sha256": "b06857af7af7af2ae1e3282932afa53b58668c71edbe5a2ab5769e27a8365245",
+      "bytes": 17724,
       "mode": "100644"
     },
     "native/viewer/tests/test_package.py": {
-      "sha256": "dc03db8251175c2c35f3cc567cd47fcbddfe261e33db259b0053e0ea1d07138a",
-      "bytes": 10359,
+      "sha256": "53a5a4090c8baae76ca279939d29c55096f5bb99b0155d8ff0ac8ebe26c743b2",
+      "bytes": 12054,
       "mode": "100644"
     },
     "native/viewer/tests/test_protocol.cpp": {
@@ -970,8 +1000,8 @@
       "mode": "100644"
     },
     "native/viewer/tests/test_qualification.py": {
-      "sha256": "32acdc8b76330c85f4a22e3553f03774c9c8e33eeace71131538bb1489ef55dd",
-      "bytes": 20209,
+      "sha256": "73b4762f4dd2e3cc224e3126b247689e9bd5ac238bd720c38e32909cc883b39d",
+      "bytes": 20859,
       "mode": "100644"
     },
     "native/viewer/tests/test_quest_mapper.py": {
@@ -1049,9 +1079,19 @@
       "bytes": 5751,
       "mode": "100644"
     },
+    "native/viewer/tests/test_video_backend.cpp": {
+      "sha256": "51f056c869090686e6fc3ffc2f290d54b2e4a8291862175e0c151e9b657df115",
+      "bytes": 8455,
+      "mode": "100644"
+    },
+    "native/viewer/tests/test_video_configuration.py": {
+      "sha256": "86a006ad82b4aa484ff51a8f7813d68326afb0386e40838c3ef98a54f2fc336e",
+      "bytes": 2267,
+      "mode": "100644"
+    },
     "native/viewer/tests/test_video_queue.cpp": {
-      "sha256": "0d50c523fee007dc433a403736699689b89e100d6da862d67c5447661572e9b3",
-      "bytes": 7939,
+      "sha256": "bb5d3621aa807e0e7bc8d3c0a797b7b17b9a25308c1aafa9354e870cc822d74f",
+      "bytes": 8693,
       "mode": "100644"
     },
     "native/viewer/tests/test_voxel_cuda.cu": {

@@ -200,6 +200,7 @@ int main(int argc, char** argv) {
         report["cuda_initialised"] = true;
         const int64_t deadline = monotonic_us() + 30000000;
         report["gpu"] = decoder->status().gpu;
+        report["backend"] = decoder->status().backend;
         int driver_version = 0;
         cuda_check(cuDriverGetVersion(&driver_version), "Read CUDA driver version");
         report["cuda_driver_version"] = driver_version;
@@ -303,6 +304,48 @@ int main(int argc, char** argv) {
         report["old_lease_survived_decoder_destruction"] = true;
         report["all_frames_bit_exact_match"] = true;
         retained = {};
+        // Both cameras may share timestamps. Serial identifiers must stay local
+        // to each decoder and presentation must retain the complete source event.
+        NvDecoder right(0), left(0);
+        for (uint32_t i = 0; i < 3; ++i) {
+            auto first = event_for(small_a[i], i + 1, 10);
+            first.time_us = 123456;
+            first.receive_us = 234567;
+            first.rtp_timestamp = 345678;
+            first.space_epoch = 7;
+            first.attributes["mid"] = "0";
+            auto second = first;
+            second.stream = "passthrough_left";
+            second.attributes["mid"] = "1";
+            right.submit(first);
+            left.submit(second);
+            auto right_frame = wait_frame(right, i + 1, 640, 480, i + 1, deadline);
+            auto left_frame = wait_frame(left, i + 1, 640, 480, i + 1, deadline);
+            for (const auto* pair : {&right_frame, &left_frame}) {
+                const auto& event = pair->image->event;
+                require(event.time_us == 123456 && event.receive_us == 234567 &&
+                            event.rtp_timestamp == 345678 && event.space_epoch == 7,
+                        "Decoder changed source timing or reference-space identity");
+            }
+            require(right_frame.image->event.stream == first.stream &&
+                        left_frame.image->event.stream == second.stream &&
+                        right_frame.image->event.attributes == first.attributes &&
+                        left_frame.image->event.attributes == second.attributes,
+                    "Decoder mixed camera identities");
+            require(copy_nv12(right_frame) == copy_nv12(left_frame), "Camera pixels differ");
+        }
+        right.cancel_replay();
+        left.cancel_replay();
+        require(!right.latest() && !left.latest(), "Cancelled frames remain visible");
+        right.submit(event_for(small_a[0], 99, 10));
+        right.begin_source();
+        auto restarted = event_for(small_c[0], 100, 0);
+        right.submit(restarted);
+        auto restart_frame = wait_frame(right, 100, 640, 480, 4, deadline);
+        require(restart_frame.image->event.attributes == restarted.attributes,
+                "Source change retained stale replay metadata");
+        report["dual_camera_metadata"] = true;
+        report["cancel_and_source_restart"] = true;
         report["passed"] = true;
         write_report(report_path, report);
         std::cout << "NVDEC resolution and lease checks passed\n";

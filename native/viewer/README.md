@@ -169,6 +169,8 @@ cmake --build build-native --parallel
 ctest --test-dir build-native --output-on-failure
 ```
 
+On Jetson Orin with JetPack 6, use the [Jetson build](docs/jetson.md). CMake selects the Jetson V4L2 decoder on Jetson Linux R36 and defaults to CUDA target `87`. `CERES_VIDEO_BACKEND=CUVID` selects the desktop decoder and `CERES_VIDEO_BACKEND=JETSON` selects the JetPack decoder explicitly.
+
 The protocol, session, calibration, queue and exporter process tests can also run without a GPU application build:
 
 ```sh

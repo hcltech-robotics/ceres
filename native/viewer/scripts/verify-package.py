@@ -13,7 +13,8 @@ import subprocess
 import tarfile
 import zipfile
 
-PLATFORMS = {"windows-x64": ("pe", 0x8664), "linux-x64": ("elf", 62), "linux-arm64": ("elf", 183)}
+PLATFORMS = {"windows-x64": ("pe", 0x8664), "linux-x64": ("elf", 62), "linux-arm64": ("elf", 183),
+             "linux-arm64-jetpack6": ("elf", 183)}
 WINDOWS_SYSTEM = set("kernel32 kernelbase user32 gdi32 gdi32full ws2_32 advapi32 shell32 ole32 oleaut32 crypt32 bcrypt bcryptprimitives ncrypt secur32 normaliz iphlpapi comdlg32 comctl32 version winmm ntdll msvcrt shlwapi setupapi dwmapi cfgmgr32 wintrust powrprof imm32 usp10 ucrtbase winhttp netapi32 psapi wtsapi32 authz dbghelp dxgi d3d11 dxva2 mf mfplat mfuuid avrt shcore srvcli netutils opengl32 mswsock winspool dnsapi wldap32 rpcrt4 hid propsys dwrite usp10 dhcpcsvc dhcpcsvc6 userenv win32u avicap32 d2d1".split())
 LINUX_SYSTEM = re.compile(r"^(?:ld-linux[^/]*\.so(?:\.[0-9]+)*|lib(?:c|m|dl|pthread|rt|resolv|util|cuda|nvcuvid|nvidia[^/]*|GL|GLX[^/]*|OpenGL|EGL|GLdispatch)\.so(?:\.[0-9]+)*)$")
 
@@ -217,6 +218,10 @@ def verify_contents(root, platform, version):
     manifest = json.loads((root / "MANIFEST.json").read_text(encoding="utf-8"))
     require(manifest.get("schema") == "ceres-viewer-package" and manifest.get("version") == 1, "Invalid manifest schema")
     require(manifest.get("platform") == platform and manifest.get("release_version") == version, "Package platform or version differs")
+    jetson = platform == "linux-arm64-jetpack6"
+    require(jetson == (manifest.get("video_backend") == "JETSON"), "Package decoder backend differs")
+    if jetson:
+        require(re.match(r"^# R36 ", manifest.get("jetson_linux_release", "")), "Missing JetPack 6 driver provenance")
     require(re.fullmatch(r"[0-9a-f]{40}", manifest.get("source_revision", "")), "Invalid source revision")
     files = {path.relative_to(root).as_posix(): path for path in root.rglob("*") if path.is_file() or path.is_symlink()}
     expected = set(manifest["files"]) | {"MANIFEST.json", "SHA256SUMS"}
@@ -248,6 +253,11 @@ def verify_contents(root, platform, version):
     source = json.loads((root / "provenance/source.json").read_text(encoding="utf-8"))
     for key in ("platform", "release_version", "source_revision"):
         require(source[key] == manifest[key], "Source provenance differs: " + key)
+    for key in ("video_backend", "jetson_linux_release"):
+        require(source.get(key) == manifest.get(key), "Decoder provenance differs: " + key)
+    if jetson:
+        require((root / "provenance/nv_tegra_release").read_text(encoding="utf-8").strip() ==
+                manifest["jetson_linux_release"], "JetPack driver provenance differs")
     require(source["exporter_revision"] == source["source_revision"], "Exporter source revision differs")
     require(json.loads((root / "provenance/package.json").read_text(encoding="utf-8"))["version"] == version, "Root source version differs")
     sbom = json.loads((root / "SBOM.spdx.json").read_text(encoding="utf-8"))
@@ -281,7 +291,8 @@ def verify_contents(root, platform, version):
             if suffix:
                 allowed = dependency.startswith(("api-ms-", "ext-ms-")) or dependency in {"nvcuda.dll", "nvcuvid.dll"} or dependency.removesuffix(".dll") in WINDOWS_SYSTEM
             else:
-                allowed = bool(LINUX_SYSTEM.fullmatch(dependency))
+                allowed = bool(LINUX_SYSTEM.fullmatch(dependency)) or (
+                    jetson and bool(re.fullmatch(r"lib(?:nvbufsurface|v4l2)\.so(?:\.[0-9]+)*", dependency)))
             require(allowed, f"Unbundled dependency {dependency} required by {name}")
             system.add(dependency)
     return manifest, binaries, {"passed": True, "system_dependencies": sorted(system)}

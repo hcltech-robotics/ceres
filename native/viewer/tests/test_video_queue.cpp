@@ -157,6 +157,20 @@ int main() {
             check(queue.push(frame(3, 2, 17)) == Result::TooLarge,
                   "Oversized frame entered the queue");
         }
+        {
+            VideoQueue queue;
+            check(!queue.pop_for(1ms) && !queue.state().closed,
+                  "An idle hardware poll closed the input queue");
+            auto consumer = std::async(std::launch::async, [&] { return queue.pop_for(5s); });
+            queue.cancel_replay();
+            check(consumer.wait_for(200ms) == std::future_status::ready,
+                  "Cancellation did not wake the hardware poll");
+            check(consumer.get()->event.kind == ceres::EventKind::Epoch,
+                  "Cancellation did not deliver a decoder reset");
+            queue.close();
+            check(!queue.pop_for(5s) && queue.state().closed,
+                  "Closed asynchronous queue did not finish immediately");
+        }
         std::cout << "Video queue tests passed\n";
         return 0;
     } catch (const std::exception& error) {

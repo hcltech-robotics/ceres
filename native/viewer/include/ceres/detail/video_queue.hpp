@@ -2,6 +2,7 @@
 #include "ceres/types.hpp"
 #include <algorithm>
 #include <condition_variable>
+#include <chrono>
 #include <deque>
 #include <mutex>
 #include <optional>
@@ -21,6 +22,7 @@ class VideoQueue {
         size_t queued = 0;
         uint64_t dropped = 0, revision = 0;
         bool needs_keyframe = true;
+        bool closed = false;
     };
 
     explicit VideoQueue(size_t frames = 12, size_t bytes = 64 * 1024 * 1024)
@@ -102,6 +104,19 @@ class VideoQueue {
         return item;
     }
 
+    // Asynchronous decoders must drain hardware even when no new AU arrives.
+    std::optional<Item> pop_for(std::chrono::milliseconds timeout) {
+        std::unique_lock lock(mutex_);
+        ready_.wait_for(lock, timeout, [&] { return closed_ || !queue_.empty(); });
+        if (closed_ || queue_.empty())
+            return std::nullopt;
+        auto item = std::move(queue_.front());
+        queue_.pop_front();
+        bytes_ -= item.event.payload.size();
+        ready_.notify_all();
+        return item;
+    }
+
     // Call before a ReplaySource seek or stop so its blocked callback can finish.
     void cancel_replay() {
         std::lock_guard lock(mutex_);
@@ -151,7 +166,7 @@ class VideoQueue {
 
     State state() const {
         std::lock_guard lock(mutex_);
-        return {queue_.size(), dropped_, revision_, needs_keyframe_};
+        return {queue_.size(), dropped_, revision_, needs_keyframe_, closed_};
     }
 
   private:

@@ -11,7 +11,7 @@ import subprocess
 import tomllib
 import uuid
 
-PLATFORMS = {"windows-x64", "linux-x64", "linux-arm64"}
+PLATFORMS = {"windows-x64", "linux-x64", "linux-arm64", "linux-arm64-jetpack6"}
 
 
 def sha256(path):
@@ -90,9 +90,21 @@ def create_metadata(package, source, platform, build, cuda_architectures):
         "build_type": values.get("CMAKE_BUILD_TYPE", "Release"), "source_date_epoch": epoch,
         "toolchain": toolchain_versions(build, values),
     }
+    backend = values.get("CERES_SELECTED_VIDEO_BACKEND", "CUVID")
+    if (platform == "linux-arm64-jetpack6") != (backend == "JETSON"):
+        raise ValueError("Package platform does not match the configured video backend")
+    source_record["video_backend"] = backend
+    if backend == "JETSON":
+        release = (package / "provenance/nv_tegra_release").read_text(encoding="utf-8").strip()
+        if not re.match(r"^# R36 ", release):
+            raise ValueError("JetPack 6 packaging requires a Jetson Linux R36 driver")
+        source_record["jetson_linux_release"] = release
     write_json(package / "provenance/source.json", source_record)
     components = [{"name": "ceres-viewer", "version": version, "revision": revision},
                   {"name": "ceres-native-exporter", "version": version, "revision": revision}]
+    if backend == "JETSON":
+        components.append({"name": "jetson-multimedia-api", "version": source_record["jetson_linux_release"],
+                           "source_info": "NVIDIA helper source and redistribution notices are included in licences/jetson-multimedia-api."})
     hand_metadata = json.loads((package / "assets/hands/model.json").read_text(encoding="utf-8"))
     hand_source = hand_metadata["source"]
     components.append({"name": "SOMA-X-native-hand-mid", "version": hand_source["release"],

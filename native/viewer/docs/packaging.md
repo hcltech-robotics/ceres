@@ -43,6 +43,8 @@ Use `PACKAGE_PLATFORM=linux-arm64` for an ARM64 SBSA build. The release workflow
 
 ARM64 source builds default to `75;80;86;89;90`, which CUDA 12.x can compile. These numeric targets include both native GPU code and PTX for later GPUs. Set `CMAKE_CUDA_ARCHITECTURES` explicitly to select another target set supported by the installed toolkit. Use a fresh build directory or set this option when changing an existing build's cached targets.
 
+Jetson Orin uses the separate [JetPack 6 build and package](jetson.md), with `PACKAGE_PLATFORM=linux-arm64-jetpack6`, the Jetson V4L2 decoder and CUDA target `87`. Packaging checks that the selected decoder matches the package platform and records the Jetson Linux driver release. `package-linux.sh` derives the platform from the configured backend and host architecture when `PACKAGE_PLATFORM` is omitted.
+
 `PACKAGE_NAME` overrides the versioned default name. `CUDA_ROOT` selects the build toolkit when it cannot be derived from the configured CUDA compiler.
 
 FFmpeg and FFprobe can be in the supplied directory or its `bin` subdirectory. The distribution must contain its licence and source notices, or `FFMPEG_LICENCES` must name their directory. The release workflow builds FFmpeg and x264 from pinned source revisions, with their source archives and build recipe included in the package. FFmpeg must expose the `libx264` encoder.

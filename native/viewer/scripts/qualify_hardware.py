@@ -19,7 +19,7 @@ from qualification import CHECKS, archive_name, digest, fingerprint, read_json, 
 
 
 def memory_check(target: str) -> None:
-    if target != "linux-arm64":
+    if target not in {"linux-arm64", "linux-arm64-jetpack6"}:
         return
     fields = dict(line.split(":", 1) for line in Path("/proc/meminfo").read_text().splitlines())
     available = int(fields["MemAvailable"].split()[0]) * 1024
@@ -248,9 +248,17 @@ def record(args: argparse.Namespace) -> dict:
     else:
         environment["PATH"] = "/usr/bin:/bin"
         environment["LD_LIBRARY_PATH"] = str(package / "lib")
-    identity = run(["nvidia-smi", "--query-gpu=name,driver_version", "--format=csv,noheader"],
-                   work, work / "gpu.txt", timeout=30).strip()
-    for name in ("test_image", "test_stereo_cuda", "test_voxel_cuda", "test_depth_cuda",
+    if target == "linux-arm64-jetpack6":
+        release = Path("/etc/nv_tegra_release").read_text().strip()
+        model = Path("/proc/device-tree/model").read_text().rstrip("\x00\n")
+        if release != verified["manifest"].get("jetson_linux_release"):
+            raise RuntimeError("Jetson driver differs from the package build system")
+        identity = model + "\n" + release
+        (work / "gpu.txt").write_text(identity, encoding="utf-8")
+    else:
+        identity = run(["nvidia-smi", "--query-gpu=name,driver_version", "--format=csv,noheader"],
+                       work, work / "gpu.txt", timeout=30).strip()
+    for name in ("test_image", "test_stereo_cuda", "test_voxel_cuda", "test_depth_cuda", "test_video_backend",
                  "test_spatial_map_render", "test_spatial_map_lifecycle"):
         memory_check(target)
         binary = find_binary(args.build_tests, name, windows)
@@ -267,6 +275,8 @@ def record(args: argparse.Namespace) -> dict:
         decoder_env["PATH"] = str(package) + os.pathsep + environment["PATH"]
     run([str(decoder), "--run-gpu", str(root / "native/viewer/tests/fixtures/nvdec"), str(work / "nvdec.json")],
         work, work / "nvdec.log", env=decoder_env)
+    if target == "linux-arm64-jetpack6" and read_json(work / "nvdec.json").get("backend") != "Jetson V4L2":
+        raise RuntimeError("Jetson qualification did not exercise the V4L2 decoder")
     executable = package / ("ceres-viewer.exe" if windows else "ceres-viewer")
     if not executable.is_file():
         raise ValueError("Packaged viewer launcher is missing")

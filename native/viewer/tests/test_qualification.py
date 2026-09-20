@@ -57,6 +57,16 @@ class QualificationTests(unittest.TestCase):
                 "driver": "591.86", "completed_at": "2026-09-19T12:00:00Z",
                 "graphics": {"vendor": "NVIDIA Corporation", "renderer": "RTX 3090"}}
 
+    def test_jetson_fingerprint_requires_backend_and_driver_identity(self):
+        inputs = copy.deepcopy(self.inputs)
+        inputs["platform"] = "linux-arm64-jetpack6"
+        with self.assertRaisesRegex(ValueError, "Jetson build inputs omit"):
+            qualification.fingerprint(self.root, inputs)
+        inputs["toolchain"].update(video_backend="JETSON", jetson_linux_release="# R36 (release), REVISION: 4.7")
+        first = qualification.fingerprint(self.root, inputs)
+        inputs["toolchain"]["jetson_linux_release"] = "# R36 (release), REVISION: 4.4"
+        self.assertNotEqual(first, qualification.fingerprint(self.root, inputs))
+
     def test_version_revision_docs_and_line_endings_reuse_qualification(self):
         expected = qualification.fingerprint(self.root, self.inputs)
         changed = copy.deepcopy(self.inputs)

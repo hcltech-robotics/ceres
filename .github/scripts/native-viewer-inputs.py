@@ -33,7 +33,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", type=Path, default=Path("."))
     parser.add_argument("--build", type=Path, required=True)
-    parser.add_argument("--platform", choices=["windows-x64", "linux-x64", "linux-arm64"], required=True)
+    parser.add_argument("--platform", choices=["windows-x64", "linux-x64", "linux-arm64", "linux-arm64-jetpack6"], required=True)
     parser.add_argument("--runner", required=True)
     parser.add_argument("--image")
     parser.add_argument("--cuda", required=True)
@@ -81,6 +81,11 @@ def main():
         "ffmpeg": {"version": ffmpeg},
         "runtime_dependencies": runtime_dependency_hashes(manifest),
     }
+    if args.platform == "linux-arm64-jetpack6":
+        if manifest.get("video_backend") != "JETSON" or not manifest.get("jetson_linux_release"):
+            raise ValueError("Jetson package omits its backend or JetPack driver identity")
+        result["toolchain"].update({"video_backend": "JETSON",
+                                     "jetson_linux_release": manifest["jetson_linux_release"]})
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8", newline="\n")
 

@@ -4,7 +4,16 @@ script_dir=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 viewer_root=$(dirname -- "$script_dir")
 build_dir="${BUILD_DIRECTORY:-$viewer_root/build-native}"
 output_dir="${OUTPUT_DIRECTORY:-$viewer_root/dist}"
-platform="${PACKAGE_PLATFORM:-linux-x64}"
+platform="${PACKAGE_PLATFORM:-}"
+if [[ -z "$platform" ]]; then
+    if grep -q '^CERES_SELECTED_VIDEO_BACKEND:INTERNAL=JETSON$' "$build_dir/CMakeCache.txt"; then
+        platform=linux-arm64-jetpack6
+    elif [[ $(uname -m) == aarch64 ]]; then
+        platform=linux-arm64
+    else
+        platform=linux-x64
+    fi
+fi
 version=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "$viewer_root/../../package.json")
 package_name="${PACKAGE_NAME:-ceres-viewer-$version-$platform}"
 ffmpeg_root="${FFMPEG_ROOT:?Set FFMPEG_ROOT to the FFmpeg distribution directory}"

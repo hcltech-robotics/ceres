@@ -77,7 +77,7 @@ class PackageTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "ELF64"):
             verify.binary_info(path)
 
-    def fixture_package(self, dependency=None, machine=62):
+    def fixture_package(self, dependency=None, machine=62, platform="linux-x64", backend="CUVID"):
         source = self.root / "source"
         package = self.root / "pkg"
         build = self.root / "build"
@@ -89,6 +89,10 @@ class PackageTests(unittest.TestCase):
         (source / "native/lerobot-exporter/Cargo.lock").write_text('version = 4\n[[package]]\nname = "fixture"\nversion = "1.0.0"\n')
         (source / "native/lerobot-exporter/Cargo.toml").write_text('[package]\nname = "ceres-native-exporter"\nversion = "0.1.0"\n')
         (build / "CMakeCache.txt").write_text("//Build type\nCMAKE_BUILD_TYPE:STRING=Release\n\n//Build tool\nCMAKE_MAKE_PROGRAM:FILEPATH=/tools/ninja\n")
+        with (build / "CMakeCache.txt").open("a") as cache:
+            cache.write("CERES_SELECTED_VIDEO_BACKEND:INTERNAL=" + backend + "\n")
+        if backend == "JETSON":
+            (package / "provenance/nv_tegra_release").write_text("# R36 (release), REVISION: 4.7\n")
         (package / "provenance/package.json").write_text('{"version":"1.2.3"}')
         shutil.copytree(SCRIPTS.parent / "assets/hands", package / "assets/hands")
         (package / "assets/redistributable.json").write_text(json.dumps({"files": [
@@ -101,8 +105,30 @@ class PackageTests(unittest.TestCase):
             return {"compiler_id": "fixture"}
         with patch.dict(os.environ, {"CERES_SOURCE_REVISION": "1" * 40, "CERES_RELEASE_VERSION": "1.2.3"}), \
                 patch.object(common, "toolchain_versions", side_effect=versions):
-            common.create_metadata(package, source, "linux-x64", build, "75;86;89")
+            common.create_metadata(package, source, platform, build, "87" if backend == "JETSON" else "75;86;89")
         return package
+
+    def test_jetson_package_records_driver_and_accepts_jetpack_libraries(self):
+        package = self.fixture_package(dependency="libnvbufsurface.so.1.0.0", machine=183,
+                                       platform="linux-arm64-jetpack6", backend="JETSON")
+        manifest, _, report = verify.verify_contents(package, "linux-arm64-jetpack6", "1.2.3")
+        self.assertEqual(manifest["video_backend"], "JETSON")
+        self.assertEqual(manifest["cuda_architectures"], ["87"])
+        self.assertIn("REVISION: 4.7", manifest["jetson_linux_release"])
+        self.assertIn("libnvbufsurface.so.1.0.0", report["system_dependencies"])
+
+    def test_desktop_package_cannot_omit_jetson_libraries(self):
+        package = self.fixture_package(dependency="libnvbufsurface.so.1.0.0")
+        with self.assertRaisesRegex(ValueError, "Unbundled dependency"):
+            verify.verify_contents(package, "linux-x64", "1.2.3")
+
+    def test_jetson_backend_cannot_be_labelled_as_sbsa(self):
+        with self.assertRaisesRegex(ValueError, "does not match"):
+            self.fixture_package(platform="linux-arm64", machine=183, backend="JETSON")
+
+    def test_cuvid_backend_cannot_be_labelled_as_jetpack(self):
+        with self.assertRaisesRegex(ValueError, "does not match"):
+            self.fixture_package(platform="linux-arm64-jetpack6", machine=183)
 
     def test_content_tampering_is_rejected(self):
         package = self.fixture_package()

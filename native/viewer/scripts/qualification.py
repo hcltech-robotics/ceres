@@ -14,6 +14,7 @@ import sys
 from datetime import datetime, timezone
 
 PLATFORMS = ("windows-x64", "linux-x64", "linux-arm64")
+SUPPORTED_PLATFORMS = (*PLATFORMS, "linux-arm64-jetpack6")
 CHECKS = {"package", "cuda", "nvdec", "render", "record", "replay", "dual_camera", "depth", "export",
           "spatial_map_pixels", "spatial_map_lifecycle", "spatial_map_freeze", "spatial_map_storage"}
 TEXT_SUFFIXES = {".cpp", ".hpp", ".h", ".cu", ".cuh", ".cmake", ".json", ".py", ".ps1", ".sh", ".cmd", ".rs", ".toml", ".lock", ".yml", ".txt"}
@@ -113,11 +114,14 @@ def runtime_files(root: Path) -> dict[str, str]:
 def qualification_inputs(root: Path, inputs: dict) -> dict:
     if inputs.get("schema") != "ceres-native-build-inputs" or inputs.get("version") != 1:
         raise ValueError("Unsupported native build input manifest")
-    if inputs.get("platform") not in PLATFORMS:
+    if inputs.get("platform") not in SUPPORTED_PLATFORMS:
         raise ValueError("Unsupported native platform")
     if not re.fullmatch(r"[a-f0-9]{40}", inputs.get("source_revision", "")):
         raise ValueError("Build inputs must identify an immutable source revision")
     toolchain = inputs.get("toolchain", {})
+    if inputs["platform"] == "linux-arm64-jetpack6" and (
+            toolchain.get("video_backend") != "JETSON" or not toolchain.get("jetson_linux_release")):
+        raise ValueError("Jetson build inputs omit the decoder backend or JetPack driver identity")
     for key in ("cuda", "rust", "cmake", "cuda_architectures", "compiler"):
         if not toolchain.get(key):
             raise ValueError(f"Build inputs omit the {key} toolchain identity")
@@ -175,7 +179,7 @@ def check(root: Path, artifacts: Path, receipts: Path) -> dict:
         target = inputs.get("platform")
         if target in by_platform:
             raise ValueError(f"Duplicate build manifest for {target}")
-        if target not in PLATFORMS or inputs.get("release_version") != version:
+        if target not in SUPPORTED_PLATFORMS or inputs.get("release_version") != version:
             raise ValueError("Native build manifest platform/version differs from this release")
         if os.environ.get("GITHUB_SHA") and inputs.get("source_revision") != os.environ["GITHUB_SHA"]:
             raise ValueError("Native build manifest revision differs from the release revision")
@@ -193,7 +197,7 @@ def check(root: Path, artifacts: Path, receipts: Path) -> dict:
         by_platform[target] = {"input_sha256": expected, "archive_sha256": actual,
                                "qualification_archive_sha256": receipt["archive_sha256"],
                                "qualification_reused": actual != receipt["archive_sha256"]}
-    if set(by_platform) != set(PLATFORMS):
+    if not set(PLATFORMS).issubset(by_platform):
         raise ValueError("All three native platform manifests are required")
     return {"status": "passed", "platforms": by_platform}
 

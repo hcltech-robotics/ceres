@@ -3685,6 +3685,7 @@ int run_app(const AppOptions& options) {
                 metric_value("Write", record_mib_s, "MiB/s", 2);
                 metric_value("Queue", record_status.queued_bytes / 1048576.0, "MiB", 2);
                 ui::muted(decoder_status.gpu.c_str());
+                ui::muted(decoder_status.backend.c_str());
                 if (!decoder_status.error.empty())
                     ImGui::TextWrapped("%s", decoder_status.error.c_str());
                 ImGui::PopID();
@@ -4683,7 +4684,7 @@ int run_app(const AppOptions& options) {
                           : final_record.path.empty() ? "idle"
                                                       : "complete"},
         {"decoder_error", final_decoder.error},
-        {"gpu", final_decoder.gpu}};
+        {"gpu", final_decoder.gpu}, {"decoder_backend", final_decoder.backend}};
     if (!options.metrics.empty()) {
         if (!options.metrics.parent_path().empty())
             std::filesystem::create_directories(options.metrics.parent_path());

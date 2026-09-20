@@ -26,7 +26,7 @@ struct DecoderStatus {
     uint64_t decoded = 0, dropped = 0;
     double decode_ms = 0;
     size_t queued = 0;
-    std::string error, gpu;
+    std::string error, gpu, backend;
     bool needs_keyframe = false, failed = false;
 };
 class NvDecoder {
