@@ -2,7 +2,7 @@
   "version": 2,
   "packageVersion": "1.1.3",
   "generator": "ceres-public-core/2",
-  "treeDigest": "63e46ce1cd60968ae06ddc8ccc455da3e91fb1ce3b335c529311d304804f2013",
+  "treeDigest": "d7d56fa1b1d313251caefef7653287292d799997b29c47c85f00a3a8e2eef783",
   "files": {
     ".dockerignore": {
       "sha256": "c42f073a38c93eb50ac7cafd943c2ed01e7481ee36435bc1c7d5903977af839f",
@@ -75,8 +75,8 @@
       "mode": "100644"
     },
     "README.md": {
-      "sha256": "be3059441dc437d3c4f6abe624736634c3526d989ced35f0e0e8a1f683a3496d",
-      "bytes": 16123,
+      "sha256": "63f6735312d37691bcf00f95967f11172851b06696ac4ba335c7d75c1dfbbc50",
+      "bytes": 16447,
       "mode": "100644"
     },
     "RELEASE.md": {
@@ -2130,8 +2130,8 @@
       "mode": "100644"
     },
     "src/capture-app.ts": {
-      "sha256": "e9c8f4ff88c0c1c21fe8771f2dd710626a47d46a21310c7845c4a4d587117b69",
-      "bytes": 319074,
+      "sha256": "ec93856112009b5edf818647f82c7895e99ad8014e89d338740f0c7c7636bc9c",
+      "bytes": 323100,
       "mode": "100644"
     },
     "src/capture-authority.ts": {
@@ -2310,8 +2310,8 @@
       "mode": "100644"
     },
     "src/local-voice-command-queue.ts": {
-      "sha256": "648d5ed6ac0f02247832ab207eecd8324766f5d03569044dafdbd3916bcf1af4",
-      "bytes": 2518,
+      "sha256": "a2861c9d54749aac7afab2c0b2ac2ca587ded86bc4b2e2be6c93609bbee6e45e",
+      "bytes": 3102,
       "mode": "100644"
     },
     "src/local-voice-command-timing.ts": {
@@ -2320,13 +2320,13 @@
       "mode": "100644"
     },
     "src/local-voice-command.ts": {
-      "sha256": "eecf6e95444077ec056747898aef1b21b6b9c5a42ff2249b4dda4f312ba507e8",
-      "bytes": 17733,
+      "sha256": "d1cbb343c211b0851b77e109faf791a1b40edeb76cfdec6942795afed2aff41f",
+      "bytes": 19964,
       "mode": "100644"
     },
     "src/local-voice-command.worker.ts": {
-      "sha256": "2db0cbda3956ddf9a3bba6639a9d7f3fe0d0acc05a6c8ed52ce21790a35d6271",
-      "bytes": 4526,
+      "sha256": "582bbd13c6794d6f729d307b42cab5c5e91a01d360d82e86325948d2f6958ec7",
+      "bytes": 4540,
       "mode": "100644"
     },
     "src/local-voice-command.worklet.ts": {
@@ -2870,8 +2870,8 @@
       "mode": "100644"
     },
     "src/xr-task-hud.ts": {
-      "sha256": "a41150d715e479fed8936a65b40686f53b44c96f40e6b5303b09927de57186ca",
-      "bytes": 38503,
+      "sha256": "323c991fba806cb752d1e19baae1c88225d0cb5a292307201186a0ae4f064ef8",
+      "bytes": 41343,
       "mode": "100644"
     },
     "start.ps1": {
@@ -3030,13 +3030,13 @@
       "mode": "100644"
     },
     "test/local-voice-command-queue.test.ts": {
-      "sha256": "ec71d60526264d615f841dafa46390ab15ed6a5e7469c85eca7ff44d1c8a75df",
-      "bytes": 14806,
+      "sha256": "199c41cc1c391e546f1d13bb442d5a3b2e0208ddc2bbd36a4b18d76584478799",
+      "bytes": 20725,
       "mode": "100644"
     },
     "test/local-voice-command.test.ts": {
-      "sha256": "d7ad3da3db3853a79427334977a4c8578b915b21991a8ca77dd54a67e7a897db",
-      "bytes": 20651,
+      "sha256": "e6bda2aeae14a520e8a4b8fc6baa11ada76be428d7af2c8eab621e7dd17ccee1",
+      "bytes": 21436,
       "mode": "100644"
     },
     "test/local-voice-model-recovery.test.ts": {

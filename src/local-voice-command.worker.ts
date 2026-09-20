@@ -1,7 +1,7 @@
 import type { Transcriber } from "@moonshine-ai/moonshine-wasm";
 import model from "../shared/local-voice-model.json";
 import runtime from "../shared/local-voice-runtime.json";
-import { localVoiceCommands, normaliseLocalVoiceCommand, type LocalVoiceCommandFailure } from "./local-voice-command.js";
+import { localVoiceCommandKeyterms, normaliseLocalVoiceCommand, type LocalVoiceCommandFailure } from "./local-voice-command.js";
 import { localVoiceCommandInitialisationRetryDelay } from "./local-voice-command-timing.js";
 import { LocalVoiceModelRecovery } from "./local-voice-model-recovery.js";
 import { transcribeLocalVoiceUtterance } from "./local-voice-transcriber.js";
@@ -51,7 +51,7 @@ async function initialise() {
           // The audio worklet has already detected and bounded this utterance.
           // A second smoothed VAD would discard brief one-word commands.
           vad_threshold: "0",
-          keyterms: localVoiceCommands.join(","),
+          keyterms: localVoiceCommandKeyterms.join(","),
           keyterm_boost: "2.0",
         },
       });

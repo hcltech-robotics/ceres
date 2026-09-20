@@ -219,6 +219,11 @@ Hugging Face revision. Subsequent builds reuse the verified local files and work
 without a model download. Runtime archives and container images include these
 files, so voice commands work without internet access.
 
+Solo, Duet and Bridge accept `exit`, `exit AR`, `quit` and `quit AR` to leave the
+current AR session. The voice icon glows gently while recognising speech, blinks
+green for a matched command and briefly turns yellow for an unmatched phrase.
+The reminder shown for `pass` or `fail` outside review clears after four seconds.
+
 To check or repair model files in a source checkout:
 
 ```sh

@@ -10,6 +10,7 @@ import {
   localVoiceCommandFailureLabel,
   localVoiceCommandHandDisplayControl,
   localVoiceCommandHandDisplaySettings,
+  localVoiceCommandKeyterms,
   localVoiceCommandOverlay,
   localVoiceCommandRecognitionEnabled,
   localVoiceCommandStartupFailureRetryable,
@@ -47,8 +48,22 @@ test("maps every local command to its live run-control action", () => {
   assert.equal(localVoiceCommandAction("redo"), "retry");
   assert.equal(localVoiceCommandAction("pass"), "success");
   assert.equal(localVoiceCommandAction("fail"), "fail");
+  assert.equal(localVoiceCommandAction("exit"), "exit-ar");
   assert.equal(localVoiceCommandAction("mesh"), null);
   assert.equal(localVoiceCommandAction("trail on"), null);
+});
+
+test("recognises and hints each exit phrase regardless of case", () => {
+  for (const phrase of ["exit", "exit ar", "quit", "quit ar"]) {
+    assert.equal(normaliseLocalVoiceCommand(phrase), "exit");
+    assert.equal(normaliseLocalVoiceCommand(`  ${phrase.toUpperCase()}!  `), "exit");
+    assert.ok(localVoiceCommandKeyterms.some(keyterm => keyterm === phrase));
+  }
+  assert.equal(normaliseLocalVoiceCommand("Exit AR"), "exit");
+  assert.equal(normaliseLocalVoiceCommand("QuIt Ar"), "exit");
+  assert.equal(normaliseLocalVoiceCommand("please quit"), null);
+  assert.equal(normaliseLocalVoiceCommand("exit armour"), null);
+  assert.equal(localVoiceCommandHandDisplayControl("exit"), null);
 });
 
 test("maps visualisation voice commands onto the existing hand display settings", () => {

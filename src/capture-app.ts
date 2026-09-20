@@ -55,7 +55,7 @@ import { DirectedCaptureDepth } from "./directed-capture-depth.js";
 import { DEPTH_CHANNEL } from "../shared/bridge-depth.js";
 import { bridgeSelectedCameraChoice, openBridgeCamera } from "./bridge-camera-selection.js";
 import { installCaptureSetup, renderCaptureSetup } from "./capture-setup.js";
-import { drawXrBridgeAttitude, drawXrBridgeReticle } from "./xr-task-hud.js";
+import { drawXrBridgeAttitude, drawXrBridgeReticle, drawXrVoiceIndicator } from "./xr-task-hud.js";
 import { fragmentPeerRecorderBlock } from "./recorder/peer-recorder-framing.js";
 import { advanceXrHudPress, clampXrTaskHudDragPosition, cycleXrHandDisplaySetting, drawXrCameraEdgeIndicators, drawXrCameraEdges, drawXrProgressReticle, isXrTaskHudAnchor, nearestXrTaskHudAnchor, xrCameraEdgesPresentation, xrCameraVoiceIndicatorState, xrCaptureControlColours, xrCaptureHudColours, xrCompletedTaskLabel, xrHandDisplayControlAtLocalX, xrHandDisplayHudOpacity, xrHandDisplayValue, xrHandSpeedAlertLabel, xrTaskHudChangeSignature, xrTaskHudControls, xrTaskHudReadinessPresentation, xrTaskHudRunPresentation, xrTaskHudTiming, xrTaskProgress, xrTrackingAlertPresentation, XR_CAMERA_EDGES_CANVAS_SIZE, XR_CAMERA_EDGES_DISTANCE_M, XR_CAMERA_EDGES_PLANE_SIZE_M, XR_CAPTURE_CENTRE_Y_M, XR_CAPTURE_CONTROL_PRESSED, XR_HAND_DISPLAY_CONTROLS, XR_HAND_DISPLAY_HUD_HEIGHT_M, XR_HAND_DISPLAY_HUD_IDLE_OPACITY, XR_HAND_DISPLAY_HUD_POSITION, XR_HAND_DISPLAY_HUD_WIDTH_M, XR_TASK_HUD_ANCHORS, XR_TASK_HUD_CONTROL_BOTTOM_INSET_M, XR_TASK_HUD_CONTROL_CENTRE_Y_M, XR_TASK_HUD_CONTROL_TARGET_HEIGHT_M, XR_TASK_HUD_HEIGHT_M, XR_TASK_HUD_PANEL_OPACITY, XR_TASK_HUD_WIDTH_M, XR_TRACKING_ALERT_HEIGHT_M, XR_TRACKING_ALERT_POSITION, XR_TRACKING_ALERT_WIDTH_M, type XrHandDisplayControlKey, type XrTaskHudAnchor, type XrTaskHudControl, type XrTaskHudControlAction } from "./xr-task-hud.js";
 import { runControls, runStatePresentation } from "./run-presentation.js";
@@ -594,6 +594,8 @@ type LocalVoiceCommandOverlayNotice = {
   presentation: XrWarningTapePresentation;
 };
 
+const PASS_FAIL_REVIEW_NOTICE = "Pass and fail are only available during the task reset";
+
 const emptyHand = (): HandState => ({ tracked: false, pinch: 0, joints: {} });
 
 const disposeObject3DResources = (root: Object3D) => {
@@ -704,9 +706,12 @@ export class CaptureApp {
   private localVoiceCommandRecognitionStartedAt: number | null = null;
   private localVoiceStartPending: { context: string; expiresAt: number } | null = null;
   private localVoiceSoloStartPending = false;
+  private localVoiceCommandResult: { matched: boolean; receivedAtMs: number } | null = null;
   private readonly localVoiceCommandRecovery = new LocalVoiceCommandRecovery();
   private localVoiceCommandOverlayNotice: LocalVoiceCommandOverlayNotice | null = null;
   private localVoiceCommandOverlayPending = false;
+  private runControlNotice: (LocalVoiceCommandOverlayNotice & { message: string }) | null = null;
+  private runControlNoticeTimer: number | null = null;
   private soloUploadStatus: SoloUploadHudStatus | null = null;
   private captureStream: MediaStream | null = null;
   private mediaRecorder: MediaRecorder | null = null;
@@ -1171,6 +1176,8 @@ export class CaptureApp {
     this.runtimeFeatureRecovery.reset(window);
     this.localVoiceCommandRecovery.reset(window);
     this.localVoiceCommandRecognitionStartedAt = null;
+    this.localVoiceCommandResult = null;
+    this.clearRunControlNotice();
     this.localVoiceCommands?.dispose();
     this.localVoiceCommands = null;
     this.clearXrBeamPresentation();
@@ -2832,6 +2839,7 @@ export class CaptureApp {
     const commands = new LocalVoiceCommandController({
       stream,
       getContext: () => this.voiceCommandContext(),
+      getExitContext: () => this.voiceExitContext(),
       onCommand: (command, context) => this.handleLocalVoiceCommand(command, context),
       onRecognitionChange: (active) => {
         if (
@@ -2845,6 +2853,11 @@ export class CaptureApp {
         if (this.localVoiceCommands !== commands || this.disposed) return;
         this.localVoiceCommandRecovery.reset(window);
       },
+      onRecognitionResult: (matched) => {
+        if (this.localVoiceCommands !== commands || this.disposed) return;
+        this.localVoiceCommandResult = { matched, receivedAtMs: performance.now() };
+        this.renderXrReticleOverlay();
+      },
       onFatalError: () => {
         if (this.localVoiceCommands !== commands) return;
         this.localVoiceCommands = null;
@@ -2857,6 +2870,7 @@ export class CaptureApp {
         if (status === "loading" && this.localVoiceCommandStatus === "error") return;
         const previousErrorDetail = this.localVoiceCommandErrorDetail;
         this.localVoiceCommandStatus = status;
+        if (status === "loading" || status === "error") this.localVoiceCommandResult = null;
         if (status === "ready" || status === "fallback") {
           this.localVoiceCommandErrorDetail = null;
           this.localVoiceCommandErrorKind = null;
@@ -2899,6 +2913,7 @@ export class CaptureApp {
       ? this.localVoiceCommandRecognitionStartedAt ?? performance.now()
       : null;
     if (nextStartedAt === this.localVoiceCommandRecognitionStartedAt) return;
+    if (active) this.localVoiceCommandResult = null;
     this.localVoiceCommandRecognitionStartedAt = nextStartedAt;
     this.renderXrReticleOverlay();
   }
@@ -2938,6 +2953,7 @@ export class CaptureApp {
       this.microphoneStream = null;
     }
     this.localVoiceCommandStatus = "loading";
+    this.localVoiceCommandResult = null;
     this.localVoiceCommandErrorDetail = null;
     this.localVoiceCommandErrorKind = null;
     this.renderLocalVoiceCommandStatus();
@@ -2989,13 +3005,24 @@ export class CaptureApp {
     return localVoiceCommandContext(this.sessionKey, this.snapshot, this.bridge?.paused ?? null);
   }
 
+  private voiceExitContext() {
+    return `${this.sessionKey}:${this.xrPresentationGeneration}:${this.xrSession ? "active" : "inactive"}`;
+  }
+
   private handleLocalVoiceCommand(command: LocalVoiceCommand, context?: string) {
     const root = this.mountedRoot;
     if (!root
       || !this.localVoiceCommandRecognitionEnabled()
       || this.disposed
       || this.captureAuthorityRevoked
-      || context !== undefined && context !== this.voiceCommandContext()) return;
+      || context !== undefined && context !== (command === "exit" ? this.voiceExitContext() : this.voiceCommandContext())) return;
+    const action = localVoiceCommandAction(command);
+    if (action === "exit-ar") {
+      void this.exitXrForSystemTransition().catch(error => {
+        this.reportError(root, error instanceof Error ? error.message : "AR could not close");
+      });
+      return;
+    }
     const handDisplaySettings = localVoiceCommandHandDisplaySettings(
       this.handDisplaySettings,
       command,
@@ -3013,12 +3040,18 @@ export class CaptureApp {
       }
       return;
     }
-    const action = localVoiceCommandAction(command);
     if (!action) return;
     if (this.bridge) {
       if (command === "pause" && !this.bridge.paused) void this.bridge.togglePause();
       else if (command === "start" && this.bridge.paused) void this.bridge.togglePause();
       else if (command === "stop" || command === "finish" || command === "done") void this.xrSession?.end();
+      return;
+    }
+    if ((action === "success" || action === "fail")
+      && (this.snapshot?.run.status !== "running"
+        || this.snapshot.run.phase !== "post-task-pause"
+        || this.snapshot.run.recordingState === "stopping")) {
+      this.showRunControlNotice(root, PASS_FAIL_REVIEW_NOTICE);
       return;
     }
     if (command === "start" && this.authority.kind !== "solo") {
@@ -3209,6 +3242,7 @@ export class CaptureApp {
 
   private activateHeadlessSyntheticXr(root: HTMLElement) {
     this.stopSensorLoop();
+    this.xrPresentationGeneration += 1;
     this.xrSession = {
       inputSources: this.authority.kind === "solo"
         ? [
@@ -4726,20 +4760,37 @@ export class CaptureApp {
       const recording = run?.recordingState === "recording"
         && this.captureStatus.recorder === "recording";
       const voice = xrCameraVoiceIndicatorState(
-        this.runtimeFeaturesLoaded,
+        this.bridge !== null || this.runtimeFeaturesLoaded,
         this.localVoiceCommandRecognitionEnabled(),
         this.localVoiceCommandStatus,
+        {
+          recognising: this.localVoiceCommandRecognitionStartedAt !== null,
+          outcome: this.localVoiceCommandResult
+            ? this.localVoiceCommandResult.matched ? "matched" : "unmatched"
+            : null,
+          outcomeElapsedMs: this.localVoiceCommandResult ? now - this.localVoiceCommandResult.receivedAtMs : undefined,
+        },
       );
+      const voiceElapsedMs = (voice === "matched" || voice === "unmatched") && this.localVoiceCommandResult
+        ? now - this.localVoiceCommandResult.receivedAtMs
+        : this.localVoiceCommandRecognitionStartedAt !== null ? now - this.localVoiceCommandRecognitionStartedAt : now;
       const uploading = this.soloUploadStatus !== null;
       if (!this.bridge) drawXrCameraEdgeIndicators(cameraEdgesContext, cameraEdges, {
         recording,
         voice,
+        voiceElapsedMs,
+        reducedMotion: this.prefersReducedMotion(),
         uploading,
+      });
+      else if (this.bridge.hudMode !== "off") drawXrVoiceIndicator(cameraEdgesContext, cameraEdges, {
+        voice,
+        voiceElapsedMs,
+        reducedMotion: this.prefersReducedMotion(),
       });
       if (this.mountedRoot) {
         this.mountedRoot.dataset.xrCameraEdgesPhase = cameraEdges.phase;
         this.mountedRoot.dataset.xrCameraRecording = recording ? "recording" : "idle";
-        if (this.bridge) this.mountedRoot.dataset.xrCameraVoice = "hidden";
+        if (this.bridge?.hudMode === "off") this.mountedRoot.dataset.xrCameraVoice = "hidden";
         else this.mountedRoot.dataset.xrCameraVoice = voice;
         this.mountedRoot.dataset.xrCameraUpload = uploading ? "uploading" : "idle";
       }
@@ -4782,8 +4833,11 @@ export class CaptureApp {
     if (this.localVoiceCommandOverlayNotice && now >= this.localVoiceCommandOverlayNotice.expiresAtMs) {
       this.localVoiceCommandOverlayNotice = null;
     }
+    if (this.runControlNotice && now >= this.runControlNotice.expiresAtMs) this.clearRunControlNotice();
     const alert: XrWarningTapePresentation | null = operationalError
       ? { label: operationalError, ...xrTrackingAlertPresentation(run?.startedAtMs !== null && run?.startedAtMs !== undefined) }
+      : this.runControlNotice
+        ? this.runControlNotice.presentation
       : tracking
         ? tracking
         : this.localVoiceCommandOverlayNotice
@@ -4933,6 +4987,8 @@ export class CaptureApp {
       this.soloHandRecognition = { left: false, right: false };
       this.soloControllerRecognition = { left: false, right: false };
       this.xrSession = null;
+      this.localVoiceCommandResult = null;
+      this.clearRunControlNotice();
       this.xrReferenceSpace = null;
       root.dataset.xrStartupIntro = "idle";
       this.xrOperationsMenuOpen = false;
@@ -6809,6 +6865,10 @@ export class CaptureApp {
 
   private reportError(root: HTMLElement, message: string, emitDiagnostic = true) {
     if (this.disposed || this.captureAuthorityRevoked) return;
+    if (message === PASS_FAIL_REVIEW_NOTICE) {
+      this.showRunControlNotice(root, message);
+      return;
+    }
     this.updateCaptureStatus(root, { camera: this.captureStatus.camera === "requesting" ? "error" : this.captureStatus.camera, xr: this.captureStatus.xr === "requesting" ? "error" : this.captureStatus.xr, lastError: message });
     if (/camera|video|source|stream|device|permission|timeout/i.test(message)) {
       this.showCameraError(root, message);
@@ -6816,6 +6876,35 @@ export class CaptureApp {
       return;
     }
     this.setStatus(root, message, true);
+  }
+
+  private showRunControlNotice(root: HTMLElement, message: string) {
+    this.clearRunControlNotice();
+    this.runControlNotice = {
+      message,
+      expiresAtMs: performance.now() + 4_000,
+      presentation: {
+        label: xrAlertLabel(message) ?? message,
+        dangerRatio: .12,
+        tapeOpacity: .22,
+        pulseIntervalMs: 1_600,
+      },
+    };
+    this.setStatus(root, message, true);
+    this.runControlNoticeTimer = window.setTimeout(() => {
+      this.clearRunControlNotice();
+      this.renderXrReticleOverlay();
+    }, 4_000);
+    this.renderXrReticleOverlay();
+  }
+
+  private clearRunControlNotice() {
+    if (this.runControlNoticeTimer !== null) window.clearTimeout(this.runControlNoticeTimer);
+    this.runControlNoticeTimer = null;
+    const root = this.mountedRoot;
+    const notice = this.runControlNotice;
+    this.runControlNotice = null;
+    if (root && notice && root.querySelector("#capture-status")?.textContent === notice.message) this.setStatus(root, "");
   }
 
   private showCameraError(root: HTMLElement, message: string) {
