@@ -1,4 +1,5 @@
 #include "ceres/detail/video_queue.hpp"
+#include "ceres/detail/receive_queue.hpp"
 #include <chrono>
 #include <future>
 #include <iostream>
@@ -53,6 +54,44 @@ void full_replay(VideoQueue& queue, uint64_t generation) {
 
 int main() {
     try {
+        {
+            using Priority = ceres::detail::ReceivePriority;
+            ceres::detail::ReceiveQueue<int> incoming;
+            for (int i = 0; i < 2048; ++i)
+                check(incoming.push(Priority::Video, i, 1024), "Video lane filled too early");
+            check(!incoming.push(Priority::Video, 9999, 1), "Video lane exceeded its capacity");
+            check(incoming.push(Priority::Pose, 7000, 844), "Video pressure rejected fresh hands");
+            check(incoming.pop() == 7000, "Old video was serviced ahead of fresh hands");
+            check(incoming.pop() == 0, "Video lane changed packet order");
+            check(incoming.push(Priority::Pose, 7001, 844) && incoming.pop() == 7001,
+                  "A hand arriving during a video burst waited for the burst");
+            check(incoming.push(Priority::Control, 8000, 1024), "Control metadata rejected");
+            check(incoming.push(Priority::Pose, 7002, 844), "First raw hand observation rejected");
+            check(incoming.push(Priority::Pose, 7003, 844), "Second raw hand observation rejected");
+            check(incoming.pop() == 8000 && incoming.pop() == 7002 && incoming.pop() == 7003,
+                  "Priority handling lost metadata ordering or raw hand observations");
+        }
+        {
+            VideoQueue queue;
+            auto keyframe = frame(1);
+            keyframe.receive_us = ceres::monotonic_us();
+            queue.push(keyframe);
+            const auto revision = queue.state().revision;
+            queue.expire_live(keyframe.receive_us + VideoQueue::max_live_age_us);
+            check(queue.current(revision), "The live age boundary expired early");
+            queue.expire_live(keyframe.receive_us + VideoQueue::max_live_age_us + 1);
+            check(!queue.current(revision) && queue.state().dropped == 1 &&
+                      queue.state().needs_keyframe,
+                  "Age expiry did not invalidate the entire prediction chain");
+            check(take(queue).event.attributes.at("reason") == "video-age-budget",
+                  "Age expiry did not reach the decoder");
+            auto replay = frame(1, 3);
+            replay.receive_us = 1;
+            queue.push(replay);
+            const auto replay_revision = queue.state().revision;
+            queue.expire_live(ceres::monotonic_us() + 1000000000);
+            check(queue.current(replay_revision), "Live age expiry discarded replay history");
+        }
         {
             VideoQueue queue(2, 16);
             full_replay(queue, 1);

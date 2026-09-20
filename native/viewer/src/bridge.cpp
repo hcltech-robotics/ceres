@@ -1,5 +1,6 @@
 #include "ceres/bridge.hpp"
 #include "ceres/depth.hpp"
+#include "ceres/detail/receive_queue.hpp"
 #include "ceres/protocol.hpp"
 #include "ceres/rtcp_clock.hpp"
 #include <rtc/rtc.hpp>
@@ -19,6 +20,7 @@
 #include <map>
 #include <mutex>
 #include <stdexcept>
+#include <sstream>
 #include <thread>
 #ifdef _WIN32
 #ifndef NOMINMAX
@@ -519,8 +521,7 @@ struct BridgeClient::Impl : std::enable_shared_from_this<BridgeClient::Impl> {
     ReceiverSnapshot current;
     int64_t rate_limit_deadline_us = 0;
     EventSink sink;
-    std::deque<Input> inputs;
-    size_t input_bytes = 0;
+    detail::ReceiveQueue<Input> inputs;
     std::atomic<bool> running = false, new_pairing = false, overflow = false,
                       external_keyframe = false;
     std::atomic<bool> depth_enabled = true;
@@ -615,15 +616,23 @@ struct BridgeClient::Impl : std::enable_shared_from_this<BridgeClient::Impl> {
         {
             std::lock_guard lock(queue_mutex);
             const size_t bytes = input.text.size() + input.detail.size() + input.bytes.size();
-            if (inputs.size() >= 4096 || input_bytes + bytes > 8 * 1024 * 1024) {
-                if (input.kind == InputKind::Depth)
+            const auto kind = input.kind;
+            const auto priority = kind == InputKind::Pose ? detail::ReceivePriority::Pose
+                : kind == InputKind::Video ? detail::ReceivePriority::Video
+                : kind == InputKind::Depth ? detail::ReceivePriority::Depth
+                : detail::ReceivePriority::Control;
+            if (!inputs.push(priority, std::move(input), bytes)) {
+                if (kind == InputKind::Depth)
                     return;
+                if (kind == InputKind::Video) {
+                    external_keyframe = true;
+                    wake.notify_all();
+                    return;
+                }
                 overflow = true;
                 wake.notify_all();
                 return;
             }
-            input_bytes += bytes;
-            inputs.push_back(std::move(input));
         }
         wake.notify_all();
     }
@@ -890,7 +899,6 @@ struct BridgeClient::Impl : std::enable_shared_from_this<BridgeClient::Impl> {
         {
             std::lock_guard lock(queue_mutex);
             inputs.clear();
-            input_bytes = 0;
         }
         {
             std::lock_guard lock(state_mutex);
@@ -1058,14 +1066,59 @@ struct BridgeClient::Impl : std::enable_shared_from_this<BridgeClient::Impl> {
                     if (selected < 0)
                         throw std::runtime_error(
                             "The sender did not offer H.264 packetisation mode 1");
+                    RtcpCameraSession::Feedback feedback;
+                    feedback.media_payload = selected;
+                    const auto* media_codec = local.rtpMap(selected);
+                    feedback.nack = std::find(media_codec->rtcpFbs.begin(), media_codec->rtcpFbs.end(),
+                                              "nack") != media_codec->rtcpFbs.end();
+                    feedback.remb = std::find(media_codec->rtcpFbs.begin(), media_codec->rtcpFbs.end(),
+                                              "goog-remb") != media_codec->rtcpFbs.end();
+                    for (int pt : local.payloadTypes()) {
+                        const auto* codec = local.rtpMap(pt);
+                        if (!feedback.nack || !codec || (codec->format != "rtx" && codec->format != "RTX"))
+                            continue;
+                        for (const auto& fmtp : codec->fmtps) {
+                            std::istringstream parameters(fmtp);
+                            for (std::string parameter; std::getline(parameters, parameter, ';');) {
+                                const auto begin = parameter.find_first_not_of(" \t");
+                                if (begin == std::string::npos || parameter.compare(begin, 4, "apt=") != 0)
+                                    continue;
+                                int associated = -1;
+                                const auto result = std::from_chars(parameter.data() + begin + 4,
+                                                                     parameter.data() + parameter.size(), associated);
+                                if (result.ec == std::errc{} && associated == selected &&
+                                    std::all_of(result.ptr, static_cast<const char*>(parameter.data()) + parameter.size(),
+                                                [](char c) { return c == ' ' || c == '\t'; }))
+                                    feedback.rtx_payload = pt;
+                            }
+                        }
+                    }
+                    for (const auto& attribute : (*media)->attributes()) {
+                        if (!attribute.starts_with("ssrc-group:FID "))
+                            continue;
+                        std::istringstream sources(attribute.substr(15));
+                        uint32_t primary = 0, repair = 0;
+                        if (sources >> primary >> repair) {
+                            feedback.media_ssrc = primary;
+                            feedback.rtx_ssrc = repair;
+                        }
+                    }
+                    // The pinned receiver supports receiver reports, REMB,
+                    // generic NACK and PLI. Do not advertise unsupported TWCC.
+                    std::erase_if(local.rtpMap(selected)->rtcpFbs, [](const std::string& value) {
+                        return value != "nack" && value != "nack pli" && value != "goog-remb";
+                    });
+                    for (int id : local.extIds())
+                        if (local.extMap(id)->uri.find("transport-wide-cc") != std::string::npos)
+                            local.removeExtMap(id);
                     for (int pt : local.payloadTypes())
-                        if (pt != selected)
+                        if (pt != selected && pt != feedback.rtx_payload)
                             local.removeRtpMap(pt);
                     local.setDirection(rtc::Description::Direction::RecvOnly);
                     auto track = peer->addTrack(local);
                     auto& camera_input = video_inputs[local.mid()];
                     camera_input.track = track;
-                    camera_input.rtcp = std::make_shared<RtcpCameraSession>();
+                    camera_input.rtcp = std::make_shared<RtcpCameraSession>(feedback);
                     tracks.push_back(track);
                     track->setMediaHandler(camera_input.rtcp);
                     const auto weak = weak_from_this();
@@ -1527,20 +1580,30 @@ struct BridgeClient::Impl : std::enable_shared_from_this<BridgeClient::Impl> {
     }
     void pump() {
         while (running && !new_pairing) {
-            std::deque<Input> batch;
             {
                 std::unique_lock lock(queue_mutex);
                 wake.wait_for(lock, std::chrono::milliseconds(5), [this] {
                     return !inputs.empty() || !running || new_pairing || overflow;
                 });
-                batch.swap(inputs);
-                input_bytes = 0;
             }
             if (overflow.exchange(false))
                 throw std::runtime_error("Receiver input queue exceeded its bounded capacity");
-            for (const auto& message : batch)
-                if (message.generation == generation && running && !new_pairing)
-                    handle(message);
+            // Recheck the priority lanes between every media packet. Swapping
+            // a whole video burst into a local batch delays hands arriving later.
+            const auto service_until = monotonic_us() + 2000;
+            for (size_t count = 0; count < 256 && running && !new_pairing; ++count) {
+                std::optional<Input> message;
+                {
+                    std::lock_guard lock(queue_mutex);
+                    message = inputs.pop();
+                }
+                if (!message)
+                    break;
+                if (message->generation == generation)
+                    handle(*message);
+                if (monotonic_us() >= service_until)
+                    break;
+            }
             const auto now = monotonic_us();
             depth_assembler.expire(now);
             for (auto& [mid, input] : video_inputs)
@@ -1587,6 +1650,7 @@ struct BridgeClient::Impl : std::enable_shared_from_this<BridgeClient::Impl> {
             }
             const bool request_all = external_keyframe.exchange(false);
             for (auto& [mid, input] : video_inputs) {
+                input.rtcp->tick(now);
                 input.force_keyframe |= request_all;
                 if (input.track->isOpen() && now - input.last_pli >= 200000 &&
                     (input.force_keyframe || input.assembler.take_keyframe_request())) {

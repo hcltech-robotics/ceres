@@ -1,4 +1,5 @@
 #include "ceres/protocol.hpp"
+#include "ceres/detail/rtp_repair.hpp"
 #include <bit>
 #include <cmath>
 #include <filesystem>
@@ -270,11 +271,13 @@ int main() {
         h264.take_keyframe_request();
         h264.push(rtp(104, 15000, false, {0x7c, 0x81, 1}), 1020000);
         h264.push(rtp(106, 15000, true, {0x7c, 0x41, 3}), 1021000);
-        check(h264.flush(1032000).empty() && h264.take_keyframe_request(),
+        check(h264.flush(1080999).empty() && !h264.take_keyframe_request(),
+              "Packet loss discarded the frame before its repair deadline");
+        check(h264.flush(1081000).empty() && h264.take_keyframe_request(),
               "Lost fragment did not request recovery");
-        check(h264.push(rtp(107, 18000, true, {0x61, 4}), 1040000).empty(),
+        check(h264.push(rtp(107, 18000, true, {0x61, 4}), 1082000).empty(),
               "Dependent frame emitted after loss");
-        frames = h264.push(rtp(108, 21000, true, {0x65, 5}), 1050000);
+        frames = h264.push(rtp(108, 21000, true, {0x65, 5}), 1083000);
         check(frames.size() == 1 && frames[0].keyframe && frames[0].bytes.size() == 18,
               "Keyframe recovery did not restore cached SPS/PPS");
         h264.reset();
@@ -304,6 +307,43 @@ int main() {
         check(h264.push(rtp(7, 15000, true, {0x7c, 0x42, 0x22}), 3066667).empty() &&
                   h264.take_keyframe_request(),
               "Mismatched FU-A headers did not trigger recovery");
+        h264.reset();
+        h264.push(rtp(20, 9000, true, {0x65, 1}), 4000000);
+        h264.take_keyframe_request();
+        h264.push(rtp(21, 12000, false, {0x7c, 0x81, 1}), 4010000);
+        h264.push(rtp(23, 12000, true, {0x7c, 0x41, 3}), 4011000);
+        frames = h264.push(rtp(22, 12000, false, {0x7c, 0x01, 2}), 4040000);
+        check(frames.size() == 1 && !h264.take_keyframe_request() &&
+                  frames.front().bytes == std::vector<uint8_t>({0, 0, 0, 1, 0x61, 1, 2, 3}),
+              "A fragment repaired after 29 ms did not preserve its prediction chain");
+        {
+            ceres::detail::RtpRepair repair;
+            repair.observe(65534, 1000000);
+            repair.observe(1, 1001000);
+            check(repair.requests(1005999).empty(), "NACK pre-empted the reorder allowance");
+            check(repair.requests(1006000) == std::vector<uint16_t>({65535, 0}),
+                  "NACK did not preserve missing sequences across wrap");
+            repair.observe(65535, 1007000);
+            check(repair.requests(1025999).empty(), "NACK retry interval was ignored");
+            check(repair.requests(1026000) == std::vector<uint16_t>({0}),
+                  "NACK retried an already repaired packet");
+            check(repair.requests(1046000) == std::vector<uint16_t>({0}) &&
+                      repair.requests(1061000).empty(), "NACK escaped its repair deadline");
+            const std::array<uint16_t, 4> missing{65535, 0, 15, 40};
+            const auto nack = ceres::detail::nack_packet(42, missing);
+            check(nack.size() == 20 && nack[0] == 0x81 && nack[1] == 205 && nack[3] == 4 &&
+                      nack[11] == 42 && nack[12] == 255 && nack[13] == 255 &&
+                      nack[14] == 0x80 && nack[15] == 1 && nack[17] == 40,
+                  "Generic NACK PID/BLP wire layout differs");
+            auto original = rtp(44, 12000, true, {0, 22, 0x61, 7});
+            auto restored = ceres::detail::unwrap_rtx(original, 96, 42);
+            check(restored && restored->at(2) == 0 && restored->at(3) == 22 &&
+                      restored->at(11) == 42 && restored->at(12) == 0x61 &&
+                      restored->size() == original.size() - 2,
+                  "RTX did not restore the original RTP identity");
+            original.resize(14);
+            check(!ceres::detail::unwrap_rtx(original, 96, 42), "Empty RTX payload was accepted");
+        }
         std::cout << "PASS: Bridge fixtures, validation, affine clock and bounded H264 recovery\n";
         return 0;
     } catch (const std::exception& error) {

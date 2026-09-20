@@ -4,6 +4,7 @@
 #include "ceres/hand_mask.hpp"
 #include "ceres/bridge.hpp"
 #include "ceres/detail/accordion_motion.hpp"
+#include "ceres/detail/hand_presentation.hpp"
 #include "ceres/detail/recording_bar.hpp"
 #include "ceres/detail/stereo_cadence.hpp"
 #include "ceres/detail/stereo_pairing.hpp"
@@ -2155,8 +2156,6 @@ int run_app(const AppOptions& options) {
         }
         view.map_headset_world_matches = !map_detached &&
             map_binding == std::tuple{map_connection_serial, snap.epoch, snap.space_epoch};
-        if (!replay)
-            view.pose_time_offset_ms = std::max(0.f, view.pose_time_offset_ms);
         if (replay != episode_replay) {
             try {
                 persist_episodes();
@@ -2213,65 +2212,42 @@ int run_app(const AppOptions& options) {
                 history_loading_source.reset();
         }
         ReceiverSnapshot inspection = snap;
-        if (view.pose_time_offset_ms != 0) {
+        const auto pose_offset = detail::presentation_pose_offset_us(bool(replay), view.pose_time_offset_ms);
+        if (replay && pose_offset != 0) {
             inspection.poses = {};
-            auto offset = int64_t(
-                (replay ? view.pose_time_offset_ms : std::max(0.f, view.pose_time_offset_ms)) *
-                1000);
-            if (replay) {
-                auto target = replay->position_us() - offset;
-                if (target >= 0 && target <= replay->duration_us() && !history_load.valid() &&
-                    (history_source != replay ||
-                     (replay_history.start_us > 0 && target < replay_history.start_us + 250000) ||
-                     (replay_history.end_us < replay->duration_us() &&
-                      target > replay_history.end_us - 250000))) {
-                    auto start = std::max<int64_t>(0, target - 750000),
-                         end = std::min(replay->duration_us(), target + 1250000);
-                    history_loading_source = replay;
-                    history_load = std::async(std::launch::async, [replay, start, end] {
-                        return PoseHistory{start, end, replay->pose_history(start, end)};
-                    });
-                }
-                if (history_source == replay && target >= 0 && target <= replay->duration_us()) {
-                    for (const auto& event : replay_history.samples) {
-                        auto sample_time = event.attributes.at("session_time_us").get<int64_t>();
-                        if (sample_time > target)
-                            break;
-                        if (sample_time < target - 50000 || event.epoch != snap.epoch ||
-                            event.space_epoch != snap.space_epoch)
-                            continue;
-                        try {
-                            auto pose = decode_pose(
-                                event.payload,
-                                snap.now_us +
-                                    event.attributes.at("session_receive_us").get<int64_t>() -
-                                    target);
-                            pose.observed_us = snap.now_us + sample_time - target;
-                            inspection.poses.at(pose.kind - 1) = std::move(pose);
-                        } catch (const std::exception& error) {
-                            ui_error = error.what();
-                        }
-                    }
-                    inspection.clock.rate = 1;
-                    inspection.clock.offset_us = 0;
-                }
-            } else {
-                auto target = snap.now_us - offset;
-                inspection.now_us = target;
-                std::array<int64_t, 3> selected{};
-                selected.fill(std::numeric_limits<int64_t>::min());
-                std::lock_guard lock(history_mutex);
-                for (const auto& timed : live_history) {
-                    const auto& pose = timed.sample;
-                    if (pose.epoch != snap.epoch || pose.space_epoch != snap.space_epoch ||
-                        timed.time_us > target || timed.time_us < target - 50000)
+            auto target = replay->position_us() - pose_offset;
+            if (target >= 0 && target <= replay->duration_us() && !history_load.valid() &&
+                (history_source != replay ||
+                 (replay_history.start_us > 0 && target < replay_history.start_us + 250000) ||
+                 (replay_history.end_us < replay->duration_us() &&
+                  target > replay_history.end_us - 250000))) {
+                auto start = std::max<int64_t>(0, target - 750000),
+                     end = std::min(replay->duration_us(), target + 1250000);
+                history_loading_source = replay;
+                history_load = std::async(std::launch::async, [replay, start, end] {
+                    return PoseHistory{start, end, replay->pose_history(start, end)};
+                });
+            }
+            if (history_source == replay && target >= 0 && target <= replay->duration_us()) {
+                for (const auto& event : replay_history.samples) {
+                    auto sample_time = event.attributes.at("session_time_us").get<int64_t>();
+                    if (sample_time > target)
+                        break;
+                    if (sample_time < target - 50000 || event.epoch != snap.epoch ||
+                        event.space_epoch != snap.space_epoch)
                         continue;
-                    auto index = pose.kind - 1;
-                    if (timed.time_us >= selected[index]) {
-                        selected[index] = timed.time_us;
-                        inspection.poses[index] = pose;
+                    try {
+                        auto pose = decode_pose(
+                            event.payload,
+                            snap.now_us + event.attributes.at("session_receive_us").get<int64_t>() - target);
+                        pose.observed_us = snap.now_us + sample_time - target;
+                        inspection.poses.at(pose.kind - 1) = std::move(pose);
+                    } catch (const std::exception& error) {
+                        ui_error = error.what();
                     }
                 }
+                inspection.clock.rate = 1;
+                inspection.clock.offset_us = 0;
             }
         }
         auto calibration_changed = [&] {
@@ -2617,6 +2593,8 @@ int run_app(const AppOptions& options) {
             }
         }
         auto scene_view = view;
+        if (!replay)
+            scene_view.pose_time_offset_ms = 0;
         if (replay && !recorded_spatial_data)
             scene_view.recorded_map_visible = false;
         renderer->draw(inspection, calibration, scene_view, trail_time,
@@ -2911,9 +2889,10 @@ int run_app(const AppOptions& options) {
                 ImGui::PopID();
                 pane_slider("Trail span", &view.trail_seconds, .25f, 5.f, "%.2f s");
                 ImGui::Separator();
-                pane_slider("Delay", &view.pose_time_offset_ms, replay ? -500.f : 0.f, 500.f,
-                            "%+.0f ms");
-                ui::help("Positive values inspect earlier tracking. Recording and export retain source timestamps.");
+                if (replay) {
+                    pane_slider("Delay", &view.pose_time_offset_ms, -500.f, 500.f, "%+.0f ms");
+                    ui::help("Positive values inspect earlier tracking. Recording and export retain source timestamps.");
+                }
                 ImGui::PopID();
                 end_body();
             }
@@ -4670,6 +4649,7 @@ int run_app(const AppOptions& options) {
         {"stereo_gpu_ms", renderer->stereo_ms()},
         {"stereo_state", stereo_state},
         {"scene_assets", renderer->scene_assets()},
+        {"presentation", renderer->presentation_metrics()},
         {"video_received_frames", final_receiver.video_frames},
         {"tracking_received_packets", final_receiver.received},
         {"receiver_rejected_packets", final_receiver.rejected},

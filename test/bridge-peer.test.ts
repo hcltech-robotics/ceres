@@ -48,7 +48,9 @@ function environment(t: TestContext) {
       addTransceiver(track: any, options: any) {
         const transceiver = { mid: null as string | null, options, codecs: [] as any[],
           kind: typeof track === "string" ? track : track.kind,
-          sender: { track: typeof track === "string" ? null : track,
+          sender: { track: typeof track === "string" ? null : track, parameters: { encodings: options.sendEncodings },
+            getParameters() { return this.parameters; },
+            async setParameters(parameters: any) { this.parameters = parameters; },
             async replaceTrack(next: any) { this.track = next; } },
           setCodecPreferences(codecs: any[]) { this.codecs = codecs; },
         };
@@ -109,7 +111,10 @@ test("Bridge negotiates one selected camera and pauses and resumes it with audio
   assert.equal(description.camera?.side, "right");
   assert.equal(description.environment_depth?.channel, "ceres-depth-v1");
   assert.deepEqual(pc.transceivers.map((item: any) => item.sender.track), [selected.track, audio]);
-  assert.equal(pc.transceivers[0].options.sendEncodings[0].scaleResolutionDownBy, 2);
+  assert.equal(pc.transceivers[0].options.sendEncodings[0].scaleResolutionDownBy, 1);
+  assert.equal(pc.transceivers[0].options.sendEncodings[0].maxBitrate, 8_000_000);
+  assert.equal(pc.transceivers[0].sender.parameters.degradationPreference, "balanced");
+  assert.equal(description.camera?.requestedWidth, 1280);
   assert.equal(pc.transceivers[0].codecs[0].mimeType, "video/H264");
   await peer.setPaused(true);
   assert.deepEqual(pc.transceivers.map((item: any) => item.sender.track), [null, null]);
@@ -135,6 +140,20 @@ test("Bridge single-camera offers retain the original metadata shape", async t =
   assert.equal(pc.transceivers.filter((item: any) => item.kind === "video").length, 1);
   assert.equal(description.type === "description" && description.camera?.side, "left");
   assert.ok(!("cameras" in description));
+});
+
+test("Selected video profile survives pause and reconnection without changing pose delivery", async t => {
+  const env = environment(t);
+  const peer = new BridgePeer(binding, camera("right", 1920), "local-floor", () => {}, error => env.errors.push(error), "balanced");
+  t.after(() => peer.stop());
+  for (let i = 0; i < 2; i++) {
+    const { pc, description } = await env.offer(peer);
+    assert.deepEqual(pc.transceivers[0].options.sendEncodings, [{ maxBitrate: 4_000_000, maxFramerate: 30, scaleResolutionDownBy: 2 }]);
+    assert.equal(description.type === "description" && description.camera?.requestedWidth, 960);
+    assert.deepEqual(pc.channels.find((channel: any) => channel.label === "ceres.pose.v1").options, { ordered: false, maxRetransmits: 0 });
+    await peer.setPaused(true);
+    await peer.setPaused(false);
+  }
 });
 test("Bridge enables depth metadata only for an explicit current receiver acknowledgement", async t => {
   const env = environment(t);

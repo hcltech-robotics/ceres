@@ -50,6 +50,7 @@ import { canvasFont } from "./typography.js";
 import { CaptureRecorder, type DurableRecorderStatus } from "./recorder/capture-recorder.js";
 import type { BridgeSender } from "./bridge/sender.js";
 import type { BridgeCamera } from "./bridge/camera.js";
+import { configureBridgeVideo } from "./bridge/video-quality.js";
 import { DirectedCaptureDepth } from "./directed-capture-depth.js";
 import { DEPTH_CHANNEL } from "../shared/bridge-depth.js";
 import { bridgeSelectedCameraChoice, openBridgeCamera } from "./bridge-camera-selection.js";
@@ -981,7 +982,10 @@ export class CaptureApp {
               <label for="camera-select">${this.bridge ? "Camera to stream" : "Current camera"}</label>
               <select id="camera-select" disabled><option>No camera available</option></select>
             </div>
-            ${this.bridge ? '<p id="bridge-camera-preview-detail" class="capture-status" role="status" hidden></p>' : ""}
+            ${this.bridge ? `<div class="camera-settings"><label for="bridge-video-quality">Video quality</label>
+              <select id="bridge-video-quality"><option value="balanced">Balanced</option><option value="high">High detail</option><option value="maximum">Maximum detail</option></select></div>
+              <p id="bridge-video-status" class="capture-status" role="status"></p>
+              <p id="bridge-camera-preview-detail" class="capture-status" role="status" hidden></p>` : ""}
             <div class="launch-audio-preferences${soloMode ? "" : " is-single"}"${this.bridge ? " hidden" : ""}>
               <div class="launch-audio-preference launch-audio-cue-preference">
                 <span>Audio cues</span>
@@ -2483,6 +2487,9 @@ export class CaptureApp {
         if (acquired) stopStream(acquired.stream);
         return;
       }
+      try { await configureBridgeVideo(acquired.track, this.bridge!.videoQuality); }
+      catch (error) { stopStream(acquired.stream); throw error; }
+      if (!current()) { stopStream(acquired.stream); return; }
       const camera = this.bridgeCamera = {
         stream: acquired.stream,
         track: acquired.track,
@@ -2498,7 +2505,6 @@ export class CaptureApp {
       camera.width ||= preview.videoWidth;
       camera.height ||= preview.videoHeight;
       if (!this.bridgeCameraReady()) throw new Error("The selected camera must provide live video and camera geometry");
-      camera.track.contentHint = "motion";
       camera.track.addEventListener("ended", () => {
         if (!current() || this.bridgeCamera !== camera) return;
         this.releaseBridgeCamera(root);
@@ -4855,7 +4861,9 @@ export class CaptureApp {
       let jointPoseCount = 0;
       for (const jointName of source.hand.keys()) {
         const jointSpace = source.hand.get(jointName);
-        const pose = jointSpace ? xrFrame.getJointPose(jointSpace, referenceSpace) : null;
+        const cached = this.bridge?.observations;
+        const pose = cached?.hasSample(xrFrame, referenceSpace)
+          ? cached.jointPose(handedness, jointName) : jointSpace ? xrFrame.getJointPose(jointSpace, referenceSpace) : null;
         if (!pose) continue;
         hand.joints[jointName] = { ...toTransform(pose.transform), radius: pose.radius };
         jointPoseCount += 1;
@@ -5212,7 +5220,8 @@ export class CaptureApp {
         this.xrSoloPostAcquisitionHud?.advanceXrFrame(_time);
         this.captureStatus.xrFrameCount = (this.captureStatus.xrFrameCount ?? 0) + 1;
         const hands = this.readXrHands(xrFrame, xrReferenceSpace);
-        const viewerPose = xrFrame.getViewerPose(xrReferenceSpace);
+        const viewerPose = this.bridge?.observations.hasSample(xrFrame, xrReferenceSpace)
+          ? this.bridge.observations.viewerPose : xrFrame.getViewerPose(xrReferenceSpace);
         if (this.bridge && viewerPose) {
           const { x, y, z, w } = viewerPose.transform.orientation;
           this.bridgePitch = Math.asin(Math.max(-1, Math.min(1, 2 * (w * x - y * z))));

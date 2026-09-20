@@ -39,7 +39,7 @@ The current task title, description and cycle/task/repetition counters appear in
 
 ## Live view
 
-Hands follow the latest accepted tracking independently of camera video. The receiver retains the Bridge freshness policy of 50 ms. When headset tracking is lost, its last accepted position and orientation remain visible until valid tracking returns. The headset-view command also uses this retained pose. Hand visibility has a 120 ms grace period after tracking loss, then fades smoothly to zero within one second. Renewed hand tracking restores opacity over 80 ms. Recording and export retain the source validity flags.
+Hands show the newest available valid joint positions immediately, independently of camera video. Tracking indicators retain the Bridge freshness policy of 50 ms. Missing joints hold their last position for 200 ms, then fade over one second independently of the joints that remain tracked. Renewed tracking updates positions immediately and restores opacity over 80 ms. Mesh mode shows the available joints and bones when the current observations cannot support a palm. When headset tracking is lost, its last accepted position and orientation remain visible until valid tracking returns. The headset-view command also uses this retained pose. Recording and export retain the source validity flags and timestamps.
 
 **Hands > Level** selects **Outline**, **Points**, **Bones** or **Mesh**. **Colours** selects **Side**, **Normals**, **Velocity** or **Motion flow (Middlebury)**. Side colours distinguish left and right hands, normal colours show orientation, velocity shows speed and Middlebury colours show motion in the horizontal plane.
 
@@ -65,7 +65,7 @@ The bundled anatomical SOMA-X hands follow the 25 WebXR joints and retain their 
 
 The Quest rig uses the supplied USDZ mesh, base colour, normal and material maps. Its visual placement is independent of camera calibration. Asset preparation is described in [the asset guide](assets/README.md).
 
-**Delay** selects earlier tracking from the live history. Replay also accepts negative values to inspect later tracking. The adjustment changes the displayed hands and headset, while recordings, exported observations and camera frame associations retain their source timestamps.
+During replay, **Delay** selects earlier tracking, while negative values inspect later tracking. The adjustment changes the displayed hands and headset. Live hands always use the newest available tracking. Recordings, exported observations and camera frame associations retain their source timestamps.
 
 ## Recording
 

@@ -1,6 +1,7 @@
 #include "ceres/detail/video_backend.hpp"
 #include "ceres/detail/video_queue.hpp"
 #include "ceres/video.hpp"
+#include <algorithm>
 #include <map>
 #include <mutex>
 #include <thread>
@@ -39,6 +40,7 @@ struct NvDecoder::Impl {
         SessionEvent event;
         uint64_t revision = 0;
         int64_t begin = 0;
+        int64_t queued_us = 0;
     };
     std::shared_ptr<CudaContextOwner> context_owner;
     CUcontext context = nullptr;
@@ -76,6 +78,10 @@ struct NvDecoder::Impl {
         pending.erase(found);
         if (!queue.current(frame.revision) || frame.event.attributes.value("replay_preroll", false))
             return;
+        if (detail::VideoQueue::expired(frame.event, frame.queued_us, monotonic_us())) {
+            queue.reset_after_delay(frame.revision);
+            return;
+        }
         if (surface.width != width || surface.height != height) {
             width = surface.width;
             height = surface.height;
@@ -138,6 +144,12 @@ struct NvDecoder::Impl {
             std::optional<detail::VideoQueue::Item> input;
             int64_t serial = 0;
             while (!queue.state().closed) {
+                const auto now_us = monotonic_us();
+                queue.expire_live(now_us);
+                if (std::any_of(pending.begin(), pending.end(), [now_us](const auto& value) {
+                        return detail::VideoQueue::expired(value.second.event, value.second.queued_us, now_us);
+                    }))
+                    queue.reset_after_delay(revision);
                 if (!queue.current(revision)) {
                     backend->reset();
                     pending.clear();
@@ -160,6 +172,10 @@ struct NvDecoder::Impl {
                         serial = 0;
                         continue;
                     }
+                    if (detail::VideoQueue::expired(*input, monotonic_us())) {
+                        queue.reset_after_delay(input->revision);
+                        continue;
+                    }
                     auto& event = input->event;
                     if (event.kind == EventKind::Epoch || (waiting_idr && !event.keyframe)) {
                         input.reset();
@@ -172,6 +188,7 @@ struct NvDecoder::Impl {
                         Pending metadata;
                         metadata.revision = input->revision;
                         metadata.begin = monotonic_us();
+                        metadata.queued_us = input->queued_us;
                         metadata.event.kind = event.kind;
                         metadata.event.receive_us = event.receive_us;
                         metadata.event.time_us = event.time_us;

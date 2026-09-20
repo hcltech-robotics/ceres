@@ -219,6 +219,89 @@ test("Depth and pose publication share the sender-monotonic clock", t => {
   assert.equal(depth.target_us, 1245678);
   sender.depth.stop();
 });
+
+test("Large depth frames send one fragment per XR callback and yield to queued hand poses", () => {
+  const f = fixture(), depth = new BridgeDepth();
+  f.image = { ...image(), width: 256, height: 256, data: new Float32Array(256 * 256).fill(1).buffer };
+  const pose = { bufferedAmount: 1756 };
+  f.peer.pose = pose;
+  depth.start(f.session);
+  const publish = (now: number) => depth.publish(f.frame, f.space, now + 5, f.peer, 0, false, now);
+  publish(0);
+  assert.equal(f.packets.length, 1, "no burst of an entire depth frame");
+  const count = new DataView(f.packets[0].buffer).getUint16(18, true);
+  assert.ok(count > 2);
+  pose.bufferedAmount = 2000;
+  publish(12);
+  assert.equal(f.packets.length, 1, "pending poses take priority");
+  pose.bufferedAmount = 1756;
+  for (let i = 1; i < count; i++) {
+    publish(12 + i * 12);
+    assert.equal(f.packets.length, i + 1);
+  }
+  assert.equal(f.acquired, 1);
+  depth.stop();
+});
+
+test("An old queued hand blocks both new depth capture and remaining fragments", t => {
+  let now = 0;
+  t.mock.method(performance, "now", () => now);
+  const f = fixture(), sender = new BridgeSender();
+  f.image = { ...image(), width: 256, height: 256, data: new Float32Array(256 * 256).fill(1).buffer };
+  (f.session as any).inputSources = [];
+  t.mock.method(f.frame, "getViewerPose", () => ({ views: [view], transform: {
+    position: { x: 0, y: 0, z: 0 }, orientation: { x: 0, y: 0, z: 0, w: 1 },
+  } }) as unknown as XRViewerPose);
+  const pose = { readyState: "open", bufferedAmount: 844, sent: 0,
+    send(buffer: ArrayBuffer) { this.sent++; this.bufferedAmount += buffer.byteLength; },
+  };
+  (sender as any).peer = { ...f.peer, pose };
+  sender.depth.start(f.session);
+  const publish = () => {
+    sender.publish(f.frame, f.space, now + 5);
+    sender.publishDepth(f.frame, f.space, now + 5);
+    now += 12;
+  };
+  publish();
+  assert.equal(pose.sent, 0, "844 old queued bytes block the current complete pose");
+  assert.equal(f.acquired, 0, "optional depth acquisition does not run ahead of current hands");
+  assert.equal(f.packets.length, 0);
+  pose.bufferedAmount = 0;
+  publish();
+  assert.equal(pose.sent, 3);
+  assert.equal(pose.bufferedAmount, 1756);
+  assert.equal(f.packets.length, 1, "a successfully queued fresh pose permits one depth fragment");
+  pose.bufferedAmount = 844;
+  publish();
+  assert.equal(f.packets.length, 1, "an old hand also blocks the remainder of a partial depth frame");
+  pose.bufferedAmount = 0;
+  publish();
+  assert.equal(f.packets.length, 2, "fragment pacing resumes after the current hands publish");
+  sender.depth.stop();
+});
+
+test("Depth abandons obsolete partial frames and pauses transmission under video congestion", () => {
+  const f = fixture(), depth = new BridgeDepth();
+  f.image = { ...image(), width: 256, height: 256, data: new Float32Array(256 * 256).fill(1).buffer };
+  depth.start(f.session);
+  const publish = (now: number, paused = false) => depth.publish(f.frame, f.space, now + 5, f.peer, 0, paused, now);
+  publish(0);
+  publish(251);
+  assert.equal(f.packets.length, 1, "expired fragments do not reach the network");
+  publish(500);
+  assert.equal(f.packets.length, 2);
+  f.peer.depthThrottled = true;
+  publish(512);
+  publish(1000);
+  assert.equal(f.packets.length, 2);
+  f.peer.depthThrottled = false;
+  publish(1012);
+  const packet = new DataView(f.packets.at(-1)!.buffer);
+  assert.equal(packet.getUint16(16, true), 0, "recovery starts a fresh independently decodable frame");
+  publish(1024, true);
+  assert.equal(f.packets.length, 3);
+  depth.stop();
+});
 test("Depth backpressure, paused capture and null views leave pose/video independent", () => {
   const f = fixture(), depth = new BridgeDepth();
   depth.start(f.session);
