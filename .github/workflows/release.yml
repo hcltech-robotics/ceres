@@ -87,6 +87,7 @@ jobs:
       - name: Build runtime image
         run: |
           docker build --build-arg CERES_REVISION="$GITHUB_SHA" -t ceres-release .
+          docker run --rm --network none --entrypoint node ceres-release scripts/prepare-voice-models.mjs --check --directory dist/models
           docker save ceres-release | gzip -n > release/ceres-container.tar.gz
           docker run --rm -d --name ceres-check -p 127.0.0.1:14317:4317 ceres-release
           trap 'docker stop ceres-check' EXIT

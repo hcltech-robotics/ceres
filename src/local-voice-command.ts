@@ -92,21 +92,33 @@ export class LocalVoiceCommandRecovery {
 export type LocalVoiceCommandFailureKind =
   | "audio-worklet"
   | "microphone"
+  | "model-assets"
   | "model-download"
   | "model-runtime"
   | "recognition";
 
-export function localVoiceCommandOverlay(status: LocalVoiceCommandStatus, detail?: string): LocalVoiceCommandOverlay {
+export interface LocalVoiceCommandFailure {
+  kind: LocalVoiceCommandFailureKind;
+  diagnosticDetail: string;
+}
+
+export const LOCAL_VOICE_MODEL_ASSETS_MISSING_MESSAGE = "Voice command files are missing from this CERES installation. Repair the installation, then reload.";
+
+export function localVoiceCommandOverlay(
+  status: LocalVoiceCommandStatus,
+  detail?: string,
+  failureKind?: LocalVoiceCommandFailureKind,
+): LocalVoiceCommandOverlay {
   if (status === "ready") return { durationMs: 3_500, label: "VOICE: LOCAL COMMANDS READY" };
   if (status === "fallback") return { durationMs: 4_500, label: "VOICE: CPU COMMANDS READY" };
   if (status === "loading") return { durationMs: 5_500, label: "VOICE: PREPARING LOCAL RECOGNISER" };
-  return { durationMs: 7_000, label: `VOICE: ${localVoiceCommandFailureLabel(detail)}` };
+  return { durationMs: 7_000, label: `VOICE: ${localVoiceCommandFailureLabel(detail, failureKind)}` };
 }
 
-export function localVoiceCommandFailureLabel(detail?: string) {
-  const kind = localVoiceCommandFailureKind(detail);
+export function localVoiceCommandFailureLabel(detail?: string, kind = localVoiceCommandFailureKind(detail)) {
   if (kind === "microphone") return "MICROPHONE ACCESS FAILED";
   if (kind === "audio-worklet") return "AUDIO WORKLET FAILED";
+  if (kind === "model-assets") return "COMMAND FILES MISSING";
   if (kind === "model-runtime") return "MODEL RUNTIME FAILED";
   if (kind === "model-download") return "MODEL DOWNLOAD FAILED";
   return "LOCAL RECOGNISER FAILED";
@@ -116,6 +128,9 @@ export function localVoiceCommandFailureKind(detail?: string): LocalVoiceCommand
   const value = detail?.trim() ?? "";
   if (/notallowed|permission|microphone/i.test(value)) return "microphone";
   if (/audioworklet|worklet|audiocontext|web audio/i.test(value)) return "audio-worklet";
+  if (value === LOCAL_VOICE_MODEL_ASSETS_MISSING_MESSAGE || /file was not found locally|local file missing at/i.test(value)) {
+    return "model-assets";
+  }
   if (/fetch|network|download|dynamically imported module|failed to import|loading chunk|connection|https?:/i.test(value)) {
     return "model-download";
   }
@@ -210,6 +225,7 @@ interface LocalVoiceCommandWorkerMessage {
   status?: LocalVoiceCommandStatus;
   command?: LocalVoiceCommand;
   detail?: string;
+  failure?: LocalVoiceCommandFailure;
   active?: boolean;
   successful?: boolean;
 }
@@ -217,7 +233,7 @@ interface LocalVoiceCommandWorkerMessage {
 export interface LocalVoiceCommandControllerOptions {
   stream: MediaStream;
   onCommand(command: LocalVoiceCommand): void;
-  onStatus(status: LocalVoiceCommandStatus, detail?: string): void;
+  onStatus(status: LocalVoiceCommandStatus, detail?: string, failure?: LocalVoiceCommandFailure): void;
   onRecognitionChange?(active: boolean): void;
   onRecognitionSuccess?(): void;
   onFatalError?(detail: string): void;
@@ -355,7 +371,7 @@ export class LocalVoiceCommandController {
       if (message.status === "ready" || message.status === "fallback") this.workerReady = true;
       else if (message.status === "loading") this.workerReady = false;
       if (message.status === "error") {      }
-      this.onStatus(message.status, message.detail);
+      this.onStatus(message.status, message.detail, message.failure);
       return;
     }
     if (!this.workerReady || message.type !== "command" || !message.command) return;

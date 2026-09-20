@@ -26,6 +26,8 @@ import {
   localVoiceCommandStartupFailureRetryable,
   microphoneCaptureRequired,
   type LocalVoiceCommand,
+  type LocalVoiceCommandFailure,
+  type LocalVoiceCommandFailureKind,
   type LocalVoiceCommandStatus,
 } from "./local-voice-command.js";
 import { cameraViewPoseFromViewerPose, projectHandsToRegisteredCamera } from "./camera-projection.js";
@@ -696,6 +698,7 @@ export class CaptureApp {
   private localVoiceCommands: LocalVoiceCommandController | null = null;
   private localVoiceCommandStatus: LocalVoiceCommandStatus = "loading";
   private localVoiceCommandErrorDetail: string | null = null;
+  private localVoiceCommandErrorKind: LocalVoiceCommandFailureKind | null = null;
   private localVoiceCommandRecognitionStartedAt: number | null = null;
   private readonly localVoiceCommandRecovery = new LocalVoiceCommandRecovery();
   private localVoiceCommandOverlayNotice: LocalVoiceCommandOverlayNotice | null = null;
@@ -1014,6 +1017,7 @@ export class CaptureApp {
               <li data-speech-feature><span>Prompt audio</span><b id="join-prompt-state" class="status-pill">LOCKED</b></li>
             </ul>
             <p id="capture-status" class="capture-status" role="status" aria-live="polite"${soloMode ? " hidden" : ""}>${soloMode ? "Preparing headset-local capture" : this.pairingInvite ? "Pairing invitation ready" : "Waiting for a pairing invitation"}</p>
+            <p id="local-voice-status" class="capture-status" role="status" aria-live="polite" hidden></p>
             <section id="task-setup" class="task-row" aria-live="polite"${soloMode ? " hidden" : ""}>
               <span id="task-setup-label">${soloMode ? "Solo task" : "Assigned task"}</span>
               <strong id="task-setup-title">${soloMode ? "Preparing local task workspace" : "Waiting for the capture director"}</strong>
@@ -2814,6 +2818,8 @@ export class CaptureApp {
     this.setLocalVoiceCommandRecognitionActive(false);
     this.localVoiceCommandStatus = "loading";
     this.localVoiceCommandErrorDetail = null;
+    this.localVoiceCommandErrorKind = null;
+    this.renderLocalVoiceCommandStatus();
     const commands = new LocalVoiceCommandController({
       stream,
       onCommand: (command) => this.handleLocalVoiceCommand(command),
@@ -2836,18 +2842,20 @@ export class CaptureApp {
         commands.dispose();
         this.scheduleLocalVoiceCommandRecovery();
       },
-      onStatus: (status, detail) => {
+      onStatus: (status, detail, failure) => {
         if (this.localVoiceCommands !== commands || !this.localVoiceCommandRecognitionEnabled()) return;
         if (status === "loading" && this.localVoiceCommandStatus === "error") return;
         const previousErrorDetail = this.localVoiceCommandErrorDetail;
         this.localVoiceCommandStatus = status;
         if (status === "ready" || status === "fallback") {
           this.localVoiceCommandErrorDetail = null;
+          this.localVoiceCommandErrorKind = null;
         }
-        if (status === "error") this.reportLocalVoiceCommandFailure(detail);
+        if (status === "error") this.reportLocalVoiceCommandFailure(detail, failure);
+        this.renderLocalVoiceCommandStatus();
         this.showLocalVoiceCommandOverlay(status, detail);
         this.renderXrTaskHud();
-        if (this.mountedRoot && status === "error") {
+        if (this.mountedRoot && status === "error" && this.localVoiceCommandErrorKind !== "model-assets") {
           this.setStatus(this.mountedRoot, detail ?? "Local voice commands are unavailable", true);
         } else if (this.mountedRoot && (status === "ready" || status === "fallback")) {
           const statusNode = this.mountedRoot.querySelector<HTMLElement>("#capture-status");
@@ -2921,17 +2929,29 @@ export class CaptureApp {
     }
     this.localVoiceCommandStatus = "loading";
     this.localVoiceCommandErrorDetail = null;
+    this.localVoiceCommandErrorKind = null;
+    this.renderLocalVoiceCommandStatus();
     this.setLocalVoiceCommandRecognitionActive(false);
     this.localVoiceCommandOverlayNotice = null;
     this.localVoiceCommandOverlayPending = false;
     this.renderXrTaskHud();
   }
 
-  private reportLocalVoiceCommandFailure(detail: string | undefined) {
+  private reportLocalVoiceCommandFailure(detail: string | undefined, failure?: LocalVoiceCommandFailure) {
     const message = detail ?? "Local voice commands are unavailable";
-    if (message === this.localVoiceCommandErrorDetail) return;
+    const kind = failure?.kind ?? localVoiceCommandFailureKind(message);
+    if (message === this.localVoiceCommandErrorDetail && kind === this.localVoiceCommandErrorKind) return;
     this.localVoiceCommandErrorDetail = message;
-    const kind = localVoiceCommandFailureKind(message);
+    this.localVoiceCommandErrorKind = kind;
+    console.warn("Local voice command failure", { kind, detail: failure?.diagnosticDetail ?? message });
+  }
+
+  private renderLocalVoiceCommandStatus() {
+    const node = this.mountedRoot?.querySelector<HTMLElement>("#local-voice-status");
+    if (!node) return;
+    const missingAssets = this.localVoiceCommandStatus === "error" && this.localVoiceCommandErrorKind === "model-assets";
+    node.textContent = missingAssets ? this.localVoiceCommandErrorDetail : "";
+    node.hidden = !missingAssets;
   }
 
   private showLocalVoiceCommandOverlay(
@@ -2942,7 +2962,7 @@ export class CaptureApp {
       this.localVoiceCommandOverlayPending = true;
       return;
     }
-    const overlay = localVoiceCommandOverlay(status, detail);
+    const overlay = localVoiceCommandOverlay(status, detail, this.localVoiceCommandErrorKind ?? undefined);
     this.localVoiceCommandOverlayNotice = {
       expiresAtMs: performance.now() + overlay.durationMs,
       presentation: {

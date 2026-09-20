@@ -29,9 +29,29 @@ function files(directory, prefix = "") {
   });
 }
 const problems = [];
+const voiceManifestPath = path.join(root, "shared/local-voice-model.json");
+const generatedModels = new Map();
+if (existsSync(voiceManifestPath)) {
+  const voiceModel = JSON.parse(readFileSync(voiceManifestPath, "utf8"));
+  for (const entry of voiceModel.files) {
+    const file = `public/models/${voiceModel.modelId}/${entry.path}`;
+    if (!/^public\/models\/[A-Za-z0-9._/-]+$/.test(file) || file.split("/").some(part => !part || part === "." || part === "..")) {
+      throw new Error("Unsafe generated voice model path");
+    }
+    generatedModels.set(file, entry);
+  }
+}
 const inventory = files(root);
 for (const file of inventory) {
   if (isExcludedPath(file)) problems.push(`Excluded source: ${file}`);
+  if (file.startsWith("public/models/")) {
+    const expected = generatedModels.get(file);
+    if (!expected) problems.push(`Unclassified voice model asset: ${file}`);
+    else {
+      const bytes = readFileSync(path.join(root, file));
+      if (bytes.length !== expected.bytes || hash(bytes) !== expected.sha256) problems.push(`Voice model asset differs from manifest: ${file}`);
+    }
+  }
   if (!/\.(?:ts|js|mjs|cjs|json|map|html|css|yml|yaml|toml|md|cff|bib|txt|c|cc|cpp|cxx|cu|h|hh|hpp|hxx|cuh|rs|cmake|in|py|ps1|psm1|sh|bash|cmd|bat|lock)$/i.test(file)) continue;
   const content = readFileSync(path.join(root, file), "utf8");
   if (secret.test(content)) problems.push(`Credential material: ${file}`);
@@ -60,7 +80,7 @@ if (existsSync(manifestPath)) {
       && ((lstatSync(absolute).mode & 0o111) ? "100755" : "100644") !== expected.mode) problems.push(`File mode differs from export manifest: ${file}`);
   }
   const generated = /^(?:dist\/|dist-server\/|third-party\/|public\/(?:wasm|ui|vendor)\/)/;
-  for (const file of inventory) if (verifyExport && !["EXPORT-MANIFEST.json", "SOURCE.json"].includes(file) && !generated.test(file) && !manifest.files[file]) problems.push(`Unclassified public source: ${file}`);
+  for (const file of inventory) if (verifyExport && !["EXPORT-MANIFEST.json", "SOURCE.json"].includes(file) && !generated.test(file) && !generatedModels.has(file) && !manifest.files[file]) problems.push(`Unclassified public source: ${file}`);
 } else if (verifyExport) problems.push("Export manifest is required for release verification");
 if (problems.length) throw new Error([...new Set(problems)].join("\n"));
 console.log(`Public source boundary passed for ${inventory.length} files`);

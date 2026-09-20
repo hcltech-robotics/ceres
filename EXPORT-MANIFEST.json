@@ -2,11 +2,11 @@
   "version": 2,
   "packageVersion": "1.1.3",
   "generator": "ceres-public-core/2",
-  "treeDigest": "c87c12e065cad35ebc6b8c16c7cd6daae7bddb6d89c4cf8e72cccfcaf69a5616",
+  "treeDigest": "950c80cc91861654aa4812715bbc928c23e26aa9ac493cff84d4986e466ed51f",
   "files": {
     ".dockerignore": {
-      "sha256": "f4f0799e0c8f318b0d36a430909ba9dcb3eeca1d1b0ae8b3b7907b44cc2bedca",
-      "bytes": 96,
+      "sha256": "c42f073a38c93eb50ac7cafd943c2ed01e7481ee36435bc1c7d5903977af839f",
+      "bytes": 191,
       "mode": "100644"
     },
     ".gitattributes": {
@@ -45,8 +45,8 @@
       "mode": "100644"
     },
     ".github/workflows/release.yml": {
-      "sha256": "89fc3e5de40f6c037c1642a924454abb6257dad70fd946935d05113f8d7095a5",
-      "bytes": 13874,
+      "sha256": "adf4702c1d0a4f5a76cc3c00657b1ab69c4c9347265d18a23fa3aebd3c4c434c",
+      "bytes": 14012,
       "mode": "100644"
     },
     ".gitignore": {
@@ -65,8 +65,8 @@
       "mode": "100644"
     },
     "Dockerfile": {
-      "sha256": "94661c422463d0db736ffbaa9c4166a441ae81931b3b6c96b5f8191ab6d938fc",
-      "bytes": 910,
+      "sha256": "28f49b2472ff42420a54ae86a476b120ef985b3f8a0db124043f29ea30b72289",
+      "bytes": 1198,
       "mode": "100644"
     },
     "LICENCE.md": {
@@ -75,8 +75,8 @@
       "mode": "100644"
     },
     "README.md": {
-      "sha256": "c541e9ccd8509b22d6dc4b2ff322c08cc764e95c45aaeb27584902c5670ea7e5",
-      "bytes": 15250,
+      "sha256": "be3059441dc437d3c4f6abe624736634c3526d989ced35f0e0e8a1f683a3496d",
+      "bytes": 16123,
       "mode": "100644"
     },
     "RELEASE.md": {
@@ -127,6 +127,11 @@
     "launch/capture/index.html": {
       "sha256": "a44be17d8434844049c02f1fb5b247396d818e0a9f5f8b89b01c7aa7d94d9e0b",
       "bytes": 370,
+      "mode": "100644"
+    },
+    "models/moonshine-LICENCE.txt": {
+      "sha256": "a7830b83d8e1d29a4fa4e8dad03221c07e31077b30d89db57183e6035bc49f63",
+      "bytes": 1505,
       "mode": "100644"
     },
     "monitor/index.html": {
@@ -1130,8 +1135,8 @@
       "mode": "100644"
     },
     "package.json": {
-      "sha256": "6de396e9b4e847557b0e79305391b23d01fa0e65c4678047ae0b1d728654c475",
-      "bytes": 3276,
+      "sha256": "4100f926372cf5e14bcd55cad52ec1f70e2f2417d3e20d79b58d178f3a699bae",
+      "bytes": 3549,
       "mode": "100644"
     },
     "playwright.config.ts": {
@@ -1720,8 +1725,8 @@
       "mode": "100644"
     },
     "scripts/check-public-boundary.mjs": {
-      "sha256": "c36c8fa78bd02042e7e090fa2a5cf46edaffaeadc7c1329ed69214951faf57d0",
-      "bytes": 5839,
+      "sha256": "ff6f4ab6989b86f5d5823c99bc3da8c72b9b15eeca82577d3466805322284f94",
+      "bytes": 6836,
       "mode": "100644"
     },
     "scripts/check-release-sboms.mjs": {
@@ -1735,8 +1740,8 @@
       "mode": "100644"
     },
     "scripts/collect-notices.mjs": {
-      "sha256": "9c9898f9e02f3aacd3545fbc524eb45682d31513a8482883dee07a970cdae787",
-      "bytes": 2736,
+      "sha256": "0db81d08d618f58ae556966d6f72fc5d024ef346d16bd9140472b228aa3fe147",
+      "bytes": 3164,
       "mode": "100644"
     },
     "scripts/copy-monitor-media.mjs": {
@@ -1755,13 +1760,18 @@
       "mode": "100644"
     },
     "scripts/package-public-core.py": {
-      "sha256": "594536bac92fe4331abe7f1fca914f2f2faaaea9d70e60bb4e67cf66e66430d7",
-      "bytes": 2420,
+      "sha256": "9f16d7634c12e7d0617f7a0d3654c56372fa5e54aac4e0b06b1cee18ebb6fd74",
+      "bytes": 2848,
       "mode": "100644"
     },
     "scripts/prepare-local-release.mjs": {
       "sha256": "f5077b36abf795e36d37a7f49290b6146dc8db4d04aba0c82838fd47600615c2",
       "bytes": 9212,
+      "mode": "100644"
+    },
+    "scripts/prepare-voice-models.mjs": {
+      "sha256": "02e79f40401b435253d6e8f7c317d105792ebda9bcb8581247e1c4b7ced1fdba",
+      "bytes": 7491,
       "mode": "100644"
     },
     "scripts/publish-public-release.mjs": {
@@ -1907,6 +1917,11 @@
     "shared/lerobot-export.ts": {
       "sha256": "2408bf4c3640183d771e2fab012e54d2a5bd5da9a22c58e655279dc5471e866f",
       "bytes": 10466,
+      "mode": "100644"
+    },
+    "shared/local-voice-model.json": {
+      "sha256": "0b279c4c3cd4bf72b2f92e272852b61ecf99905a01c2a4eff39e06945ff4cff4",
+      "bytes": 1430,
       "mode": "100644"
     },
     "shared/pairing-code.ts": {
@@ -2060,8 +2075,8 @@
       "mode": "100644"
     },
     "src/capture-app.ts": {
-      "sha256": "69a7dc14480d07a219f4c7957117fb2baae9f70e8873c491c46654ea390396d6",
-      "bytes": 315214,
+      "sha256": "5c9c98c948c6f52d05a401ba435a2259c4ea2fdb851d8eecd4cefc9a5a0bf37c",
+      "bytes": 316498,
       "mode": "100644"
     },
     "src/capture-authority.ts": {
@@ -2235,18 +2250,23 @@
       "mode": "100644"
     },
     "src/local-voice-command.ts": {
-      "sha256": "40265dd05da632e2403e0225d0113c2d301f90dfabd4a93ef6a3cdcd7c1a392b",
-      "bytes": 14069,
+      "sha256": "ccef1c873917a72b88753bc6b82ade7f56f6c6a1f45bbf1a1110f8dae144c29c",
+      "bytes": 14731,
       "mode": "100644"
     },
     "src/local-voice-command.worker.ts": {
-      "sha256": "8120da14fb0209a9608a4b7e1682d93978c5652e366cfb5188d4513690a68146",
-      "bytes": 5491,
+      "sha256": "4de7cbb44f0aab6ce94624c989de6b126050c571670359b2375ca33bcf831c75",
+      "bytes": 5894,
       "mode": "100644"
     },
     "src/local-voice-command.worklet.ts": {
       "sha256": "267037ae9e0f1a9de4cfe259eb4058d602e0d6a667743264f8c7f39a387c1b81",
       "bytes": 2432,
+      "mode": "100644"
+    },
+    "src/local-voice-model-recovery.ts": {
+      "sha256": "e969563f8e5f76bef27459338645c0ed7ee32118bb45b99f7e475f539a1873fc",
+      "bytes": 2454,
       "mode": "100644"
     },
     "src/monitor-app.ts": {
@@ -2819,6 +2839,11 @@
       "bytes": 4621,
       "mode": "100644"
     },
+    "test/browser/voice-model.spec.ts": {
+      "sha256": "313ce1d8bfa29f2f0f74bfdf90f87d505600e9f467f365cb9de9dc9d53fd2b47",
+      "bytes": 10361,
+      "mode": "100644"
+    },
     "test/camera-capture-frame.test.ts": {
       "sha256": "5b6bd1d7baca2eac3f68f19f80d27108e4e8f0e7f8daec0903c534d881e6068c",
       "bytes": 8340,
@@ -2884,6 +2909,11 @@
       "bytes": 246004,
       "mode": "100644"
     },
+    "test/fixtures/local-voice-pause.wav": {
+      "sha256": "2cf9c740abce73d71ada68b19d82fe6c6cdd538d5a04597ab1351d27d8a3dff1",
+      "bytes": 41646,
+      "mode": "100644"
+    },
     "test/lerobot-export-segments.test.ts": {
       "sha256": "29f25eb3907d716b68d862a3c26e6e8c7c7be2aa4ab4821a7c99983f4c986606",
       "bytes": 7366,
@@ -2902,6 +2932,16 @@
     "test/local-signal-exchange.test.ts": {
       "sha256": "65c3da7ce4f5c882bb5d82eb260a20b3e338e09be7271d83ca5b73a06a493b51",
       "bytes": 1161,
+      "mode": "100644"
+    },
+    "test/local-voice-command.test.ts": {
+      "sha256": "39e11a0161f5dd480c5425df776974bcef60452edd6693bab6edc32d1089ffc9",
+      "bytes": 25964,
+      "mode": "100644"
+    },
+    "test/local-voice-model-recovery.test.ts": {
+      "sha256": "601b292ca8c67aff93d7b67f9a683d8126108946ae543f07b2644b8db85d1a8c",
+      "bytes": 4598,
       "mode": "100644"
     },
     "test/monitor-direct-command-durability.test.ts": {
@@ -2965,8 +3005,8 @@
       "mode": "100644"
     },
     "test/public-boundary.test.ts": {
-      "sha256": "0799311bccc51e7418d9a2fb4365ab19be1ba75a2a90358cfdf164ed02ea5ba1",
-      "bytes": 6814,
+      "sha256": "eb855178e479c20edb78879693a2dfba0a196bfb62aefc4a1fe2d68157234380",
+      "bytes": 8463,
       "mode": "100644"
     },
     "test/quest-camera.test.ts": {
@@ -3097,6 +3137,11 @@
     "test/video-frame-sync.test.ts": {
       "sha256": "8141dc1b6c5a6543d141892164ed9f072fed78a394505153716ac60078313d1e",
       "bytes": 1203,
+      "mode": "100644"
+    },
+    "test/voice-model-assets.test.ts": {
+      "sha256": "2e88209ae4888a4f4b02f16e3b53e469a44dab4a7861d3d17b614327d9fad544",
+      "bytes": 13316,
       "mode": "100644"
     },
     "test/webrtc-negotiation.test.ts": {
