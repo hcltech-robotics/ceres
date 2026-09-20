@@ -2,7 +2,7 @@
 
 Ceres viewer receives Ceres Bridge camera video and tracking in a native 3D scene. Articulated hands, a textured Quest 3 model, calibrated camera planes and optional stereo depth fill the left 80% of the window. A fixed Dear ImGui control pane occupies the right 20%. Reception, hardware decoding, recording and rendering run independently.
 
-Separate release packages support Windows 11 x64, Ubuntu 22.04 or newer on x64 NVIDIA systems and Ubuntu 24.04 or newer on NVIDIA GB10 ARM64 systems. Each includes the native exporter, FFmpeg and runtime libraries. Install the NVIDIA display driver, then extract the archive and launch the viewer. CUDA and OpenGL must use the same GPU. The renderer uses OpenGL 4.5, CUDA image conversion and NVDEC H.264 decoding.
+Separate release packages support Windows 11 x64, Ubuntu 22.04 or newer on x64 NVIDIA systems and Ubuntu 24.04 or newer on NVIDIA GB10 ARM64 systems. Each includes the native exporter, FFmpeg and runtime libraries. Install the NVIDIA display driver, then extract the archive and launch the viewer. CUDA and OpenGL must use the same GPU, and the viewer selects the NVIDIA GPU on a system that also has integrated graphics. The renderer uses OpenGL 4.5, CUDA image conversion and NVDEC H.264 decoding.
 
 Hugging Face sign-in uses your web browser. On Linux, install `xdg-utils` in the desktop session to open the authorisation window.
 

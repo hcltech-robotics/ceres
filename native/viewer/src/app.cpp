@@ -2,6 +2,7 @@
 #include "ceres/depth_display.hpp"
 #include "ceres/depth.hpp"
 #include "ceres/hand_mask.hpp"
+#include "ceres/graphics_device.hpp"
 #include "ceres/bridge.hpp"
 #include "ceres/detail/accordion_motion.hpp"
 #include "ceres/detail/recording_bar.hpp"
@@ -989,6 +990,9 @@ void save_episodes(const std::filesystem::path& session, const std::vector<Episo
 } // namespace
 
 int run_app(const AppOptions& options) {
+    // The graphics vendor is resolved when the first OpenGL context appears, so choose the GPU
+    // that CUDA can share images with before GLFW starts.
+    prefer_nvidia_graphics();
     glfwSetErrorCallback(
         [](int, const char* description) { std::cerr << "GLFW: " << description << '\n'; });
     if (!glfwInit())

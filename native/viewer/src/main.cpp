@@ -5,6 +5,12 @@
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+// Hybrid-graphics laptops give a process the integrated GPU unless the executable exports these.
+// The NVIDIA and AMD drivers read them before the first OpenGL context exists.
+extern "C" {
+__declspec(dllexport) DWORD NvOptimusEnablement = 1;
+__declspec(dllexport) DWORD AmdPowerXpressRequestHighPerformance = 1;
+}
 #endif
 namespace {
 void report_error(const char* message) {

@@ -1,3 +1,4 @@
+#include "ceres/graphics_device.hpp"
 #include "ceres/detail/spatial_map_render.hpp"
 #include "ceres/spatial_map_point.hpp"
 #include <GLFW/glfw3.h>
@@ -20,6 +21,7 @@ void require(bool condition, const char* message) {
 struct Context {
     GLFWwindow* window = nullptr;
     Context() {
+        ceres::prefer_nvidia_graphics();
         require(glfwInit() != 0, "Cannot initialise GLFW");
         glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
         glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);

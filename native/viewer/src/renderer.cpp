@@ -11,6 +11,7 @@
 #include "ceres/depth_display.hpp"
 #include "ceres/detail/tracking_visibility.hpp"
 #include "ceres/detail/spatial_map_render.hpp"
+#include "ceres/graphics_device.hpp"
 #include <glad/gl.h>
 #include <GLFW/glfw3.h>
 #include <algorithm>
@@ -31,6 +32,10 @@ namespace {
 void cuda_check(cudaError_t r, const char* what) {
     if (r != cudaSuccess)
         throw std::runtime_error(std::string(what) + ": " + cudaGetErrorString(r));
+}
+std::string gl_string(GLenum name) {
+    const auto* value = reinterpret_cast<const char*>(glGetString(name));
+    return value ? value : std::string{};
 }
 bool fresh_pose(const ReceiverSnapshot& snapshot, const PoseSample& pose, double time_scale) {
     const auto now = snapshot.now_us ? snapshot.now_us : monotonic_us();
@@ -1116,10 +1121,14 @@ struct Renderer::Impl {
         offscreen = glfwGetWindowAttrib(window, GLFW_VISIBLE) == GLFW_FALSE;
         unsigned n = 0;
         int devs[8]{};
-        cuda_check(cudaGLGetDevices(&n, devs, 8, cudaGLDeviceListAll),
-                   "Match NVIDIA graphics and CUDA device");
-        if (!n)
-            throw std::runtime_error("No NVIDIA CUDA device owns this OpenGL window");
+        const auto matched = cudaGLGetDevices(&n, devs, 8, cudaGLDeviceListAll);
+        if (matched != cudaSuccess || !n) {
+            cudaGetLastError();
+            throw std::runtime_error(graphics_mismatch_message(
+                gl_string(GL_VENDOR), gl_string(GL_RENDERER),
+                matched == cudaSuccess ? "no CUDA device owns this OpenGL window"
+                                       : cudaGetErrorString(matched)));
+        }
         device = devs[0];
         cuda_check(cudaSetDevice(device), "Select rendering GPU");
         cuda_check(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking),

@@ -1,3 +1,4 @@
+#include "ceres/graphics_device.hpp"
 #include "ceres/renderer.hpp"
 #include "depth_fixture.hpp"
 #include <glad/gl.h>
@@ -28,6 +29,7 @@ void cuda_check(cudaError_t result) {
 struct Context {
     GLFWwindow* window = nullptr;
     Context() {
+        ceres::prefer_nvidia_graphics();
         require(glfwInit() != 0, "Cannot initialise GLFW");
         glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
         glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
