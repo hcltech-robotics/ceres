@@ -70,6 +70,8 @@ int main(int argc, char** argv) {
                 options.ffmpeg = value();
             else if (a == "--origin")
                 options.origin = value();
+            else if (a == "--ca-cert")
+                options.ca_certificate = value();
             else if (a == "--seconds")
                 options.seconds = std::stod(value());
             else if (a == "--fps")
@@ -89,7 +91,8 @@ int main(int argc, char** argv) {
                        "--fps N --no-connect --borderless --hidden\n  --screenshot FILE.ppm --metrics "
                        "FILE.json --config-dir DIRECTORY\n  --task-spec FILE.json-or-URL\n"
                        "  --map-directory DIRECTORY --load-map FILE.cmap --freeze-map-after SECONDS\n"
-                       "  --export-helper FILE --ffmpeg FILE\n";
+                       "  --export-helper FILE --ffmpeg FILE\n"
+                       "  --ca-cert FILE.pem (overrides SSL_CERT_FILE for Bridge TLS)\n";
                 return 0;
             } else
                 throw std::runtime_error("Unknown argument: " + a);

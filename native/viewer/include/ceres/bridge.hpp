@@ -9,6 +9,8 @@ struct BridgeOptions {
     std::string relay = "https://ceres.ceres-relay.workers.dev";
     std::string name = "Ceres viewer";
     std::filesystem::path identity_path;
+    // PEM trust bundle. An empty path uses SSL_CERT_FILE, then system trust.
+    std::filesystem::path ca_certificate;
 };
 
 class BridgeClient final : public SessionSource {

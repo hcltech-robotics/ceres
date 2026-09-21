@@ -152,6 +152,23 @@ If the exporter is missing, the export button is disabled and reads **Exporter n
 
 [Export compatibility](docs/export-compatibility.md) describes the dataset contract shared by the official LeRobot reader and the CERES Hugging Face dataset viewer.
 
+## Self-hosted connections
+
+Use `--origin` to select your CERES server. For a self-signed certificate, select
+the PEM certificate or CA bundle with `--ca-cert`:
+
+```sh
+ceres-viewer --origin https://192.168.90.194:4317 --ca-cert /absolute/path/to/ceres.crt
+```
+
+The viewer also honours `SSL_CERT_FILE`. An explicit `--ca-cert` takes precedence,
+and the selected bundle applies to both HTTPS pairing and secure WebSocket
+signalling. With neither option set, the viewer uses system trust. Certificate
+and hostname verification remain enabled.
+
+See [self-hosted TLS](docs/self-hosting.md) for certificate generation, server
+setup, Python receiver commands and system trust installation.
+
 ## Build
 
 Requirements are CMake 3.25 or newer, a C++20 compiler, Rust 1.91 or newer with Cargo, Ninja, CUDA, a compatible NVIDIA driver and Git for fetching dependencies. Packaging also requires Python 3.11 or newer and an FFmpeg distribution with the `libx264` encoder. Run these commands from `native/viewer` within the CERES source tree.

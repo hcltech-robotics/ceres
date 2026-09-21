@@ -8,7 +8,7 @@ struct AppOptions {
     int width = 1920, height = 1080;
     double seconds = 0, fps = 120, freeze_map_after = -1;
     std::filesystem::path replay, record, fixture_video, screenshot, metrics, helper, ffmpeg,
-        config, map_directory, map_load;
+        config, map_directory, map_load, ca_certificate;
     std::string task_specification;
     std::string origin = "https://ceres.cam";
 };

@@ -6,6 +6,7 @@
 #include <rtc/rtc.hpp>
 #include <curl/curl.h>
 #include <mbedtls/threading.h>
+#include <mbedtls/x509_crt.h>
 #include <algorithm>
 #include <atomic>
 #include <condition_variable>
@@ -17,6 +18,7 @@
 #include <ctime>
 #include <deque>
 #include <fstream>
+#include <iterator>
 #include <map>
 #include <mutex>
 #include <stdexcept>
@@ -127,6 +129,30 @@ std::string trusted_certificates() {
     }
     throw std::runtime_error("Cannot locate the system certificate bundle");
 #endif
+}
+std::string certificate_override(std::filesystem::path path) {
+    if (path.empty()) {
+        if (const char* environment = std::getenv("SSL_CERT_FILE"); environment && *environment)
+            path = environment;
+    }
+    if (path.empty())
+        return {};
+    std::error_code error;
+    if (!std::filesystem::is_regular_file(path, error))
+        throw std::runtime_error("Cannot read CA certificate file: " + path.string());
+    std::ifstream file(path, std::ios::binary);
+    if (!file)
+        throw std::runtime_error("Cannot read CA certificate file: " + path.string());
+    const std::string pem((std::istreambuf_iterator<char>(file)), {});
+    mbedtls_x509_crt certificates;
+    mbedtls_x509_crt_init(&certificates);
+    const auto result = mbedtls_x509_crt_parse(
+        &certificates, reinterpret_cast<const unsigned char*>(pem.c_str()), pem.size() + 1);
+    mbedtls_x509_crt_free(&certificates);
+    if (file.bad() || pem.find("-----BEGIN CERTIFICATE-----") == std::string::npos || result != 0)
+        throw std::runtime_error("CA certificate file must contain valid PEM certificates: " +
+                                 path.string());
+    return std::filesystem::absolute(path).string();
 }
 std::string origin(std::string value) {
     while (!value.empty() && value.back() == '/')
@@ -516,6 +542,7 @@ struct BridgeClient::Impl : std::enable_shared_from_this<BridgeClient::Impl> {
         std::shared_ptr<rtc::DataChannel> channel;
     };
     BridgeOptions options;
+    std::string ca_certificate;
     mutable std::mutex state_mutex, sink_mutex, queue_mutex, lifecycle_mutex;
     std::condition_variable wake;
     ReceiverSnapshot current;
@@ -561,6 +588,7 @@ struct BridgeClient::Impl : std::enable_shared_from_this<BridgeClient::Impl> {
 
     explicit Impl(BridgeOptions value) : options(std::move(value)) {
         static CurlRuntime runtime;
+        ca_certificate = certificate_override(options.ca_certificate);
         options.app_origin = origin(options.app_origin);
         options.relay = origin(options.relay);
         if (options.relay == options.app_origin && (options.app_origin == "https://ceres.cam" ||
@@ -667,6 +695,10 @@ struct BridgeClient::Impl : std::enable_shared_from_this<BridgeClient::Impl> {
         curl_easy_setopt(handle.get(), CURLOPT_FOLLOWLOCATION, 0L);
         curl_easy_setopt(handle.get(), CURLOPT_SSL_VERIFYPEER, 1L);
         curl_easy_setopt(handle.get(), CURLOPT_SSL_VERIFYHOST, 2L);
+        if (!ca_certificate.empty()) {
+            curl_easy_setopt(handle.get(), CURLOPT_CAINFO, ca_certificate.c_str());
+            curl_easy_setopt(handle.get(), CURLOPT_CAPATH, nullptr);
+        }
         curl_easy_setopt(handle.get(), CURLOPT_USERAGENT, "CeresViewer/1");
         curl_easy_setopt(
             handle.get(), CURLOPT_WRITEFUNCTION,
@@ -986,7 +1018,8 @@ struct BridgeClient::Impl : std::enable_shared_from_this<BridgeClient::Impl> {
         ws_config.connectionTimeout = std::chrono::seconds(10);
         ws_config.maxMessageSize = 32768;
         if (identity.value("relay", options.relay).starts_with("https://"))
-            ws_config.caCertificatePemFile = trusted_certificates();
+            ws_config.caCertificatePemFile =
+                ca_certificate.empty() ? trusted_certificates() : ca_certificate;
         socket = std::make_shared<rtc::WebSocket>(ws_config);
         socket->onOpen([weak, gen]() {
             if (auto self = weak.lock())
