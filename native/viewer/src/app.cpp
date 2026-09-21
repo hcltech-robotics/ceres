@@ -1563,6 +1563,7 @@ int run_app(const AppOptions& options) {
                                     else if (connect) {
                                         BridgeOptions o;
                                         o.app_origin = o.relay = options.origin;
+                                        o.ca_certificate = options.ca_certificate;
                                         o.identity_path = config / "receiver.identity";
                                         auto client = std::make_shared<BridgeClient>(o);
                                         client->set_depth_enabled(depth_capture_enabled.load());

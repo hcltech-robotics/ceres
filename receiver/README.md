@@ -34,6 +34,19 @@ Use a Python interpreter matching the Mac's native architecture. When macOS
 asks, allow Python access to the local network and incoming connections so the
 Quest can reach the receiver.
 
+## Self-signed certificates
+
+Set `SSL_CERT_FILE` to your deployment's PEM certificate or CA bundle before
+starting the receiver:
+
+```sh
+export SSL_CERT_FILE=/absolute/path/to/ceres.crt
+ceres-bridge listen --app-origin https://192.168.90.194:4317
+```
+
+The [self-hosted TLS guide](../native/viewer/docs/self-hosting.md) covers certificate
+generation, server configuration, browser trust and native viewer connections.
+
 ## Read the stream
 
 The [dual-arm example](examples/dual_arm.py) maps Quest wrists to the XLeRobot arm

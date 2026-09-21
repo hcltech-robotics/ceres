@@ -209,6 +209,11 @@ Set `CERES_PUBLIC_ORIGIN` to the deployment's HTTPS origin, `CERT_FILE` and
 The director is at `/monitor/` and headset capture is at `/launch/capture/`.
 Use `/launch/capture/?mode=solo` for Solo.
 
+For a local deployment with a self-signed certificate, follow the
+[self-hosted TLS guide](native/viewer/docs/self-hosting.md). It covers certificate
+generation, server configuration, `SSL_CERT_FILE` for both receivers and the
+native viewer's `--ca-cert` option.
+
 The source build uses Node.js 22 and Rust 1.91.0, selected by `rust-toolchain.toml`.
 The runtime archive starts with `node dist-server/ceres-server.cjs`, or `./start.ps1`
 on Windows.

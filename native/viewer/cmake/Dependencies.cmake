@@ -79,6 +79,7 @@ set(ENABLE_WARNINGS_AS_ERRORS OFF CACHE BOOL "" FORCE)
 set(LIBSRTP_TEST_APPS OFF CACHE BOOL "" FORCE)
 FetchContent_Declare(libdatachannel GIT_REPOSITORY https://github.com/paullouisageneau/libdatachannel.git GIT_TAG 8c31097ea78f051e857d0aa1b2f6efb26cd12b7e GIT_SUBMODULES deps/plog deps/usrsctp deps/libjuice deps/libsrtp GIT_SUBMODULES_RECURSE TRUE)
 FetchContent_MakeAvailable(libdatachannel)
+include("${CMAKE_CURRENT_LIST_DIR}/LibDataChannelTls.cmake")
 # The upstream find module replaces aggregate link properties while configuring libsrtp.
 set_target_properties(MbedTLS::MbedTLS PROPERTIES INTERFACE_LINK_LIBRARIES "mbedtls;mbedx509;mbedcrypto")
 target_link_libraries(datachannel-static PUBLIC MbedTLS::MbedTLS)

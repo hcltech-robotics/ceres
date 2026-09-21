@@ -2,7 +2,7 @@
   "version": 2,
   "packageVersion": "1.1.3",
   "generator": "ceres-public-core/2",
-  "treeDigest": "d7d56fa1b1d313251caefef7653287292d799997b29c47c85f00a3a8e2eef783",
+  "treeDigest": "f42f090c3d7e558569cbac1f707897103cdf3cee19828d2e856e8d7b2be4ffd9",
   "files": {
     ".dockerignore": {
       "sha256": "c42f073a38c93eb50ac7cafd943c2ed01e7481ee36435bc1c7d5903977af839f",
@@ -75,8 +75,8 @@
       "mode": "100644"
     },
     "README.md": {
-      "sha256": "63f6735312d37691bcf00f95967f11172851b06696ac4ba335c7d75c1dfbbc50",
-      "bytes": 16447,
+      "sha256": "738e8792a3781b3aa61b5142b7b62f2dfcd6b5656fefcabac453423507583a9f",
+      "bytes": 16710,
       "mode": "100644"
     },
     "RELEASE.md": {
@@ -250,8 +250,8 @@
       "mode": "100644"
     },
     "native/viewer/CMakeLists.txt": {
-      "sha256": "0fbc92c71626d578a83dcfc2417c1e868c242d212813709481f915690c9cdbcb",
-      "bytes": 13293,
+      "sha256": "4e53902b395bdf20da23d9d86d56fec488d945a38a6621ab072957fd3474d6de",
+      "bytes": 14126,
       "mode": "100644"
     },
     "native/viewer/LICENCE.md": {
@@ -260,8 +260,8 @@
       "mode": "100644"
     },
     "native/viewer/README.md": {
-      "sha256": "a36a6e898fb1bb3ec666e6362a2dd6b385fd2ad19c35a30f18b1c9539384e65c",
-      "bytes": 25405,
+      "sha256": "7c3df8e1a4a9396fbf39b9b3d442a8bd90e6b19848d53cb692939ca92a96bb48",
+      "bytes": 26089,
       "mode": "100644"
     },
     "native/viewer/assets/README.md": {
@@ -365,8 +365,13 @@
       "mode": "100644"
     },
     "native/viewer/cmake/Dependencies.cmake": {
-      "sha256": "7d36588f214a053a9231ac1199256865930a2656b0ab79048018651a32ba11a6",
-      "bytes": 7185,
+      "sha256": "d01466df35ed60e6daef9fcad0674c0eb3a21edcffc0f9bdc47fdd17dde8c54f",
+      "bytes": 7246,
+      "mode": "100644"
+    },
+    "native/viewer/cmake/LibDataChannelTls.cmake": {
+      "sha256": "ade35928ce5d35ea7a34996f66f40e4fe34972ddd7035f329eadb74b1d8287f2",
+      "bytes": 2414,
       "mode": "100644"
     },
     "native/viewer/cmake/NativeExporter.cmake": {
@@ -414,6 +419,11 @@
       "bytes": 3454,
       "mode": "100644"
     },
+    "native/viewer/docs/self-hosting.md": {
+      "sha256": "3742c42db9e9e26ee9ff6d60d4a1ee2fdb0f707565ed39132ee8520017efd3dd",
+      "bytes": 4218,
+      "mode": "100644"
+    },
     "native/viewer/docs/session-format.md": {
       "sha256": "0605a7ed51e00a204cc13611249beaa7d1032b38be76eb79dc2a83cd4865bcb4",
       "bytes": 9240,
@@ -430,13 +440,13 @@
       "mode": "100644"
     },
     "native/viewer/include/ceres/app.hpp": {
-      "sha256": "2f1fe4c65fa737f5e9a1517dd35f6699de012f10220d5ec596a12de6d3bb9dc3",
-      "bytes": 591,
+      "sha256": "3af7def3a0650309e120d698281493e5073c59cbd7310211d7694662725e34a0",
+      "bytes": 607,
       "mode": "100644"
     },
     "native/viewer/include/ceres/bridge.hpp": {
-      "sha256": "d4939fa125970593322add9215fc100facecc6f0f804cf82dd406b4a30935d68",
-      "bytes": 1085,
+      "sha256": "45afb69a3f37bd571b036c141a5e6422fcf40e673452032d5bc052e37c50367e",
+      "bytes": 1205,
       "mode": "100644"
     },
     "native/viewer/include/ceres/calibration.hpp": {
@@ -755,13 +765,13 @@
       "mode": "100644"
     },
     "native/viewer/src/app.cpp": {
-      "sha256": "10046f06957b811c778677a878d39de65d58488855dda7898151703011b5ec47",
-      "bytes": 262623,
+      "sha256": "87b61a61be998418146d0e7b10f9952a5271ca355fc56434301a47d6964020b8",
+      "bytes": 262706,
       "mode": "100644"
     },
     "native/viewer/src/bridge.cpp": {
-      "sha256": "db539bfd74574149eb2277fa450c10bbbb564b12405d96e1390c244476e2f546",
-      "bytes": 84163,
+      "sha256": "caa535eadea70b0b0bd93a8b97c28036f5cd0e44cf75b052571a13c74a8b2dac",
+      "bytes": 85788,
       "mode": "100644"
     },
     "native/viewer/src/calibration.cpp": {
@@ -805,8 +815,8 @@
       "mode": "100644"
     },
     "native/viewer/src/main.cpp": {
-      "sha256": "0fa87e900fa052d2a944784c6716814bb188c1ae719097c61a10db1c9523a03a",
-      "bytes": 4633,
+      "sha256": "e3ff21660e7c80120fbd4ccced25cf36e78ac16bef79c0a103319029e3d1ea8d",
+      "bytes": 4811,
       "mode": "100644"
     },
     "native/viewer/src/mano.cpp": {
@@ -894,6 +904,11 @@
       "bytes": 96553,
       "mode": "100644"
     },
+    "native/viewer/tests/bridge_tls_probe.cpp": {
+      "sha256": "a50f3feb38482818bc694acc95a97d87e40de7d8cae5621ba35d21fc83285c6f",
+      "bytes": 1273,
+      "mode": "100644"
+    },
     "native/viewer/tests/depth_fixture.hpp": {
       "sha256": "c58aa844d280616dcf9c22bb9cf048d1d0ff3dc8164caf4444d442c589b02929",
       "bytes": 2778,
@@ -967,6 +982,11 @@
     "native/viewer/tests/test_bridge.cpp": {
       "sha256": "951d36e432ceb8e7bfab6fadeafecfbe13f5b9cd7f96e632bf842aa7ab4d11f5",
       "bytes": 98777,
+      "mode": "100644"
+    },
+    "native/viewer/tests/test_bridge_tls.py": {
+      "sha256": "229a5af7fac5157dc9c4965b6c156fa50f4f6961082710c868e6093b365d6302",
+      "bytes": 7957,
       "mode": "100644"
     },
     "native/viewer/tests/test_depth.cpp": {
@@ -1275,8 +1295,8 @@
       "mode": "100644"
     },
     "receiver/README.md": {
-      "sha256": "29b1b3058bb1e13b66e4edb579cd6f29814ff7d5d7b34e8e0b3f4b76eb1d2669",
-      "bytes": 3310,
+      "sha256": "84237e9bcad82649a03e85d42e2aa2fdb2669ce21d7b67f773b0b57fa22a81ff",
+      "bytes": 3727,
       "mode": "100644"
     },
     "receiver/THIRD-PARTY.md": {
