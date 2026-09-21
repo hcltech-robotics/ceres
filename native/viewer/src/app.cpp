@@ -3070,10 +3070,8 @@ int run_app(const AppOptions& options) {
                         ImGui::SetTooltip("Live limit: %zu points", point_limit);
                     ui::end_field();
                 }
-                ui::field_label("Map folder");
-                ImGui::SetNextItemWidth(-1);
-                if (ImGui::InputTextWithHint("##MapDirectory", "Map folder", map_directory_text,
-                                            sizeof(map_directory_text), ImGuiInputTextFlags_EnterReturnsTrue)) {
+                if (ui::path_input("Map folder", map_directory_text, sizeof(map_directory_text),
+                                   ImGuiInputTextFlags_EnterReturnsTrue, "Map folder")) {
                     if (map_directory_text[0]) {
                         try {
                             preferences.map_directory = std::filesystem::absolute(map_directory_text);
@@ -3096,6 +3094,7 @@ int run_app(const AppOptions& options) {
                     if (status.file.grid_size > 0)
                         ImGui::Text("Saved spacing: %.1f cm", status.file.grid_size * 100.f);
                     ImGui::PopStyleColor();
+                    ui::path_output("Map file", map_file.string().c_str());
                 }
                 if (ImGui::Button("Save map now", {-1, 0})) {
                     requested_map_generation = {};
@@ -3125,9 +3124,7 @@ int run_app(const AppOptions& options) {
                         scene_spatial_controls[name] = {{minimum.x, minimum.y}, {maximum.x, maximum.y}};
                     }
                 };
-                ui::field_label("Saved map");
-                ImGui::SetNextItemWidth(-1);
-                ImGui::InputTextWithHint("##OpenMapPath", "Saved .cmap file", map_open_path, sizeof(map_open_path));
+                ui::path_input("Saved map", map_open_path, sizeof(map_open_path), 0, "Saved .cmap file");
                 spatial_control("path");
                 ImGui::BeginDisabled(!map_open_path[0] || map_loader != nullptr);
                 if (ImGui::Button("Open saved map", {-1, 0})) {
@@ -3205,7 +3202,7 @@ int run_app(const AppOptions& options) {
                         view.saved_map_opacity = opacity / 100.f;
                     spatial_control("saved_opacity");
                     ImGui::PopID();
-                    ImGui::TextWrapped("%s", loaded_map_file.filename().string().c_str());
+                    ui::path_output("Map file", loaded_map_file.string().c_str());
                     if (!placed_map.placed) {
                         ui::muted("Place in the scene");
                         map_placement_adjuster(map_placement, options.metrics.empty() ? nullptr : &scene_spatial_controls);
@@ -3301,11 +3298,13 @@ int run_app(const AppOptions& options) {
                         }
                     }
                 } else {
-                    ImGui::BeginDisabled(record_status.recording || pending_recording.has_value() ||
-                                         task_load.valid());
-                    pane_text_input("Specification", task_specification_path,
-                                    sizeof(task_specification_path),
-                                    "JSON file or https:// URL");
+                    const bool task_locked = record_status.recording || pending_recording.has_value() ||
+                                             task_load.valid();
+                    ui::path_input("Specification", task_specification_path,
+                                   sizeof(task_specification_path),
+                                   task_locked ? ImGuiInputTextFlags_ReadOnly : 0,
+                                   "JSON file or https:// URL");
+                    ImGui::BeginDisabled(task_locked);
                     if (ImGui::Button("Load")) {
                         try {
                             load_task_source();
@@ -3361,10 +3360,14 @@ int run_app(const AppOptions& options) {
             if (section("Recording", "06", PaneSection::recording)) {
                 begin_body("Recording body");
                 ImGui::PushID("Recording");
-                ImGui::BeginDisabled(record_status.recording || pending_recording.has_value());
-                pane_text_input("Destination##Recording", recording_destination,
-                                sizeof(recording_destination));
-                ImGui::EndDisabled();
+                ui::path_input("Destination##Recording", recording_destination,
+                               sizeof(recording_destination),
+                               record_status.recording || pending_recording.has_value()
+                                   ? ImGuiInputTextFlags_ReadOnly : 0);
+                if (!record_status.path.empty())
+                    ui::path_output(record_status.recording ? "Recording file" : "Recorded file",
+                                    (record_status.path.string() +
+                                     (record_status.recording || record_status.failed ? ".partial" : "")).c_str());
                 if (!recording_start_notice.empty())
                     ImGui::TextWrapped("%s", recording_start_notice.c_str());
                 if (record_status.failed)
@@ -3440,7 +3443,7 @@ int run_app(const AppOptions& options) {
                         {"bounds", {{first.x, first.y}, {last.x, last.y}}}};
                 }
                 if (export_open) {
-                    pane_text_input("Destination##LeRobot", export_path, sizeof(export_path));
+                    ui::path_input("Destination##LeRobot", export_path, sizeof(export_path));
                     if (episodes.empty()) {
                         ImGui::BeginDisabled(record_status.recording || episode_load.valid());
                         if (ImGui::Button("Use whole session")) {
@@ -3534,6 +3537,8 @@ int run_app(const AppOptions& options) {
                     }
                     if (!export_status.message.empty())
                         ImGui::TextWrapped("%s", export_status.message.c_str());
+                    if (!export_status.output.empty())
+                        ui::path_output("Dataset folder", export_status.output.string().c_str());
                     if (!export_status.error.empty())
                         ImGui::TextWrapped("%s", export_status.error.c_str());
                 }
@@ -3546,15 +3551,16 @@ int run_app(const AppOptions& options) {
                     pane_text_input("Folder##Upload", hf_folder, sizeof(hf_folder), "Optional folder in the repository");
                     ImGui::Checkbox("Create a private repository if missing", &hf_private);
                     ImGui::Checkbox("Include LeRobot export", &hf_include_export);
+                    ImGui::EndDisabled();
                     const auto upload_recording = replay ? replay->path() : closed_recording;
                     if (!upload_recording.empty())
-                        ImGui::TextWrapped("Recording: %s", upload_recording.filename().string().c_str());
+                        ui::path_output("Recording", upload_recording.string().c_str());
                     if (hf_include_export)
-                        ImGui::TextWrapped("Export: %s", export_path);
+                        ui::path_output("Export", export_path);
                     const bool unavailable = hf_status.username.empty() || upload_recording.empty() ||
                         record_status.recording || pending_recording.has_value() || export_status.running ||
                         episode_load.valid();
-                    ImGui::BeginDisabled(unavailable);
+                    ImGui::BeginDisabled(hf_status.running || unavailable);
                     if (ui::primary_button("Upload recording")) {
                         try {
                             persist_episodes();
@@ -3563,7 +3569,6 @@ int run_app(const AppOptions& options) {
                                 hf_folder, hf_private);
                         } catch (const std::exception& error) { ui_error = error.what(); }
                     }
-                    ImGui::EndDisabled();
                     ImGui::EndDisabled();
                     if (!hf_status.commit_url.empty() && ImGui::Button("View uploaded recording"))
                         hf::open_browser(hf_status.commit_url);
@@ -3619,7 +3624,7 @@ int run_app(const AppOptions& options) {
                 ImGui::Spacing();
                 if (preferences.replay_location == ReplayLocation::local_file) {
                     ImGui::PushID("File");
-                    pane_text_input("Recording", session_path, sizeof(session_path), ".mcap");
+                    ui::path_input("Recording", session_path, sizeof(session_path), 0, ".mcap");
                     ImGui::BeginDisabled(!session_path[0] || record_status.recording ||
                                          pending_recording.has_value() || source_job.valid() || hf_status.running);
                     if (ui::primary_button("Open recording")) change_source(session_path, false);
@@ -3780,8 +3785,8 @@ int run_app(const AppOptions& options) {
                 ImGui::PushID("Calibration");
                 ui::subsection("Camera", true);
                 ImGui::TextWrapped("%s", calibration.name.c_str());
-                pane_text_input("Profile", profile_path, sizeof(profile_path),
-                                "Calibration JSON path");
+                ui::path_input("Profile", profile_path, sizeof(profile_path), 0,
+                               "Calibration JSON path");
                 if (ImGui::Button("Load")) {
                     try {
                         calibration = Calibration::load(profile_path);
@@ -3816,7 +3821,7 @@ int run_app(const AppOptions& options) {
                                  "calibrated depth.");
                 } else
                     ui::muted("No stereo profile");
-                pane_text_input("Profile##Stereo", stereo_path, sizeof(stereo_path),
+                ui::path_input("Profile##Stereo", stereo_path, sizeof(stereo_path), 0,
                                 "Stereo calibration JSON");
                 if (ImGui::Button("Load##Stereo")) {
                     try {

@@ -4,6 +4,7 @@
 #include <array>
 #include <cmath>
 #include <cfloat>
+#include <cstring>
 
 namespace ceres::ui {
 namespace {
@@ -308,6 +309,39 @@ void field_label(const char* label) {
     ImGui::PopTextWrapPos();
     ImGui::PopStyleColor();
     ImGui::PopFont();
+}
+
+bool path_input(const char* label, char* value, size_t capacity,
+                ImGuiInputTextFlags flags, const char* hint) {
+    IM_ASSERT(value && capacity > 0);
+    ImGui::PushID(safe(label));
+    const float right = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
+    ImGui::AlignTextToFramePadding();
+    field_label(label);
+    const auto& style = ImGui::GetStyle();
+    const float button_width = ImGui::CalcTextSize("Copy path").x + style.FramePadding.x * 2.f;
+    if (ImGui::GetItemRectMax().x + style.ItemSpacing.x + button_width <= right)
+        ImGui::SameLine();
+    auto* storage = ImGui::GetStateStorage();
+    const auto feedback_id = ImGui::GetID("##copied_until");
+    const bool copied = storage->GetFloat(feedback_id) > ImGui::GetTime();
+    ImGui::BeginDisabled(!*value);
+    if (ImGui::Button(copied ? "Copied###copy" : "Copy path###copy", {button_width, 0.f})) {
+        ImGui::SetClipboardText(value);
+        storage->SetFloat(feedback_id, static_cast<float>(ImGui::GetTime() + 1.5));
+    }
+    ImGui::EndDisabled();
+    ImGui::SetNextItemWidth(-1.f);
+    const bool changed = ImGui::InputTextWithHint("##value", safe(hint), value, capacity, flags);
+    ImGui::PopID();
+    return changed;
+}
+
+void path_output(const char* label, const char* value) {
+    value = safe(value);
+    // Dear ImGui does not write to the caller's buffer for a read-only input.
+    path_input(label, const_cast<char*>(value), std::strlen(value) + 1,
+               ImGuiInputTextFlags_ReadOnly);
 }
 
 void subsection(const char* label, bool first) {

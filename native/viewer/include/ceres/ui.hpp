@@ -56,6 +56,11 @@ bool primary_button(const char* label, bool recording = false);
 void muted(const char* text);
 void help(const char* text);
 void field_label(const char* label);
+// Read-only fields retain text selection and clipboard shortcuts. The copy button
+// copies the complete value and uses the label as its stable ID scope.
+bool path_input(const char* label, char* value, size_t capacity,
+                ImGuiInputTextFlags flags = 0, const char* hint = "");
+void path_output(const char* label, const char* value);
 void subsection(const char* label, bool first = false);
 
 // A successful begin owns the table, ID and body font until end_field().
