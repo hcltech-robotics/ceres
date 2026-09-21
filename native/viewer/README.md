@@ -8,7 +8,7 @@ Hugging Face sign-in uses your web browser. On Linux, install `xdg-utils` in the
 
 ## Run
 
-Launch `ceres-viewer` from its distribution directory. **Connection** shows a QR code and access code. Open Ceres Bridge on the headset and enter that code. The receiver identity is retained between launches. **Disconnect** closes the active connection and **Pair again** creates a new pairing identity.
+Launch `ceres-viewer` from its distribution directory. **Connection** shows a QR code and access code. Click the QR image or **Enlarge QR code** to display it across the window, then scan it with the headset. Press Escape or **Close** to return to the controls. You can also open Ceres Bridge on the headset and enter the access code. The receiver identity is retained between launches. **Disconnect** closes the active connection and **Pair again** creates a new pairing identity.
 
 Access codes use unambiguous capital letters and adapt to the length supported by the pairing service. If the service limits requests, **Connection** shows the time until the next attempt. The viewer retains that deadline across restarts and pairing changes. Other rejected requests stop automatic retries until you reconnect or choose **Pair again**.
 
@@ -118,6 +118,8 @@ camera identities and timing. Replay restores both images and their stereo calib
 ## Export
 
 **Recording > Export** exports completed recordings to CERES-compatible LeRobot v3 at 30 Hz by default. Each episode needs task text and a selected time range. Mark a range in replay or choose **Use whole session** before starting export. Connection and reference-space changes split episodes. Missing observations have false validity and zeroed geometry, while missing camera slots are black.
+
+Use **Copy path** beside a recording destination, recorded file, export destination or dataset folder to copy its complete path. The fields also support text selection and Ctrl+C, including the recording destination while recording is active.
 
 The `observation.images.passthrough` feature uses the declared primary camera. Its selection
 is explicit and independent of which camera's frame arrives first. Both cameras remain in
