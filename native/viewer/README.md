@@ -8,7 +8,7 @@ Hugging Face sign-in uses your web browser. On Linux, install `xdg-utils` in the
 
 ## Run
 
-Launch `ceres-viewer` from its distribution directory. **Connection** shows a QR code and access code. Open Ceres Bridge on the headset and enter that code. The receiver identity is retained between launches. **Disconnect** closes the active connection and **Pair again** creates a new pairing identity.
+Launch `ceres-viewer` from its distribution directory. **Connection** shows a QR code and access code. Click the QR image or **Enlarge QR code** to display it across the window, then scan it with the headset. Press Escape or **Close** to return to the controls. You can also open Ceres Bridge on the headset and enter the access code. The receiver identity is retained between launches. **Disconnect** closes the active connection and **Pair again** creates a new pairing identity.
 
 Access codes use unambiguous capital letters and adapt to the length supported by the pairing service. If the service limits requests, **Connection** shows the time until the next attempt. The viewer retains that deadline across restarts and pairing changes. Other rejected requests stop automatic retries until you reconnect or choose **Pair again**.
 

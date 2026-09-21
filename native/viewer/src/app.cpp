@@ -12,6 +12,7 @@
 #include "ceres/export_job.hpp"
 #include "ceres/hugging_face.hpp"
 #include "ceres/mesh.hpp"
+#include "ceres/pairing_qr.hpp"
 #include "ceres/protocol.hpp"
 #include "ceres/renderer.hpp"
 #include "ceres/session.hpp"
@@ -44,7 +45,6 @@
 #include <map>
 #include <mutex>
 #include <optional>
-#include <qrcodegen.hpp>
 #include <sstream>
 #include <thread>
 #include <tuple>
@@ -805,27 +805,6 @@ bool is_idr(const std::vector<uint8_t>& b) {
             return true;
     }
     return false;
-}
-void qr_code(const std::string& url, float size) {
-    using qrcodegen::QrCode;
-    static std::string cached_url;
-    static std::optional<QrCode> cached;
-    if (!cached || cached_url != url) {
-        cached = QrCode::encodeText(url.c_str(), QrCode::Ecc::MEDIUM);
-        cached_url = url;
-    }
-    const auto& qr = *cached;
-    auto start = ImGui::GetCursorScreenPos();
-    auto* draw = ImGui::GetWindowDrawList();
-    draw->AddRectFilled(start, {start.x + size, start.y + size}, IM_COL32(242, 246, 250, 255), 3);
-    float cell = size / (qr.getSize() + 8);
-    for (int y = 0; y < qr.getSize(); ++y)
-        for (int x = 0; x < qr.getSize(); ++x)
-            if (qr.getModule(x, y))
-                draw->AddRectFilled({start.x + (x + 4) * cell, start.y + (y + 4) * cell},
-                                    {start.x + (x + 5) * cell, start.y + (y + 5) * cell},
-                                    IM_COL32(16, 23, 30, 255));
-    ImGui::Dummy({size, size});
 }
 struct Episode {
     int64_t start_us = 0, end_us = 0;
@@ -2555,6 +2534,7 @@ int run_app(const AppOptions& options) {
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
+        bool enlarge_pairing_qr = false;
         const auto& instrument_style = ImGui::GetStyle();
         const float instrument_height =
             readout_font->FontSize + io.FontDefault->FontSize + ui::metrics().panel_padding +
@@ -2877,17 +2857,8 @@ int run_app(const AppOptions& options) {
                 begin_body("Connection body");
                 ImGui::PushID("Connection");
                 if (!snap.pairing_url.empty() && !snap.code.empty()) {
-                    ImGui::PushFont(readout_font);
-                    const float code_width = ImGui::CalcTextSize(snap.code.c_str()).x;
-                    ImGui::PopFont();
-                    const float qr_space =
-                        ImGui::GetContentRegionAvail().x - code_width - style.ItemSpacing.x;
-                    const bool inline_code = qr_space >= 104.f * dpi;
-                    qr_code(snap.pairing_url,
-                            inline_code ? std::min(132.f * dpi, qr_space)
-                                        : std::min(132.f * dpi, ImGui::GetContentRegionAvail().x));
-                    if (inline_code)
-                        ImGui::SameLine();
+                    enlarge_pairing_qr =
+                        ui::pairing_qr_button(snap.pairing_url, ImGui::GetContentRegionAvail().x);
                     ImGui::BeginGroup();
                     ui::field_label("Access code");
                     ImGui::PushFont(readout_font);
@@ -4424,6 +4395,7 @@ int run_app(const AppOptions& options) {
             ImGui::PopStyleVar(6);
         }
         if (!replay) task_timeline_metrics = Json();
+        ui::pairing_qr_popup(enlarge_pairing_qr, snap.pairing_url, snap.code, readout_font);
         if (hf_status.authenticating && !hf_status.user_code.empty() && !hf_auth_popup) {
             ImGui::OpenPopup("Hugging Face sign-in");
             hf_auth_popup = true;
