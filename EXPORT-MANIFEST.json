@@ -2,7 +2,7 @@
   "version": 2,
   "packageVersion": "1.1.3",
   "generator": "ceres-public-core/2",
-  "treeDigest": "779790262992482225e7666cf497f558be47ed05ebe0def6d2877f57187cf0a3",
+  "treeDigest": "5b9790bd6d2cacd06b5eca8a47044a79c1fbb61077d25c0aeac767802dbfc724",
   "files": {
     ".dockerignore": {
       "sha256": "c42f073a38c93eb50ac7cafd943c2ed01e7481ee36435bc1c7d5903977af839f",
@@ -250,8 +250,8 @@
       "mode": "100644"
     },
     "native/viewer/CMakeLists.txt": {
-      "sha256": "6c61d6913de3f4fd1f97eab4416d4271a78642cebab137f7f543352c9d69537c",
-      "bytes": 13827,
+      "sha256": "03998f74165d0cdbae07a7c364522720e6a35db411b6a98ba3a6197b5d42f3f1",
+      "bytes": 14220,
       "mode": "100644"
     },
     "native/viewer/LICENCE.md": {
@@ -260,8 +260,8 @@
       "mode": "100644"
     },
     "native/viewer/README.md": {
-      "sha256": "353624cb06f03c7df6735b8b7296ac499ab22ab7554858cf2fd8a7cf2007ea33",
-      "bytes": 25649,
+      "sha256": "c8536cdbaa16e3b622b58c4f08aec4b90f5768b0c072b1e03a4e11aeee7a2e78",
+      "bytes": 25827,
       "mode": "100644"
     },
     "native/viewer/assets/README.md": {
@@ -385,8 +385,8 @@
       "mode": "100644"
     },
     "native/viewer/docs/design-system.md": {
-      "sha256": "ab46c30f37ccc1f0ccdf7cc154d4ca4099eaa9277f2c1180899fe12ee612f81b",
-      "bytes": 12476,
+      "sha256": "2fbc12a9531c3a5a8440d1c8b8f1745977e6328534a3d8998d5baf9336a1c640",
+      "bytes": 12747,
       "mode": "100644"
     },
     "native/viewer/docs/environment-depth.md": {
@@ -557,6 +557,11 @@
     "native/viewer/include/ceres/mesh.hpp": {
       "sha256": "23ad516d2a268eb0c09519b70b77c8f166cd558f6034856d01f71e7ecde46c29",
       "bytes": 1722,
+      "mode": "100644"
+    },
+    "native/viewer/include/ceres/pairing_qr.hpp": {
+      "sha256": "446c0bdfcff119d557ef556b62c27f0f92d9e1e8b170d7c4ca2dd0c07f7be383",
+      "bytes": 462,
       "mode": "100644"
     },
     "native/viewer/include/ceres/protocol.hpp": {
@@ -755,8 +760,8 @@
       "mode": "100644"
     },
     "native/viewer/src/app.cpp": {
-      "sha256": "0899dafb31a327011f37bcef89ef41bcbfef1f98d6fa382fa6dae3445ce11174",
-      "bytes": 263122,
+      "sha256": "83fafce69f2d79314bb39945ea4a31fcd4448179d902f3ecbedd81f61a25611b",
+      "bytes": 261754,
       "mode": "100644"
     },
     "native/viewer/src/bridge.cpp": {
@@ -832,6 +837,11 @@
     "native/viewer/src/nvdec_jetson.cpp": {
       "sha256": "351781ff52b1d75a7e328e4da5d5caf31eefded4bb65ee93fb65a8d5e0b914e1",
       "bytes": 13406,
+      "mode": "100644"
+    },
+    "native/viewer/src/pairing_qr.cpp": {
+      "sha256": "ad415ad28966cbe61e1fb27a9996289e7d4aa18997de71e36d2285fe47d6a98d",
+      "bytes": 5647,
       "mode": "100644"
     },
     "native/viewer/src/protocol.cpp": {
@@ -1032,6 +1042,11 @@
     "native/viewer/tests/test_package.py": {
       "sha256": "53a5a4090c8baae76ca279939d29c55096f5bb99b0155d8ff0ac8ebe26c743b2",
       "bytes": 12054,
+      "mode": "100644"
+    },
+    "native/viewer/tests/test_pairing_qr.cpp": {
+      "sha256": "9a7da573eb787128789ed8cdcbdab350f00480eb29005bf54de9177e8b2155e0",
+      "bytes": 9795,
       "mode": "100644"
     },
     "native/viewer/tests/test_path_clipboard.cpp": {
