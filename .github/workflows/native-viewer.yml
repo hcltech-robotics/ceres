@@ -232,6 +232,11 @@ jobs:
         with:
           persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        env:
+          # The host cache may contain Python linked against a newer glibc than
+          # this CUDA container. Download the matching container distribution.
+          AGENT_TOOLSDIRECTORY: ${{ runner.temp }}/ceres-python
+          RUNNER_TOOL_CACHE: ${{ runner.temp }}/ceres-python
         with:
           python-version: '3.12'
       - name: Install pinned CMake and Ninja
@@ -241,7 +246,7 @@ jobs:
       - name: Extract the standalone release source
         run: |
           mkdir "$RUNNER_TEMP/native-source"
-          git archive --format=tar HEAD | tar -xf - -C "$RUNNER_TEMP/native-source"
+          git -c safe.directory="$GITHUB_WORKSPACE" archive --format=tar HEAD | tar -xf - -C "$RUNNER_TEMP/native-source"
           test ! -e "$RUNNER_TEMP/native-source/.git"
       - name: Build pinned FFmpeg 8.0 and x264
         run: |
