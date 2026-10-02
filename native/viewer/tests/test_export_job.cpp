@@ -42,6 +42,8 @@ void set_search_path(const fs::path& directory) {
 }
 void availability_tests(const fs::path& self) {
     // This runs in a copied fixture process with an isolated executable directory.
+    // Compare file identity: macOS /var aliases and Windows path canonicalisation
+    // must not change which installed executable takes precedence.
     const auto root = self.parent_path();
     const auto first_directory = root / "first path";
     const auto second_directory = root / "second path";
@@ -74,7 +76,7 @@ void availability_tests(const fs::path& self) {
     std::ofstream(first_directory / "availability-watch").put('\n');
     for (int check = 0; check < 3; ++check)
         require(discovered.exporter_available(), "Exporter installation was not detected");
-    require(ceres::ExportJob::discover_helper() == first && !fs::exists(probe_marker),
+    require(fs::equivalent(ceres::ExportJob::discover_helper(), first) && !fs::exists(probe_marker),
             "Availability did not use discovery or started an exporter process");
     require(discovered.start(manifest, root / "installed.json") && wait(discovered).error.empty() &&
                 fs::is_regular_file(probe_marker),
@@ -86,20 +88,20 @@ void availability_tests(const fs::path& self) {
             "Removed exporter left a stale executable path");
     fs::copy_file(self, second);
     set_search_path(second_directory);
-    require(discovered.exporter_available() && ceres::ExportJob::discover_helper() == second &&
+    require(discovered.exporter_available() && fs::equivalent(ceres::ExportJob::discover_helper(), second) &&
                 discovered.start(manifest, root / "reinstalled.json") &&
                 wait(discovered).error.empty(),
             "Exporter relocation did not recover after removal");
     fs::copy_file(self, packaged);
-    require(ceres::ExportJob::discover_helper() == packaged && discovered.exporter_available(),
+    require(fs::equivalent(ceres::ExportJob::discover_helper(), packaged) && discovered.exporter_available(),
             "Packaged exporter did not take precedence over PATH");
     fs::remove(packaged);
     fs::create_directory(packaged_bin.parent_path());
     fs::copy_file(self, packaged_bin);
-    require(ceres::ExportJob::discover_helper() == packaged_bin && discovered.exporter_available(),
+    require(fs::equivalent(ceres::ExportJob::discover_helper(), packaged_bin) && discovered.exporter_available(),
             "Packaged bin exporter was not discovered");
     fs::remove(packaged_bin);
-    require(ceres::ExportJob::discover_helper() == second && discovered.exporter_available(),
+    require(fs::equivalent(ceres::ExportJob::discover_helper(), second) && discovered.exporter_available(),
             "Removing the packaged exporter did not restore PATH discovery");
 
     const auto explicit_path = root / ("explicit exporter" + self.extension().string());
@@ -116,8 +118,7 @@ void availability_tests(const fs::path& self) {
             "Removed explicit exporter remained available or fell back to PATH");
 }
 int helper(int argc, char** argv) {
-    // macOS temp paths may spell the same directory as /var or /private/var.
-    const auto executable = fs::canonical(from_utf8(argv[0]));
+    const auto executable = from_utf8(argv[0]);
     if (std::string(argv[1]) == "--capabilities") {
         if (fs::exists(executable.parent_path() / "availability-watch"))
             std::ofstream(executable.parent_path() / "availability-probed").put('\n');
@@ -239,8 +240,15 @@ void replay_capability_tests(const fs::path& root, const fs::path& self) {
             "Current task metadata importer was rejected");
 }
 int main(int argc, char** argv) {
-    if (argc > 1)
-        return helper(argc, argv);
+    if (argc > 1) {
+        try {
+            return helper(argc, argv);
+        } catch (const std::exception& error) {
+            std::cout << Json{{"schema", "ceres-export-progress"}, {"stage", "error"},
+                               {"message", error.what()}}.dump() << '\n';
+            return 17;
+        }
+    }
     const auto root = fs::temp_directory_path() /
                       ("ceres-export-process-test-" + std::to_string(ceres::monotonic_us()));
     try {
