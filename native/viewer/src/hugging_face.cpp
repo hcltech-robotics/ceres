@@ -444,8 +444,13 @@ bool open_browser(const std::string& url) {
                                                     SW_SHOWNORMAL)) > 32;
 #else
     pid_t child = 0;
-    std::array<char*, 3> arguments{const_cast<char*>("xdg-open"), const_cast<char*>(url.c_str()), nullptr};
-    if (posix_spawnp(&child, "xdg-open", nullptr, nullptr, arguments.data(), environ) != 0)
+#ifdef __APPLE__
+    constexpr const char* opener = "/usr/bin/open";
+#else
+    constexpr const char* opener = "xdg-open";
+#endif
+    std::array<char*, 3> arguments{const_cast<char*>(opener), const_cast<char*>(url.c_str()), nullptr};
+    if (posix_spawnp(&child, opener, nullptr, nullptr, arguments.data(), environ) != 0)
         return false;
     std::thread([child] { int status = 0; while (waitpid(child, &status, 0) < 0 && errno == EINTR) {} }).detach();
     return true;

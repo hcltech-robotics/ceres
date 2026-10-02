@@ -1,17 +1,21 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-work_dir=$(realpath -m -- "${1:?Supply an unused build directory}")
-prefix=$(realpath -m -- "${2:?Supply the FFmpeg output directory}")
+work_dir=$(python3 -c 'from pathlib import Path; import sys; print(Path(sys.argv[1]).resolve())' "${1:?Supply an unused build directory}")
+prefix=$(python3 -c 'from pathlib import Path; import sys; print(Path(sys.argv[1]).resolve())' "${2:?Supply the FFmpeg output directory}")
 if [[ -e "$work_dir" || -e "$prefix" ]]; then
     printf '%s\n' 'FFmpeg build and output directories must be unused' >&2
     exit 1
 fi
 mkdir -p -- "$work_dir" "$prefix/doc"
-script_path=$(realpath -- "${BASH_SOURCE[0]}")
+script_path=$(python3 -c 'from pathlib import Path; import sys; print(Path(sys.argv[1]).resolve())' "${BASH_SOURCE[0]}")
 ffmpeg_revision=140fd653aed8cad774f991ba083e2d01e86420c7
 x264_revision=b35605ace3ddf7c1a5d67a2eb553f034aef41d55
 jobs=${CMAKE_BUILD_PARALLEL_LEVEL:-2}
+if [[ $(uname -s) == Darwin ]]; then
+    [[ $(uname -m) == arm64 ]] || { printf '%s\n' 'macOS releases require Apple Silicon' >&2; exit 1; }
+    export MACOSX_DEPLOYMENT_TARGET=${MACOSX_DEPLOYMENT_TARGET:-14.0}
+fi
 
 checkout() {
     local repository=$1 revision=$2 destination=$3

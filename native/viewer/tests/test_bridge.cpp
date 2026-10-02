@@ -58,7 +58,11 @@ template <class F> void until(F condition, const char* error, std::chrono::secon
     }
 }
 bool send_all(Socket socket, const char* bytes, size_t size) {
-#ifdef _WIN32
+#ifdef __APPLE__
+    const int no_sigpipe = 1;
+    setsockopt(socket, SOL_SOCKET, SO_NOSIGPIPE, &no_sigpipe, sizeof(no_sigpipe));
+#endif
+#if defined(_WIN32) || defined(__APPLE__)
     constexpr int flags = 0;
 #else
     constexpr int flags = MSG_NOSIGNAL;

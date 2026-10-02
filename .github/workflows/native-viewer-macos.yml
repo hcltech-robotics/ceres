@@ -1,0 +1,120 @@
+name: Native viewer macOS foundations
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/macos-viewer]
+  pull_request:
+    paths:
+      - native/**
+      - .github/workflows/native-viewer-macos.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-viewer-macos-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  compile-and-test:
+    runs-on: macos-15
+    timeout-minutes: 45
+    env:
+      MACOSX_DEPLOYMENT_TARGET: '14.0'
+      DEVELOPER_DIR: /Applications/Xcode_26.0.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - name: Select Apple Silicon toolchain
+        run: |
+          test "$(uname -m)" = arm64
+          xcodebuild -version
+          python -m pip install cmake==3.31.6 ninja==1.11.1.4
+          # Xcode 26 downloads the Metal compiler separately on some images.
+          xcodebuild -downloadComponent MetalToolchain
+      - name: Compile portable core, macOS services and GPU probes
+        run: |
+          cmake -S native/viewer -B build-native -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 -DCERES_BUILD_APP=OFF \
+            -DCERES_BUILD_APP_SERVICES=ON -DCERES_BUILD_BACKEND_PROBES=ON
+          cmake --build build-native --parallel 3
+      - name: Check probe architecture and macOS 14 dependency closure
+        run: |
+          python - <<'PYCODE'
+          import importlib.util
+          import json
+          import os
+          from pathlib import Path
+          import shutil
+          spec = importlib.util.spec_from_file_location("verify_package", "native/viewer/scripts/verify-package.py")
+          verifier = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(verifier)
+          app = Path(os.environ["RUNNER_TEMP"]) / "Probe.app"
+          binary = app / "Contents/MacOS"
+          binary.mkdir(parents=True)
+          for name in ("test_videotoolbox", "test_image_metal", "test_metal_reduction"):
+              shutil.copy2(Path("build-native") / name, binary / name)
+          Path("build-native/macos-probes-closure.json").write_text(json.dumps(verifier.verify_macos_binaries(app), indent=2))
+          PYCODE
+      - name: Bundle physical Mac probes
+        run: |
+          python - <<'PYCODE'
+          import shutil
+          import tarfile
+          from pathlib import Path
+          bundle = Path("ceres-macos-backend-probes")
+          bundle.mkdir()
+          for name in ("test_videotoolbox", "test_image_metal", "test_metal_reduction", "ceres-probes.metallib", "macos-probes-closure.json"):
+              shutil.copy2(Path("build-native") / name, bundle / name)
+          shutil.copy2("native/viewer/scripts/probe-macos.py", bundle)
+          shutil.copytree("native/viewer/tests/fixtures/nvdec", bundle / "fixtures")
+          with tarfile.open("ceres-macos-backend-probes.tar.gz", "w:gz") as archive:
+              archive.add(bundle, arcname=bundle.name)
+          PYCODE
+      - name: Run CPU and service tests
+        run: |
+          ctest --test-dir build-native --output-on-failure -LE 'gpu|display'
+          python -m unittest discover -s native/viewer/tests -p test_video_configuration.py
+          python -m unittest discover -s native/viewer/tests -p test_package.py
+      - name: Preserve probes for physical Mac qualification
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ceres-macos-foundation-probes-${{ github.sha }}
+          path: ceres-macos-backend-probes.tar.gz
+          retention-days: 14
+          if-no-files-found: error
+      - name: Build and test the pinned native exporter and FFmpeg
+        run: |
+          rustup toolchain install 1.91.0 --profile minimal
+          rustup default 1.91.0
+          bash .github/scripts/build-native-ffmpeg.sh "$RUNNER_TEMP/ffmpeg-build" "$RUNNER_TEMP/ffmpeg-runtime"
+          export CERES_FFMPEG="$RUNNER_TEMP/ffmpeg-runtime/bin/ffmpeg"
+          export PATH="$RUNNER_TEMP/ffmpeg-runtime/bin:$PATH"
+          cargo test --locked --manifest-path native/lerobot-exporter/Cargo.toml
+          cargo build --locked --release --manifest-path native/lerobot-exporter/Cargo.toml
+          cp native/lerobot-exporter/target/release/ceres-native-exporter "$RUNNER_TEMP/ffmpeg-runtime/bin/"
+          mkdir "$RUNNER_TEMP/ffmpeg-runtime/bin/provenance"
+          cp package.json "$RUNNER_TEMP/ffmpeg-runtime/bin/provenance/"
+          python - <<'PYCODE'
+          import importlib.util
+          import os
+          from pathlib import Path
+          spec = importlib.util.spec_from_file_location("verify_package", "native/viewer/scripts/verify-package.py")
+          verifier = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(verifier)
+          work = Path(os.environ["RUNNER_TEMP"])
+          verifier.export_fixture(work / "ffmpeg-runtime/bin", work / "macos-export-fixture")
+          PYCODE
+      - name: Preserve test diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ceres-macos-foundation-logs-${{ github.sha }}
+          path: build-native/Testing/Temporary/
+          retention-days: 14

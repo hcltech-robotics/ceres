@@ -1,6 +1,13 @@
+#ifdef CERES_METAL
+#include "ceres/detail/metal_video_surface.hpp"
+#import <Metal/Metal.h>
+#else
+#include "ceres/detail/cuda_video_surface.hpp"
+#endif
 #include "ceres/video.hpp"
 #include <algorithm>
 #include <chrono>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
@@ -15,6 +22,7 @@ void require(bool condition, const std::string& message) {
     if (!condition)
         throw std::runtime_error(message);
 }
+#ifndef CERES_METAL
 void cuda_check(CUresult result, const char* operation) {
     if (result == CUDA_SUCCESS)
         return;
@@ -22,6 +30,16 @@ void cuda_check(CUresult result, const char* operation) {
     cuGetErrorString(result, &description);
     throw std::runtime_error(std::string(operation) + ": " +
                              (description ? description : "CUDA error"));
+}
+#endif
+VideoDevice test_device() {
+#ifdef CERES_METAL
+    @autoreleasepool {
+        return {GraphicsApi::metal, 0, std::make_shared<detail::MetalVideoDevice>()};
+    }
+#else
+    return detail::cuda_video_device(0);
+#endif
 }
 struct AccessUnit {
     std::vector<uint8_t> bytes;
@@ -77,16 +95,45 @@ std::vector<AccessUnit> read_units(const std::filesystem::path& path) {
     return units;
 }
 std::vector<uint8_t> copy_nv12(const VideoFrameLease& lease) {
-    require(bool(lease) && lease.image->data && lease.image->context_owner,
+    require(bool(lease) && lease.image->surface,
             "Frame has no owned GPU surface");
     const auto& image = *lease.image;
     std::vector<uint8_t> bytes(size_t(image.width) * size_t(image.height) * 3 / 2);
-    cuda_check(cuCtxPushCurrent(image.context), "Activate leased frame context");
+#ifdef CERES_METAL
+    @autoreleasepool {
+        const auto& surface = detail::metal_surface(image);
+        id<MTLDevice> device = surface.owner->device;
+        id<MTLCommandQueue> queue = [device newCommandQueue];
+        size_t destination = 0;
+        for (size_t plane = 0; plane < 2; ++plane) {
+            id<MTLTexture> texture = surface.texture(plane);
+            require(texture != nil, "Frame has no Metal plane texture");
+            const size_t width = size_t(image.width) / (plane ? 2 : 1);
+            const size_t height = size_t(image.height) / (plane ? 2 : 1);
+            const size_t pitch = (size_t(image.width) + 255) & ~size_t(255);
+            id<MTLBuffer> staging = [device newBufferWithLength:pitch * height options:MTLResourceStorageModeShared];
+            require(staging != nil, "Cannot allocate Metal readback buffer");
+            id<MTLCommandBuffer> command = [queue commandBuffer];
+            id<MTLBlitCommandEncoder> blit = [command blitCommandEncoder];
+            [blit copyFromTexture:texture sourceSlice:0 sourceLevel:0
+                sourceOrigin:MTLOriginMake(0,0,0) sourceSize:MTLSizeMake(width,height,1)
+                toBuffer:staging destinationOffset:0 destinationBytesPerRow:pitch destinationBytesPerImage:pitch * height];
+            [blit endEncoding]; [command commit]; [command waitUntilCompleted];
+            require(command.status == MTLCommandBufferStatusCompleted, "Metal NV12 readback failed");
+            for (size_t row = 0; row < height; ++row) {
+                std::memcpy(bytes.data() + destination,
+                            static_cast<const uint8_t*>(staging.contents) + row * pitch, size_t(image.width));
+                destination += size_t(image.width);
+            }
+        }
+    }
+#else
+    cuda_check(cuCtxPushCurrent(ceres::detail::cuda_surface(image).context), "Activate leased frame context");
     try {
         CUDA_MEMCPY2D copy{};
         copy.srcMemoryType = CU_MEMORYTYPE_DEVICE;
-        copy.srcDevice = image.data;
-        copy.srcPitch = image.pitch;
+        copy.srcDevice = ceres::detail::cuda_surface(image).data;
+        copy.srcPitch = ceres::detail::cuda_surface(image).pitch;
         copy.dstMemoryType = CU_MEMORYTYPE_HOST;
         copy.dstHost = bytes.data();
         copy.dstPitch = size_t(image.width);
@@ -100,6 +147,7 @@ std::vector<uint8_t> copy_nv12(const VideoFrameLease& lease) {
     }
     CUcontext previous = nullptr;
     cuda_check(cuCtxPopCurrent(&previous), "Restore caller context");
+#endif
     const auto luma_end = bytes.begin() + size_t(image.width) * size_t(image.height);
     const auto range = std::minmax_element(bytes.begin(), luma_end);
     require(int(*range.second) - int(*range.first) > 32,
@@ -151,7 +199,7 @@ SessionEvent event_for(const AccessUnit& unit, uint32_t sequence, uint64_t gener
     event.attributes = {{"codec", "h264"}, {"replay_generation", generation}};
     return event;
 }
-VideoFrameLease wait_frame(NvDecoder& decoder, uint32_t sequence, int width, int height,
+VideoFrameLease wait_frame(VideoDecoder& decoder, uint32_t sequence, int width, int height,
                            uint64_t expected_count, int64_t global_deadline) {
     const auto deadline = std::min(global_deadline, monotonic_us() + 3000000);
     while (monotonic_us() < deadline) {
@@ -187,23 +235,23 @@ int main(int argc, char** argv) {
     const std::filesystem::path inputs = argv[2], report_path = argv[3];
     Json report{{"passed", false},
                 {"gpu_execution_requested", true},
-                {"cuda_initialised", false},
                 {"frames", Json::array()},
                 {"transitions", Json::array()}};
+#ifdef CERES_METAL
+    report["graphics_backend"] = "METAL";
+    report["video_backend"] = "VIDEOTOOLBOX";
+#else
+    report["graphics_backend"] = "OPENGL_CUDA";
+    report["cuda_initialised"] = false;
+#endif
     try {
         const auto reference = read_reference(inputs);
         report["cpu_reference"] = reference;
         const auto small_a = read_units(inputs / "nvdec-resolution-640x480-a.h264");
         const auto large = read_units(inputs / "nvdec-resolution-1280x960-b.h264");
         const auto small_c = read_units(inputs / "nvdec-resolution-640x480-c.h264");
-        auto decoder = std::make_unique<NvDecoder>(0);
-        report["cuda_initialised"] = true;
+        auto decoder = std::make_unique<VideoDecoder>(test_device());
         const int64_t deadline = monotonic_us() + 30000000;
-        report["gpu"] = decoder->status().gpu;
-        report["backend"] = decoder->status().backend;
-        int driver_version = 0;
-        cuda_check(cuDriverGetVersion(&driver_version), "Read CUDA driver version");
-        report["cuda_driver_version"] = driver_version;
         uint32_t sequence = 0;
         uint64_t decoded = 0;
         VideoFrameLease retained;
@@ -218,8 +266,19 @@ int main(int argc, char** argv) {
                 decoder->submit(event_for(unit, ++sequence, 1));
                 auto lease = wait_frame(*decoder, sequence, width, height, ++decoded, deadline);
                 const auto bytes = copy_nv12(lease);
+                report["gpu"] = decoder->status().gpu;
+                report["backend"] = decoder->status().backend;
+#ifdef CERES_METAL
+                report["metal_texture_readback"] = true;
+                report["hardware_decoding"] = true;
+#else
+                report["cuda_initialised"] = true;
+                int driver_version = 0;
+                cuda_check(cuDriverGetVersion(&driver_version), "Read CUDA driver version");
+                report["cuda_driver_version"] = driver_version;
+#endif
                 if (retained)
-                    require(lease.image->data != retained.image->data,
+                    require(lease.image->surface != retained.image->surface,
                             "Decoder reused a leased old surface");
                 const auto actual_hash = content_hash(bytes);
                 const auto expected_hash =
@@ -306,7 +365,8 @@ int main(int argc, char** argv) {
         retained = {};
         // Both cameras may share timestamps. Serial identifiers must stay local
         // to each decoder and presentation must retain the complete source event.
-        NvDecoder right(0), left(0);
+        const auto camera_device = test_device();
+        VideoDecoder right(camera_device), left(camera_device);
         for (uint32_t i = 0; i < 3; ++i) {
             auto first = event_for(small_a[i], i + 1, 10);
             first.time_us = 123456;
@@ -346,9 +406,66 @@ int main(int argc, char** argv) {
                 "Source change retained stale replay metadata");
         report["dual_camera_metadata"] = true;
         report["cancel_and_source_restart"] = true;
+        VideoDecoder seeking(test_device());
+        auto preroll = event_for(small_a[0], 200, 20);
+        preroll.attributes["replay_preroll"] = true;
+        seeking.submit(preroll);
+        auto after_preroll = event_for(small_a[1], 201, 20);
+        seeking.submit(after_preroll);
+        auto visible = wait_frame(seeking, 201, 640, 480, 1, deadline);
+        require(content_hash(copy_nv12(visible)) ==
+                    reference.at("sources").at(0).at("cpu_nv12_fnv1a64").at(1).get<std::string>(),
+                "Replay preroll did not establish decode history");
+        for (uint64_t generation = 21; generation < 37; ++generation) {
+            seeking.submit(event_for(large[0], uint32_t(generation), generation));
+            // Give some submissions a chance to reach the hardware callback.
+            if (generation & 1) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            seeking.cancel_replay();
+            require(!seeking.latest(), "A cancelled seek retained its presentation frame");
+            seeking.submit(event_for(large[1], 500, generation)); // stale producer
+        }
+        seeking.submit(event_for(small_c[0], 600, 37));
+        const auto seek_deadline = monotonic_us() + 3000000;
+        VideoFrameLease settled;
+        while (monotonic_us() < seek_deadline) {
+            settled = seeking.latest();
+            if (settled) {
+                require(settled.image->event.sequence == 600 &&
+                            settled.image->event.attributes.at("replay_generation") == 37,
+                        "A stale seek callback was presented");
+                break;
+            }
+            require(!seeking.status().failed, "Rapid seek stopped the decoder");
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        require(bool(settled), "Rapid seek did not settle on the requested frame");
+        require(content_hash(copy_nv12(settled)) ==
+                    reference.at("sources").at(2).at("cpu_nv12_fnv1a64").at(0).get<std::string>(),
+                "Rapid seek returned stale pixels");
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        require(seeking.latest().image == settled.image, "Late callbacks replaced the settled frame");
+        report["replay_preroll"] = true;
+        report["rapid_seek_generations"] = 16;
+#ifdef CERES_METAL
+        VideoDecoder malformed(test_device());
+        auto bad = event_for(small_a[0], 1, 1);
+        bad.payload = {0, 0, 1, 0xe5, 1}; // forbidden_zero_bit
+        malformed.submit(bad);
+        const auto malformed_deadline = monotonic_us() + 1000000;
+        while (malformed.status().error.empty() && monotonic_us() < malformed_deadline)
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        require(!malformed.status().error.empty() && malformed.status().needs_keyframe && !malformed.latest(),
+                "Malformed H.264 did not request keyframe recovery");
+        malformed.submit(event_for(small_a[0], 2, 1));
+        auto recovered = wait_frame(malformed, 2, 640, 480, 1, monotonic_us() + 3000000);
+        require(content_hash(copy_nv12(recovered)) ==
+                    reference.at("sources").at(0).at("cpu_nv12_fnv1a64").at(0).get<std::string>(),
+                "Malformed-input recovery returned incorrect pixels");
+        report["malformed_input_recovery"] = true;
+#endif
         report["passed"] = true;
         write_report(report_path, report);
-        std::cout << "NVDEC resolution and lease checks passed\n";
+        std::cout << "Hardware decoder resolution and lease checks passed\n";
         return 0;
     } catch (const std::exception& error) {
         report["error"] = error.what();

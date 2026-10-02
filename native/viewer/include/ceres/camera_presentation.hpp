@@ -2,12 +2,15 @@
 #include "ceres/types.hpp"
 #include <array>
 #include <cmath>
+#include <cstdint>
 #include <limits>
 #include <optional>
 
 namespace ceres {
+// An opaque ImGui texture identifier; wide enough for either a GL name or a Metal object.
+using UiTextureHandle = std::uintptr_t;
 struct CameraPresentation {
-    unsigned texture = 0;
+    UiTextureHandle texture = 0;
     int width = 0, height = 0;
     uint32_t sequence = 0;
     bool in_current_space = false, spatially_placed = false;

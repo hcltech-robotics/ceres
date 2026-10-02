@@ -1,4 +1,5 @@
-#include "ceres/detail/video_backend.hpp"
+#include "ceres/detail/cuda_video_surface.hpp"
+#include "ceres/detail/cuda_video_backend.hpp"
 #include "ceres/video.hpp"
 #include <atomic>
 #include <chrono>
@@ -119,7 +120,7 @@ ceres::SessionEvent event(uint32_t sequence, uint8_t value) {
     result.payload = {value};
     return result;
 }
-ceres::VideoFrameLease wait(ceres::NvDecoder& decoder, uint32_t sequence) {
+ceres::VideoFrameLease wait(ceres::VideoDecoder& decoder, uint32_t sequence) {
     const auto deadline = ceres::monotonic_us() + 2000000;
     while (ceres::monotonic_us() < deadline) {
         require(!decoder.status().failed, "Asynchronous decoder failed");
@@ -133,11 +134,11 @@ ceres::VideoFrameLease wait(ceres::NvDecoder& decoder, uint32_t sequence) {
 void check_pixels(const ceres::VideoFrameLease& frame, uint8_t value) {
     require(frame.image->full_range && frame.image->bt709, "Lost colour metadata");
     std::vector<uint8_t> bytes(width * height * 3 / 2);
-    ceres::detail::cuda_check(cuCtxPushCurrent(frame.image->context), "Activate test context");
+    ceres::detail::cuda_check(cuCtxPushCurrent(ceres::detail::cuda_surface(*frame.image).context), "Activate test context");
     CUDA_MEMCPY2D copy{};
     copy.srcMemoryType = CU_MEMORYTYPE_DEVICE;
-    copy.srcDevice = frame.image->data;
-    copy.srcPitch = frame.image->pitch;
+    copy.srcDevice = ceres::detail::cuda_surface(*frame.image).data;
+    copy.srcPitch = ceres::detail::cuda_surface(*frame.image).pitch;
     copy.dstMemoryType = CU_MEMORYTYPE_HOST;
     copy.dstHost = bytes.data();
     copy.dstPitch = width;
@@ -161,7 +162,7 @@ const char* video_backend_name() {
 
 int main() {
     try {
-        auto decoder = std::make_unique<ceres::NvDecoder>(0);
+        auto decoder = std::make_unique<ceres::VideoDecoder>(ceres::VideoDevice{});
         decoder->submit(event(1, 40));
         auto retained = wait(*decoder, 1);
         check_pixels(retained, 40);

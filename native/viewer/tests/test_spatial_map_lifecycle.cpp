@@ -1,3 +1,4 @@
+#include "ceres/detail/cuda_video_surface.hpp"
 #include "ceres/renderer.hpp"
 #include "depth_fixture.hpp"
 #include <glad/gl.h>
@@ -96,20 +97,21 @@ ceres::SessionEvent depth_event(uint32_t sequence, int64_t time, uint32_t epoch 
 }
 ceres::VideoFrameLease video_frame(uint32_t sequence, int side, int solid_luma = -1) {
     auto image = std::make_shared<ceres::GpuImage>();
+    image->surface = std::make_shared<ceres::detail::CudaVideoSurface>();
     image->width = 64;
     image->height = 48;
     image->full_range = true;
-    require(cuCtxGetCurrent(&image->context) == CUDA_SUCCESS, "Cannot access CUDA context");
+    require(cuCtxGetCurrent(&ceres::detail::cuda_surface(*image).context) == CUDA_SUCCESS, "Cannot access CUDA context");
     unsigned char* device = nullptr;
-    cuda_check(cudaMallocPitch(reinterpret_cast<void**>(&device), &image->pitch,
+    cuda_check(cudaMallocPitch(reinterpret_cast<void**>(&device), &ceres::detail::cuda_surface(*image).pitch,
                                size_t(image->width), size_t(image->height * 3 / 2)));
-    image->data = reinterpret_cast<CUdeviceptr>(device);
+    ceres::detail::cuda_surface(*image).data = reinterpret_cast<CUdeviceptr>(device);
     std::vector<unsigned char> pixels(size_t(image->width) * image->height * 3 / 2, 128);
     for (int y = 0; y < image->height; ++y)
         for (int x = 0; x < image->width; ++x)
             pixels[size_t(y) * image->width + x] = static_cast<unsigned char>(solid_luma >= 0 ? solid_luma :
                 30 + ((x + side * 3) * 37 + y * 73) % 180);
-    cuda_check(cudaMemcpy2D(device, image->pitch, pixels.data(), image->width, image->width,
+    cuda_check(cudaMemcpy2D(device, ceres::detail::cuda_surface(*image).pitch, pixels.data(), image->width, image->width,
                            image->height * 3 / 2, cudaMemcpyHostToDevice));
     image->event.kind = ceres::EventKind::Video;
     image->event.epoch = 7;
@@ -970,7 +972,7 @@ int main(int argc, char** argv) {
         snapshot(renderer, false);
         auto uniform_left = video_frame(2, 0), uniform_right = video_frame(2, 1);
         for (const auto& frame : {uniform_left, uniform_right})
-            cuda_check(cudaMemset2D(reinterpret_cast<void*>(frame.image->data), frame.image->pitch,
+            cuda_check(cudaMemset2D(reinterpret_cast<void*>(ceres::detail::cuda_surface(*frame.image).data), ceres::detail::cuda_surface(*frame.image).pitch,
                                     128, frame.image->width, frame.image->height * 3 / 2));
         auto changed_calibration = calibration;
         changed_calibration.measured = true;

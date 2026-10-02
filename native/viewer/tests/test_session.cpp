@@ -1,3 +1,4 @@
+#include "ceres/platform.hpp"
 #include "ceres/session.hpp"
 #include "ceres/task_specification.hpp"
 #include "depth_fixture.hpp"
@@ -1273,11 +1274,12 @@ class RecorderChild {
     RecorderChild(const char* mode, const std::filesystem::path& path) {
         int descriptors[2];
         require(::pipe(descriptors) == 0, "Cannot create recorder child pipe");
+        const auto executable = platform::executable_path();
         process_ = ::fork();
         if (process_ == 0) {
             ::close(descriptors[0]);
             const auto descriptor = std::to_string(descriptors[1]);
-            ::execl("/proc/self/exe", "test_session", mode, path.c_str(), descriptor.c_str(),
+            ::execl(executable.c_str(), "test_session", mode, path.c_str(), descriptor.c_str(),
                     static_cast<char*>(nullptr));
             ::_exit(127);
         }

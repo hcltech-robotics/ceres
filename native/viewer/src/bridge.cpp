@@ -1,4 +1,5 @@
 #include "ceres/bridge.hpp"
+#include "ceres/platform.hpp"
 #include "ceres/depth.hpp"
 #include "ceres/detail/receive_queue.hpp"
 #include "ceres/protocol.hpp"
@@ -35,7 +36,9 @@
 #else
 #include <fcntl.h>
 #include <sys/file.h>
+#ifndef __APPLE__
 #include <sys/random.h>
+#endif
 #include <sys/stat.h>
 #include <unistd.h>
 #endif
@@ -120,6 +123,8 @@ std::string trusted_certificates() {
     if (pem.empty())
         throw std::runtime_error("The trusted certificate store is empty");
     return pem;
+#elif defined(__APPLE__)
+    return platform::system_certificates();
 #else
     for (const auto* path :
          {"/etc/ssl/certs/ca-certificates.crt", "/etc/pki/tls/certs/ca-bundle.crt",
@@ -186,6 +191,8 @@ void random_bytes(std::span<uint8_t> bytes) {
     if (BCryptGenRandom(nullptr, bytes.data(), static_cast<ULONG>(bytes.size()),
                         BCRYPT_USE_SYSTEM_PREFERRED_RNG) != 0)
         throw std::runtime_error("Cannot obtain secure random bytes");
+#elif defined(__APPLE__)
+    arc4random_buf(bytes.data(), bytes.size());
 #else
     size_t at = 0;
     while (at < bytes.size()) {

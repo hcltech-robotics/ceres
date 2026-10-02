@@ -65,7 +65,7 @@ class Renderer {
   public:
     explicit Renderer(GLFWwindow* window, const std::filesystem::path& assets = {});
     ~Renderer();
-    int cuda_device() const;
+    VideoDevice video_device() const;
     void set_scene_width_fraction(float fraction);
     void set_scene_top_fraction(float fraction);
     void set_scene_bottom_fraction(float fraction);
@@ -134,7 +134,7 @@ class Renderer {
               int64_t scene_time_us = -1);
     void finish_frame();
     void notify_presented();
-    unsigned video_texture(size_t camera = 0) const;
+    UiTextureHandle video_texture(size_t camera = 0) const;
     CameraPresentation camera_presentation(const ReceiverSnapshot& snapshot, size_t camera = 0) const;
     int video_width(size_t camera = 0) const;
     int video_height(size_t camera = 0) const;

@@ -98,8 +98,49 @@ def extract_archive(archive, destination):
 
 
 def binary_info(path):
-    """Read ELF64 dynamic dependencies or PE32+ imports without executing the file."""
+    """Read ELF64, PE32+ or Mach-O64 dependencies without executing the file."""
     data = Path(path).read_bytes()
+    if data[:4] in (b"\xca\xfe\xba\xbe", b"\xca\xfe\xba\xbf", b"\xbe\xba\xfe\xca", b"\xbf\xba\xfe\xca"):
+        raise ValueError("Universal binaries are outside the macOS arm64 package contract")
+    if data[:4] == b"\xcf\xfa\xed\xfe":
+        require(len(data) >= 32, "Truncated Mach-O header")
+        _, machine, subtype, filetype, count, size, flags, reserved = struct.unpack_from("<8I", data)
+        limit = 32 + size
+        require(limit <= len(data) and count <= size // 8, "Invalid Mach-O load commands")
+        offset, imports, rpaths, minimum, target_platform = 32, [], [], None, None
+        identifier = None
+        for _ in range(count):
+            require(offset + 8 <= limit, "Truncated Mach-O load command")
+            command, length = struct.unpack_from("<II", data, offset)
+            require(length >= 8 and length % 8 == 0 and offset + length <= limit, "Invalid Mach-O command size")
+            if command in (0xc, 0xd, 0x80000018, 0x8000001f, 0x20, 0x80000023, 0x8000001c):
+                is_rpath = command == 0x8000001c
+                require(length >= (12 if is_rpath else 24), "Truncated Mach-O library command")
+                relative = struct.unpack_from("<I", data, offset + 8)[0]
+                require((12 if is_rpath else 24) <= relative < length, "Invalid Mach-O library string")
+                end = data.find(b"\0", offset + relative, offset + length)
+                require(end >= 0, "Unterminated Mach-O library string")
+                value = data[offset + relative:end].decode("utf-8")
+                require(value and "\0" not in value, "Empty Mach-O library string")
+                if is_rpath:
+                    rpaths.append(value)
+                elif command == 0xd:
+                    identifier = value
+                else:
+                    imports.append(value)
+            elif command in (0x24, 0x32):
+                require(length >= (16 if command == 0x24 else 24), "Truncated Mach-O version command")
+                if command == 0x24:
+                    target_platform = 1
+                    version = struct.unpack_from("<I", data, offset + 8)[0]
+                else:
+                    target_platform, version = struct.unpack_from("<II", data, offset + 8)
+                minimum = [version >> 16, (version >> 8) & 255, version & 255]
+            offset += length
+        require(offset == limit, "Mach-O load command inventory differs")
+        return {"format": "macho", "machine": machine, "filetype": filetype,
+                "imports": sorted(set(imports)), "rpaths": rpaths, "minimum_os": minimum,
+                "platform": target_platform, "install_name": identifier}
     if data[:4] == b"\x7fELF":
         require(len(data) >= 64 and data[4:6] == b"\x02\x01", "Expected little-endian ELF64: " + str(path))
         machine = struct.unpack_from("<H", data, 18)[0]
@@ -175,6 +216,74 @@ def binary_info(path):
                 require(descriptor[0] & 1, "Unsupported absolute PE delay imports")
                 imports.append(name(descriptor[1]))
     return {"format": "pe", "machine": machine, "imports": sorted(set(imports))}
+
+
+def verify_macos_binaries(app):
+    """Check arm64 deployment and bundle-relative dependency closure before signing.
+
+    This structural check does not replace codesign, notarization or execution on
+    the minimum OS. It also checks weak imports, preventing accidental Homebrew
+    dependencies from being accepted merely because they are optional.
+    """
+    app = Path(app).resolve()
+    executable_directory = app / "Contents/MacOS"
+    binaries = {}
+    for path in app.rglob("*"):
+        if not path.is_file():
+            continue
+        require(path.resolve().is_relative_to(app), "External macOS bundle link")
+        info = binary_info(path)
+        if info:
+            name = path.relative_to(app).as_posix()
+            require(info["format"] == "macho" and info["machine"] == 0x100000c,
+                    "macOS package requires Mach-O arm64: " + name)
+            require(info["filetype"] in (2, 6, 8) and info["platform"] == 1,
+                    "Expected a macOS executable or dynamic library: " + name)
+            require(info["minimum_os"] is not None and tuple(info["minimum_os"]) <= (14, 0, 0),
+                    "Binary requires a newer OS than macOS 14: " + name)
+            binaries[path.resolve()] = info
+    require(binaries, "macOS bundle contains no code")
+    executables = [p for p, i in binaries.items() if i["filetype"] == 2]
+    require(executables and all(p.parent == executable_directory for p in executables),
+            "macOS executables must be in Contents/MacOS")
+    system = set()
+
+    def expand(value, loader):
+        for prefix, base in (("@loader_path/", loader.parent), ("@executable_path/", executable_directory)):
+            if value.startswith(prefix):
+                resolved = (base / value[len(prefix):]).resolve()
+                require(resolved.is_relative_to(app), "Dependency escapes the macOS bundle: " + value)
+                return resolved
+        raise ValueError("Nonportable macOS dependency path: " + value)
+
+    # Each embedded tool is launched independently, so its own LC_RPATH is used.
+    # Libraries may additionally inherit the importing executable's runpaths.
+    for executable in executables:
+        visited = set()
+        def visit(loader, inherited):
+            info = binaries[loader]
+            paths = tuple(dict.fromkeys([expand(value, loader) for value in info["rpaths"]] + list(inherited)))
+            state = (loader, paths)
+            if state in visited:
+                return
+            visited.add(state)
+            for dependency in info["imports"]:
+                if dependency.startswith(("/usr/lib/", "/System/Library/Frameworks/")):
+                    require(".." not in PurePosixPath(dependency).parts, "Noncanonical macOS system dependency")
+                    system.add(dependency)
+                    continue
+                if dependency.startswith("@rpath/"):
+                    suffix = dependency[len("@rpath/"):]
+                    require(".." not in PurePosixPath(suffix).parts, "Invalid macOS rpath dependency")
+                    candidates = [(directory / suffix).resolve() for directory in paths]
+                    target = next((p for p in candidates if p in binaries), None)
+                else:
+                    target = expand(dependency, loader)
+                require(target in binaries, f"Unbundled dependency {dependency} required by {loader.name}")
+                visit(target, paths)
+        visit(executable, ())
+    return {"passed": True, "binaries": {p.relative_to(app).as_posix(): i for p, i in binaries.items()},
+            "system_dependencies": sorted(system)}
 
 
 def verify_asset_checksums(directory):
@@ -253,7 +362,7 @@ def verify_contents(root, platform, version):
     source = json.loads((root / "provenance/source.json").read_text(encoding="utf-8"))
     for key in ("platform", "release_version", "source_revision"):
         require(source[key] == manifest[key], "Source provenance differs: " + key)
-    for key in ("video_backend", "jetson_linux_release"):
+    for key in ("graphics_backend", "compute_backend", "video_backend", "jetson_linux_release"):
         require(source.get(key) == manifest.get(key), "Decoder provenance differs: " + key)
     if jetson:
         require((root / "provenance/nv_tegra_release").read_text(encoding="utf-8").strip() ==

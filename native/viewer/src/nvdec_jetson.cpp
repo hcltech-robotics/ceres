@@ -1,4 +1,4 @@
-#include "ceres/detail/video_backend.hpp"
+#include "ceres/detail/cuda_video_backend.hpp"
 #include <NvVideoDecoder.h>
 #include <cudaEGL.h>
 #include <nvbufsurface.h>

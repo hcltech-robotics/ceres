@@ -94,6 +94,8 @@ def create_metadata(package, source, platform, build, cuda_architectures):
     if (platform == "linux-arm64-jetpack6") != (backend == "JETSON"):
         raise ValueError("Package platform does not match the configured video backend")
     source_record["video_backend"] = backend
+    source_record["graphics_backend"] = values.get("CERES_SELECTED_GRAPHICS_BACKEND", "OPENGL_CUDA")
+    source_record["compute_backend"] = "METAL" if source_record["graphics_backend"] == "METAL" else "CUDA"
     if backend == "JETSON":
         release = (package / "provenance/nv_tegra_release").read_text(encoding="utf-8").strip()
         if not re.match(r"^# R36 ", release):
