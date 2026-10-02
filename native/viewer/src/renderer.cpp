@@ -1101,6 +1101,7 @@ struct Renderer::Impl {
         SessionEvent presented;
     };
     std::array<Camera, 2> cameras{};
+    VideoDevice shared_video_device;
     StereoBuffers stereo, environment, saved;
     SavedMapState saved_state;
     SpatialMapSnapshot saved_metadata;
@@ -1130,6 +1131,7 @@ struct Renderer::Impl {
             throw std::runtime_error("No NVIDIA CUDA device owns this OpenGL window");
         device = devs[0];
         cuda_check(cudaSetDevice(device), "Select rendering GPU");
+        shared_video_device = detail::cuda_video_device(device);
         cuda_check(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking),
                    "Create image stream");
         shader = program();
@@ -1452,7 +1454,7 @@ Renderer::Renderer(GLFWwindow* w, const std::filesystem::path& assets)
     : impl_(std::make_unique<Impl>(w, assets)) {}
 Renderer::~Renderer() = default;
 VideoDevice Renderer::video_device() const {
-    return {GraphicsApi::opengl_cuda, impl_->device};
+    return impl_->shared_video_device;
 }
 void Renderer::set_scene_width_fraction(float fraction) {
     auto& p = *impl_;
@@ -2783,7 +2785,7 @@ void Renderer::notify_presented() {
                                           ? std::optional<uint32_t>{primary.presented.sequence} : std::nullopt;
     }
 }
-unsigned Renderer::video_texture(size_t camera_index) const {
+UiTextureHandle Renderer::video_texture(size_t camera_index) const {
     if (camera_index >= impl_->cameras.size())
         return 0;
     const auto& camera = impl_->cameras[camera_index];

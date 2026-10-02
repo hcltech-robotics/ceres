@@ -39,20 +39,23 @@ int main(int argc, char** argv) {
             id<MTLLibrary> library = [device newLibraryWithURL:[NSURL fileURLWithPath:@(argv[1])]
                                                          error:&error];
             if (!library)
-                throw std::runtime_error(error.localizedDescription.UTF8String);
+                throw std::runtime_error(error ? error.localizedDescription.UTF8String
+                                               : "Cannot load Metal probe shaders");
             auto pipeline = [&](NSString* name) {
                 NSError* failure = nil;
                 id<MTLComputePipelineState> result =
                     [device newComputePipelineStateWithFunction:[library newFunctionWithName:name]
                                                           error:&failure];
                 if (!result)
-                    throw std::runtime_error(failure.localizedDescription.UTF8String);
+                    throw std::runtime_error(failure ? failure.localizedDescription.UTF8String
+                                                     : "Cannot create Metal pipeline");
                 return result;
             };
             const auto sorting = pipeline(@"sort_records"),
                        initialise = pipeline(@"initialise_sums"),
                        reduce = pipeline(@"reduce_segments");
             id<MTLCommandQueue> queue = [device newCommandQueue];
+            require(queue != nil, "Cannot create Metal command queue");
             constexpr uint32_t count = 262144;
             std::vector<Record> records(count);
             std::map<uint64_t, std::pair<double, uint32_t>> expected;
@@ -92,6 +95,7 @@ int main(int argc, char** argv) {
                 [encoder endEncoding];
             };
             id<MTLCommandBuffer> command = [queue commandBuffer];
+            require(command != nil, "Cannot create Metal command buffer");
             id<MTLBlitCommandEncoder> blit = [command blitCommandEncoder];
             [blit copyFromBuffer:upload
                      sourceOffset:0
@@ -152,6 +156,13 @@ int main(int argc, char** argv) {
                     require(sums[i].count == 0, "Padding created evidence");
                     continue;
                 }
+                require(sorted[i].ordinal < records.size() &&
+                            sorted[i].key == records[sorted[i].ordinal].key &&
+                            sorted[i].value == records[sorted[i].ordinal].value,
+                        "Sorting changed an observation's identity or value");
+                if (i && sorted[i - 1].key == sorted[i].key)
+                    require(sorted[i - 1].ordinal < sorted[i].ordinal,
+                            "Sorting duplicated or reordered an observation");
                 if (i + 1 < count && sorted[i].key == sorted[i + 1].key)
                     continue;
                 const auto reference = expected.at(sorted[i].key);
@@ -164,7 +175,9 @@ int main(int argc, char** argv) {
             report["records"] = count;
             report["groups"] = groups;
             report["gpu_ms"] = (command.GPUEndTime - command.GPUStartTime) * 1000.;
-            report["working_bytes"] = a.length + b.length + sums_a.length + sums_b.length;
+            report["device_working_bytes"] = a.length + b.length + sums_a.length + sums_b.length;
+            report["working_bytes"] = a.length + b.length + sums_a.length + sums_b.length +
+                                      upload.length + readback.length;
             report["passed"] = true;
         }
     } catch (const std::exception& error) {

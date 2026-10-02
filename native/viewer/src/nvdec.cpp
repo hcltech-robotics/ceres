@@ -4,7 +4,7 @@
 #include <array>
 
 namespace ceres::detail {
-struct CudaContextOwner {
+struct CudaContextOwner final : VideoDeviceOwner {
     CUdevice device{};
     CUcontext context = nullptr;
     explicit CudaContextOwner(int ordinal) {
@@ -12,11 +12,14 @@ struct CudaContextOwner {
         cuda_check(cuDeviceGet(&device, ordinal), "Select CUDA device");
         cuda_check(cuDevicePrimaryCtxRetain(&context, device), "Retain CUDA context");
     }
-    ~CudaContextOwner() {
+    ~CudaContextOwner() override {
         if (context)
             cuDevicePrimaryCtxRelease(device);
     }
 };
+VideoDevice cuda_video_device(int ordinal) {
+    return {GraphicsApi::opengl_cuda, ordinal, std::make_shared<CudaContextOwner>(ordinal)};
+}
 CudaVideoSurface::~CudaVideoSurface() {
     if (data && cuCtxPushCurrent(context) == CUDA_SUCCESS) {
         cuMemFree(data);
@@ -81,7 +84,10 @@ class CudaDecoder final : public DecoderBackend {
     CudaDecoder(VideoDevice device, PresentDecoded callback) : present(std::move(callback)) {
         if (device.api != GraphicsApi::opengl_cuda)
             throw std::invalid_argument("CUDA decoding requires the NVIDIA graphics backend");
-        owner = std::make_shared<CudaContextOwner>(device.ordinal);
+        owner = device.owner ? std::dynamic_pointer_cast<CudaContextOwner>(device.owner)
+                             : std::make_shared<CudaContextOwner>(device.ordinal);
+        if (!owner)
+            throw std::invalid_argument("Video device owner is not a CUDA context");
         cuda_check(cuCtxSetCurrent(owner->context), "Activate decoder context");
         cuda_check(cuStreamCreate(&stream, CU_STREAM_NON_BLOCKING), "Create decoder stream");
         try {

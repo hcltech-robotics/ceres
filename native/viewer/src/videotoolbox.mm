@@ -187,49 +187,51 @@ class VideoToolboxDecoder final : public DecoderBackend {
         }
     }
     void poll() override {
-        std::deque<Output> ready;
-        {
-            std::lock_guard lock(mutex);
-            check(callback_error, "Deliver decoded H.264 frame");
-            ready.swap(outputs);
-        }
-        // Release all callback buffers even when one frame reports an error.
-        struct Release {
-            std::deque<Output>& values;
-            ~Release() {
-                for (auto& value : values)
-                    if (value.pixels)
-                        CVPixelBufferRelease(value.pixels);
+        @autoreleasepool {
+            std::deque<Output> ready;
+            {
+                std::lock_guard lock(mutex);
+                check(callback_error, "Deliver decoded H.264 frame");
+                ready.swap(outputs);
             }
-        } release{ready};
-        for (const auto& output : ready) {
-            if (inflight)
-                --inflight;
-            check(output.status, "Complete H.264 decode");
-            if (!output.pixels) {
-                present(output.serial, {});
-                continue;
+            // Release all callback buffers even when one frame reports an error.
+            struct Release {
+                std::deque<Output>& values;
+                ~Release() {
+                    for (auto& value : values)
+                        if (value.pixels)
+                            CVPixelBufferRelease(value.pixels);
+                }
+            } release{ready};
+            for (const auto& output : ready) {
+                if (inflight)
+                    --inflight;
+                check(output.status, "Complete H.264 decode");
+                if (!output.pixels) {
+                    present(output.serial, {});
+                    continue;
+                }
+                auto slot = std::find_if(leases.begin(), leases.end(),
+                                         [](const auto& lease) { return lease.expired(); });
+                if (slot == leases.end()) {
+                    present(output.serial, {});
+                    continue;
+                }
+                auto image = std::make_shared<GpuImage>();
+                image->surface = std::make_shared<MetalVideoSurface>(metal, output.pixels);
+                image->width = int(CVPixelBufferGetWidth(output.pixels));
+                image->height = int(CVPixelBufferGetHeight(output.pixels));
+                const auto pixel_format = CVPixelBufferGetPixelFormatType(output.pixels);
+                if (pixel_format != kCVPixelFormatType_420YpCbCr8BiPlanarFullRange &&
+                    pixel_format != kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange)
+                    throw std::runtime_error("Decoder did not produce NV12 video");
+                image->full_range = pixel_format == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange;
+                const auto matrix =
+                    CVBufferGetAttachment(output.pixels, kCVImageBufferYCbCrMatrixKey, nullptr);
+                image->bt709 = matrix && CFEqual(matrix, kCVImageBufferYCbCrMatrix_ITU_R_709_2);
+                *slot = image;
+                present(output.serial, std::move(image));
             }
-            auto slot = std::find_if(leases.begin(), leases.end(),
-                                     [](const auto& lease) { return lease.expired(); });
-            if (slot == leases.end()) {
-                present(output.serial, {});
-                continue;
-            }
-            auto image = std::make_shared<GpuImage>();
-            image->surface = std::make_shared<MetalVideoSurface>(metal, output.pixels);
-            image->width = int(CVPixelBufferGetWidth(output.pixels));
-            image->height = int(CVPixelBufferGetHeight(output.pixels));
-            const auto pixel_format = CVPixelBufferGetPixelFormatType(output.pixels);
-            if (pixel_format != kCVPixelFormatType_420YpCbCr8BiPlanarFullRange &&
-                pixel_format != kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange)
-                throw std::runtime_error("Decoder did not produce NV12 video");
-            image->full_range = pixel_format == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange;
-            const auto matrix =
-                CVBufferGetAttachment(output.pixels, kCVImageBufferYCbCrMatrixKey, nullptr);
-            image->bt709 = matrix && CFEqual(matrix, kCVImageBufferYCbCrMatrix_ITU_R_709_2);
-            *slot = image;
-            present(output.serial, std::move(image));
         }
     }
 };

@@ -34,9 +34,11 @@ void cuda_check(CUresult result, const char* operation) {
 #endif
 VideoDevice test_device() {
 #ifdef CERES_METAL
-    return {GraphicsApi::metal, 0};
+    @autoreleasepool {
+        return {GraphicsApi::metal, 0, std::make_shared<detail::MetalVideoDevice>()};
+    }
 #else
-    return {};
+    return detail::cuda_video_device(0);
 #endif
 }
 struct AccessUnit {
@@ -363,7 +365,8 @@ int main(int argc, char** argv) {
         retained = {};
         // Both cameras may share timestamps. Serial identifiers must stay local
         // to each decoder and presentation must retain the complete source event.
-        VideoDecoder right(test_device()), left(test_device());
+        const auto camera_device = test_device();
+        VideoDecoder right(camera_device), left(camera_device);
         for (uint32_t i = 0; i < 3; ++i) {
             auto first = event_for(small_a[i], i + 1, 10);
             first.time_us = 123456;
@@ -403,6 +406,63 @@ int main(int argc, char** argv) {
                 "Source change retained stale replay metadata");
         report["dual_camera_metadata"] = true;
         report["cancel_and_source_restart"] = true;
+        VideoDecoder seeking(test_device());
+        auto preroll = event_for(small_a[0], 200, 20);
+        preroll.attributes["replay_preroll"] = true;
+        seeking.submit(preroll);
+        auto after_preroll = event_for(small_a[1], 201, 20);
+        seeking.submit(after_preroll);
+        auto visible = wait_frame(seeking, 201, 640, 480, 1, deadline);
+        require(content_hash(copy_nv12(visible)) ==
+                    reference.at("sources").at(0).at("cpu_nv12_fnv1a64").at(1).get<std::string>(),
+                "Replay preroll did not establish decode history");
+        for (uint64_t generation = 21; generation < 37; ++generation) {
+            seeking.submit(event_for(large[0], uint32_t(generation), generation));
+            // Give some submissions a chance to reach the hardware callback.
+            if (generation & 1) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            seeking.cancel_replay();
+            require(!seeking.latest(), "A cancelled seek retained its presentation frame");
+            seeking.submit(event_for(large[1], 500, generation)); // stale producer
+        }
+        seeking.submit(event_for(small_c[0], 600, 37));
+        const auto seek_deadline = monotonic_us() + 3000000;
+        VideoFrameLease settled;
+        while (monotonic_us() < seek_deadline) {
+            settled = seeking.latest();
+            if (settled) {
+                require(settled.image->event.sequence == 600 &&
+                            settled.image->event.attributes.at("replay_generation") == 37,
+                        "A stale seek callback was presented");
+                break;
+            }
+            require(!seeking.status().failed, "Rapid seek stopped the decoder");
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        require(bool(settled), "Rapid seek did not settle on the requested frame");
+        require(content_hash(copy_nv12(settled)) ==
+                    reference.at("sources").at(2).at("cpu_nv12_fnv1a64").at(0).get<std::string>(),
+                "Rapid seek returned stale pixels");
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        require(seeking.latest().image == settled.image, "Late callbacks replaced the settled frame");
+        report["replay_preroll"] = true;
+        report["rapid_seek_generations"] = 16;
+#ifdef CERES_METAL
+        VideoDecoder malformed(test_device());
+        auto bad = event_for(small_a[0], 1, 1);
+        bad.payload = {0, 0, 1, 0xe5, 1}; // forbidden_zero_bit
+        malformed.submit(bad);
+        const auto malformed_deadline = monotonic_us() + 1000000;
+        while (malformed.status().error.empty() && monotonic_us() < malformed_deadline)
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        require(!malformed.status().error.empty() && malformed.status().needs_keyframe && !malformed.latest(),
+                "Malformed H.264 did not request keyframe recovery");
+        malformed.submit(event_for(small_a[0], 2, 1));
+        auto recovered = wait_frame(malformed, 2, 640, 480, 1, monotonic_us() + 3000000);
+        require(content_hash(copy_nv12(recovered)) ==
+                    reference.at("sources").at(0).at("cpu_nv12_fnv1a64").at(0).get<std::string>(),
+                "Malformed-input recovery returned incorrect pixels");
+        report["malformed_input_recovery"] = true;
+#endif
         report["passed"] = true;
         write_report(report_path, report);
         std::cout << "Hardware decoder resolution and lease checks passed\n";

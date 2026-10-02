@@ -4,6 +4,7 @@
 #include <stdexcept>
 namespace ceres::detail {
 struct CudaContextOwner;
+VideoDevice cuda_video_device(int ordinal);
 struct CudaVideoSurface final : VideoSurface {
     CUdeviceptr data = 0;
     size_t pitch = 0;

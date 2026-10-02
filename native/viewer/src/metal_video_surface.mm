@@ -5,8 +5,11 @@ MetalVideoDevice::MetalVideoDevice() : device(MTLCreateSystemDefaultDevice()) {
     if (!device)
         throw std::runtime_error("No Metal device is available");
     if (CVMetalTextureCacheCreate(kCFAllocatorDefault, nullptr, device, nullptr, &cache) !=
-        kCVReturnSuccess)
+        kCVReturnSuccess) {
+        if (cache)
+            CFRelease(cache);
         throw std::runtime_error("Cannot create the Metal video texture cache");
+    }
 }
 MetalVideoDevice::~MetalVideoDevice() {
     if (cache)

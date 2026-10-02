@@ -116,7 +116,8 @@ void availability_tests(const fs::path& self) {
             "Removed explicit exporter remained available or fell back to PATH");
 }
 int helper(int argc, char** argv) {
-    const auto executable = from_utf8(argv[0]);
+    // macOS temp paths may spell the same directory as /var or /private/var.
+    const auto executable = fs::canonical(from_utf8(argv[0]));
     if (std::string(argv[1]) == "--capabilities") {
         if (fs::exists(executable.parent_path() / "availability-watch"))
             std::ofstream(executable.parent_path() / "availability-probed").put('\n');
