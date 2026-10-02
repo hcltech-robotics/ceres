@@ -12,6 +12,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: native-viewer-macos-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
 jobs:
   compile-and-test:
     runs-on: macos-15
@@ -89,8 +93,10 @@ jobs:
         run: |
           rustup toolchain install 1.91.0 --profile minimal
           rustup default 1.91.0
-          cargo test --locked --manifest-path native/lerobot-exporter/Cargo.toml
           bash .github/scripts/build-native-ffmpeg.sh "$RUNNER_TEMP/ffmpeg-build" "$RUNNER_TEMP/ffmpeg-runtime"
+          export CERES_FFMPEG="$RUNNER_TEMP/ffmpeg-runtime/bin/ffmpeg"
+          export PATH="$RUNNER_TEMP/ffmpeg-runtime/bin:$PATH"
+          cargo test --locked --manifest-path native/lerobot-exporter/Cargo.toml
           cargo build --locked --release --manifest-path native/lerobot-exporter/Cargo.toml
           cp native/lerobot-exporter/target/release/ceres-native-exporter "$RUNNER_TEMP/ffmpeg-runtime/bin/"
           mkdir "$RUNNER_TEMP/ffmpeg-runtime/bin/provenance"
