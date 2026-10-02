@@ -18,7 +18,7 @@ include(cmake/VideoBackend.cmake)
 # Language rules must be established in directory scope, not inside the video
 # target helper: CMake keeps the compiler cached but loses function-local rules.
 if(APPLE AND (CERES_BUILD_APP OR CERES_BUILD_APP_SERVICES OR CERES_BUILD_BACKEND_PROBES))
-  enable_language(OBJCXX)
+  enable_language(OBJC OBJCXX)
   if(CMAKE_OSX_DEPLOYMENT_TARGET VERSION_LESS "14.0")
     message(FATAL_ERROR "The macOS backend requires deployment target 14.0 or newer")
   endif()

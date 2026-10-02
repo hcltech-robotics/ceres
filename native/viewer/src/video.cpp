@@ -2,6 +2,7 @@
 #include "ceres/detail/video_queue.hpp"
 #include "ceres/video.hpp"
 #include <algorithm>
+#include <condition_variable>
 #include <map>
 #include <mutex>
 #include <thread>
@@ -16,6 +17,8 @@ struct VideoDecoder::Impl {
     };
     detail::VideoQueue queue;
     mutable std::mutex mutex;
+    std::condition_variable ready;
+    bool initialised = false;
     DecoderStatus stats;
     std::shared_ptr<GpuImage> latest_frame;
     std::map<int64_t, Pending> pending;
@@ -25,6 +28,10 @@ struct VideoDecoder::Impl {
     VideoDevice device;
     explicit Impl(VideoDevice selected) : device(selected) {
         worker = std::thread([this] { run(); });
+        // Preserve the old constructor contract: device initialisation finishes
+        // before live frames can enter the age-bounded queue.
+        std::unique_lock lock(mutex);
+        ready.wait(lock, [this] { return initialised; });
     }
     ~Impl() {
         queue.close();
@@ -70,7 +77,9 @@ struct VideoDecoder::Impl {
                 std::lock_guard lock(mutex);
                 stats.gpu = backend->device_name();
                 stats.backend = backend->name();
+                initialised = true;
             }
+            ready.notify_one();
             uint64_t revision = queue.state().revision;
             bool waiting_idr = true;
             std::optional<detail::VideoQueue::Item> input;
@@ -157,7 +166,9 @@ struct VideoDecoder::Impl {
                 std::lock_guard lock(mutex);
                 stats.error = error.what();
                 stats.failed = true;
+                initialised = true;
             }
+            ready.notify_one();
             queue.close();
         }
         backend.reset();

@@ -40,10 +40,49 @@ jobs:
             -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 -DCERES_BUILD_APP=OFF \
             -DCERES_BUILD_APP_SERVICES=ON -DCERES_BUILD_BACKEND_PROBES=ON
           cmake --build build-native --parallel 3
+      - name: Check probe architecture and macOS 14 dependency closure
+        run: |
+          python - <<'PYCODE'
+          import importlib.util
+          import json
+          import os
+          from pathlib import Path
+          import shutil
+          spec = importlib.util.spec_from_file_location("verify_package", "native/viewer/scripts/verify-package.py")
+          verifier = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(verifier)
+          app = Path(os.environ["RUNNER_TEMP"]) / "Probe.app"
+          binary = app / "Contents/MacOS"
+          binary.mkdir(parents=True)
+          for name in ("test_videotoolbox", "test_metal_reduction"):
+              shutil.copy2(Path("build-native") / name, binary / name)
+          Path("build-native/macos-probes-closure.json").write_text(json.dumps(verifier.verify_macos_binaries(app), indent=2))
+          PYCODE
       - name: Run CPU and service tests
         run: |
           ctest --test-dir build-native --output-on-failure -LE 'gpu|display'
           python -m unittest discover -s native/viewer/tests -p test_video_configuration.py
+          python -m unittest discover -s native/viewer/tests -p test_package.py
+      - name: Build and test the pinned native exporter and FFmpeg
+        run: |
+          rustup toolchain install 1.91.0 --profile minimal
+          rustup default 1.91.0
+          cargo test --locked --manifest-path native/lerobot-exporter/Cargo.toml
+          bash .github/scripts/build-native-ffmpeg.sh "$RUNNER_TEMP/ffmpeg-build" "$RUNNER_TEMP/ffmpeg-runtime"
+          cargo build --locked --release --manifest-path native/lerobot-exporter/Cargo.toml
+          cp native/lerobot-exporter/target/release/ceres-native-exporter "$RUNNER_TEMP/ffmpeg-runtime/bin/"
+          mkdir "$RUNNER_TEMP/ffmpeg-runtime/bin/provenance"
+          cp package.json "$RUNNER_TEMP/ffmpeg-runtime/bin/provenance/"
+          python - <<'PYCODE'
+          import importlib.util
+          import os
+          from pathlib import Path
+          spec = importlib.util.spec_from_file_location("verify_package", "native/viewer/scripts/verify-package.py")
+          verifier = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(verifier)
+          work = Path(os.environ["RUNNER_TEMP"])
+          verifier.export_fixture(work / "ffmpeg-runtime/bin", work / "macos-export-fixture")
+          PYCODE
       - name: Preserve probes for physical Mac qualification
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -52,6 +91,7 @@ jobs:
             build-native/test_videotoolbox
             build-native/test_metal_reduction
             build-native/ceres-probes.metallib
+            build-native/macos-probes-closure.json
             native/viewer/tests/fixtures/nvdec/
           retention-days: 14
           if-no-files-found: error

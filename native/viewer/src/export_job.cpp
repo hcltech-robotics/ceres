@@ -192,7 +192,7 @@ class Process {
         posix_spawn_file_actions_adddup2(&actions, errors[1], STDERR_FILENO);
         posix_spawn_file_actions_addclose(&actions, output[0]);
         posix_spawn_file_actions_addclose(&actions, errors[0]);
-        #ifdef __APPLE__
+#ifdef __APPLE__
         // Avoid inheriting unrelated descriptors during concurrent worker/browser launches.
         posix_spawnattr_setflags(&attributes, POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_CLOEXEC_DEFAULT);
 #else

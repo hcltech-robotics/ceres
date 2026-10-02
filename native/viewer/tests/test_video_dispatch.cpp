@@ -20,7 +20,10 @@ class Backend final : public ceres::detail::DecoderBackend {
     bool backpressure = true;
 
   public:
-    explicit Backend(ceres::detail::PresentDecoded callback) : present(std::move(callback)) {}
+    explicit Backend(ceres::detail::PresentDecoded callback) : present(std::move(callback)) {
+        // A cold device can take longer to initialise than the live queue age limit.
+        std::this_thread::sleep_for(std::chrono::milliseconds(150));
+    }
     const char* name() const override {
         return "CPU test backend";
     }
@@ -96,6 +99,8 @@ std::unique_ptr<DecoderBackend> make_decoder_backend(VideoDevice, PresentDecoded
 int main() {
     try {
         auto decoder = std::make_unique<ceres::VideoDecoder>(ceres::VideoDevice{});
+        require(decoder->status().backend == "CPU test backend" && decoder->status().gpu == "CPU",
+                "Device identity was unavailable after decoder initialisation");
         decoder->submit(event(1, 40));
         auto retained = wait(*decoder, 1);
         check_pixels(retained, 40);

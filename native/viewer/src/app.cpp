@@ -3612,7 +3612,11 @@ int run_app(const AppOptions& options) {
                         if (ui::primary_button("Load into player")) {
                             for (const auto& entry : *hf_status.recordings)
                                 if (entry.path == hf_selected) {
+#ifdef __APPLE__
                                     hugging_face.download(entry, platform::cache_directory(config) / "hugging-face");
+#else
+                                    hugging_face.download(entry, std::filesystem::path(data_path) / "downloads" / "hugging-face");
+#endif
                                     break;
                                 }
                         }

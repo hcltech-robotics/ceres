@@ -40,6 +40,19 @@ def elf(machine=62, dependency=None):
     return bytes(data)
 
 
+def macho(*, machine=0x100000c, filetype=2, imports=(), rpaths=(), minimum=14, platform=1):
+    commands = []
+    for command, base, values in ((0xc, 24, imports), (0x8000001c, 12, rpaths)):
+        for value in values:
+            encoded = value.encode() + b"\0"
+            length = (base + len(encoded) + 7) & ~7
+            commands.append(struct.pack("<III", command, length, base) + bytes(base - 12) +
+                            encoded + bytes(length - base - len(encoded)))
+    commands.append(struct.pack("<6I", 0x32, 24, platform, minimum << 16, 26 << 16, 0))
+    return struct.pack("<8I", 0xfeedfacf, machine, 0, filetype, len(commands),
+                       sum(map(len, commands)), 0, 0) + b"".join(commands)
+
+
 class PackageTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
@@ -75,6 +88,63 @@ class PackageTests(unittest.TestCase):
         self.assertEqual(verify.binary_info(path), {"format": "elf", "machine": 183, "imports": ["libc.so.6"]})
         path.write_bytes(b"\x7fELF\x01\x01" + bytes(60))
         with self.assertRaisesRegex(ValueError, "ELF64"):
+            verify.binary_info(path)
+
+    def macos_fixture(self, **kwargs):
+        app = self.root / "Ceres Viewer.app"
+        (app / "Contents/MacOS").mkdir(parents=True, exist_ok=True)
+        (app / "Contents/Frameworks").mkdir(exist_ok=True)
+        viewer = app / "Contents/MacOS/ceres-viewer"
+        viewer.write_bytes(macho(**kwargs))
+        return app, viewer
+
+    def test_macos_arm64_relative_dependency_closure(self):
+        app, viewer = self.macos_fixture(imports=("@rpath/libexample.dylib", "/usr/lib/libSystem.B.dylib"),
+                                         rpaths=("@executable_path/../Frameworks",))
+        library = app / "Contents/Frameworks/libexample.dylib"
+        library.write_bytes(macho(filetype=6, imports=("@loader_path/libnested.dylib",)))
+        (library.parent / "libnested.dylib").write_bytes(macho(filetype=6))
+        result = verify.verify_macos_binaries(app)
+        self.assertEqual(len(result["binaries"]), 3)
+        self.assertEqual(result["system_dependencies"], ["/usr/lib/libSystem.B.dylib"])
+        library.unlink()
+        with self.assertRaisesRegex(ValueError, "Unbundled dependency"):
+            verify.verify_macos_binaries(app)
+
+    def test_macos_rejects_homebrew_and_escaping_paths(self):
+        for path in ("/opt/homebrew/lib/libexample.dylib", "@loader_path/../../../outside.dylib"):
+            with self.subTest(path=path):
+                app, _ = self.macos_fixture(imports=(path,))
+                with self.assertRaisesRegex(ValueError, "Nonportable|escapes"):
+                    verify.verify_macos_binaries(app)
+
+    def test_macos_rejects_wrong_architecture_platform_and_deployment(self):
+        for arguments in ({"machine": 0x1000007}, {"minimum": 15}, {"platform": 2}):
+            with self.subTest(arguments=arguments):
+                app, _ = self.macos_fixture(**arguments)
+                with self.assertRaises(ValueError):
+                    verify.verify_macos_binaries(app)
+
+    def test_macos_requires_executable_local_runpaths(self):
+        app, viewer = self.macos_fixture(imports=("@rpath/libexample.dylib",),
+                                         rpaths=("@executable_path/../Frameworks",))
+        (app / "Contents/Frameworks/libexample.dylib").write_bytes(macho(filetype=6))
+        verify.verify_macos_binaries(app)
+        (viewer.parent / "ffmpeg").write_bytes(macho(imports=("@rpath/libexample.dylib",)))
+        with self.assertRaisesRegex(ValueError, "Unbundled dependency"):
+            verify.verify_macos_binaries(app)
+
+    def test_macho_rejects_truncation_and_universal_binaries(self):
+        path = self.root / "binary"
+        data = macho(imports=("@rpath/libexample.dylib",))
+        for bad in (data[:16], data[:-1], b"\xca\xfe\xba\xbe" + bytes(28)):
+            path.write_bytes(bad)
+            with self.assertRaises(ValueError):
+                verify.binary_info(path)
+        broken = bytearray(data)
+        struct.pack_into("<I", broken, 36, 7)
+        path.write_bytes(broken)
+        with self.assertRaisesRegex(ValueError, "command size"):
             verify.binary_info(path)
 
     def fixture_package(self, dependency=None, machine=62, platform="linux-x64", backend="CUVID"):
