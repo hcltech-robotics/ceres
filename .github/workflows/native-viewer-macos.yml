@@ -58,11 +58,33 @@ jobs:
               shutil.copy2(Path("build-native") / name, binary / name)
           Path("build-native/macos-probes-closure.json").write_text(json.dumps(verifier.verify_macos_binaries(app), indent=2))
           PYCODE
+      - name: Bundle physical Mac probes
+        run: |
+          python - <<'PYCODE'
+          import shutil
+          import tarfile
+          from pathlib import Path
+          bundle = Path("ceres-macos-backend-probes")
+          bundle.mkdir()
+          for name in ("test_videotoolbox", "test_metal_reduction", "ceres-probes.metallib", "macos-probes-closure.json"):
+              shutil.copy2(Path("build-native") / name, bundle / name)
+          shutil.copy2("native/viewer/scripts/probe-macos.py", bundle)
+          shutil.copytree("native/viewer/tests/fixtures/nvdec", bundle / "fixtures")
+          with tarfile.open("ceres-macos-backend-probes.tar.gz", "w:gz") as archive:
+              archive.add(bundle, arcname=bundle.name)
+          PYCODE
       - name: Run CPU and service tests
         run: |
           ctest --test-dir build-native --output-on-failure -LE 'gpu|display'
           python -m unittest discover -s native/viewer/tests -p test_video_configuration.py
           python -m unittest discover -s native/viewer/tests -p test_package.py
+      - name: Preserve probes for physical Mac qualification
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ceres-macos-foundation-probes-${{ github.sha }}
+          path: ceres-macos-backend-probes.tar.gz
+          retention-days: 14
+          if-no-files-found: error
       - name: Build and test the pinned native exporter and FFmpeg
         run: |
           rustup toolchain install 1.91.0 --profile minimal
@@ -83,18 +105,6 @@ jobs:
           work = Path(os.environ["RUNNER_TEMP"])
           verifier.export_fixture(work / "ffmpeg-runtime/bin", work / "macos-export-fixture")
           PYCODE
-      - name: Preserve probes for physical Mac qualification
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: ceres-macos-foundation-probes-${{ github.sha }}
-          path: |
-            build-native/test_videotoolbox
-            build-native/test_metal_reduction
-            build-native/ceres-probes.metallib
-            build-native/macos-probes-closure.json
-            native/viewer/tests/fixtures/nvdec/
-          retention-days: 14
-          if-no-files-found: error
       - name: Preserve test diagnostics
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

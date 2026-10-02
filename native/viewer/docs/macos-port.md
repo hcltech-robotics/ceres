@@ -38,7 +38,19 @@ separate schema from release qualification and set `application_qualified=false`
 The hosted macOS workflow compiles the probes, checks Mach-O arm64/deployment and
 runtime dependency closure, and runs portable/service/export tests. It does not
 claim hardware decoding, GPU performance or display presentation based on a
-hosted runner.
+hosted runner. Its `ceres-macos-foundation-probes-REVISION` artifact contains a
+`.tar.gz` archive that preserves executable permissions. Download and unpack it
+on the physical Mac, then run (with Python 3):
+
+```sh
+cd ceres-macos-backend-probes
+python3 probe-macos.py --build . --fixtures fixtures \
+  --output ../macos-backend-evidence --require-baseline
+```
+
+This runs the same shaders and decoder fixtures built by CI, without rebuilding
+on the Mac. Keep the full evidence directory, including the input hashes, logs
+and probe reports. It is not a signed application or a distribution test.
 
 For a CPU-only build, leave both `CERES_BUILD_APP_SERVICES` and
 `CERES_BUILD_BACKEND_PROBES` off. No CUDA, Objective-C++, windowing or Apple GPU
