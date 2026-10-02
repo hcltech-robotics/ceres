@@ -1,6 +1,13 @@
+#ifdef CERES_METAL
+#include "ceres/detail/metal_video_surface.hpp"
+#import <Metal/Metal.h>
+#else
+#include "ceres/detail/cuda_video_surface.hpp"
+#endif
 #include "ceres/video.hpp"
 #include <algorithm>
 #include <chrono>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
@@ -15,6 +22,7 @@ void require(bool condition, const std::string& message) {
     if (!condition)
         throw std::runtime_error(message);
 }
+#ifndef CERES_METAL
 void cuda_check(CUresult result, const char* operation) {
     if (result == CUDA_SUCCESS)
         return;
@@ -22,6 +30,14 @@ void cuda_check(CUresult result, const char* operation) {
     cuGetErrorString(result, &description);
     throw std::runtime_error(std::string(operation) + ": " +
                              (description ? description : "CUDA error"));
+}
+#endif
+VideoDevice test_device() {
+#ifdef CERES_METAL
+    return {GraphicsApi::metal, 0};
+#else
+    return {};
+#endif
 }
 struct AccessUnit {
     std::vector<uint8_t> bytes;
@@ -77,16 +93,54 @@ std::vector<AccessUnit> read_units(const std::filesystem::path& path) {
     return units;
 }
 std::vector<uint8_t> copy_nv12(const VideoFrameLease& lease) {
-    require(bool(lease) && lease.image->data && lease.image->context_owner,
+    require(bool(lease) && lease.image->surface,
             "Frame has no owned GPU surface");
     const auto& image = *lease.image;
     std::vector<uint8_t> bytes(size_t(image.width) * size_t(image.height) * 3 / 2);
-    cuda_check(cuCtxPushCurrent(image.context), "Activate leased frame context");
+#ifdef CERES_METAL
+    @autoreleasepool {
+        id<MTLDevice> device = MTLCreateSystemDefaultDevice();
+        require(device != nil, "Metal device is unavailable");
+        CVMetalTextureCacheRef cache = nullptr;
+        require(CVMetalTextureCacheCreate(kCFAllocatorDefault, nullptr, device, nullptr, &cache) == kCVReturnSuccess,
+                "Cannot create the Metal video texture cache");
+        struct ReleaseCache { CVMetalTextureCacheRef value; ~ReleaseCache() { CFRelease(value); } } release_cache{cache};
+        id<MTLCommandQueue> queue = [device newCommandQueue];
+        const auto pixels = detail::metal_pixels(image);
+        size_t destination = 0;
+        for (size_t plane = 0; plane < 2; ++plane) {
+            CVMetalTextureRef reference = nullptr;
+            const size_t width = size_t(image.width) / (plane ? 2 : 1);
+            const size_t height = size_t(image.height) / (plane ? 2 : 1);
+            const auto format = plane ? MTLPixelFormatRG8Unorm : MTLPixelFormatR8Unorm;
+            require(CVMetalTextureCacheCreateTextureFromImage(kCFAllocatorDefault, cache, pixels, nullptr,
+                        format, width, height, plane, &reference) == kCVReturnSuccess,
+                    "Cannot expose decoded NV12 to Metal");
+            struct ReleaseTexture { CVMetalTextureRef value; ~ReleaseTexture() { CFRelease(value); } } release{reference};
+            const size_t pitch = (size_t(image.width) + 255) & ~size_t(255);
+            id<MTLBuffer> staging = [device newBufferWithLength:pitch * height options:MTLResourceStorageModeShared];
+            require(staging != nil, "Cannot allocate Metal readback buffer");
+            id<MTLCommandBuffer> command = [queue commandBuffer];
+            id<MTLBlitCommandEncoder> blit = [command blitCommandEncoder];
+            [blit copyFromTexture:CVMetalTextureGetTexture(reference) sourceSlice:0 sourceLevel:0
+                sourceOrigin:MTLOriginMake(0,0,0) sourceSize:MTLSizeMake(width,height,1)
+                toBuffer:staging destinationOffset:0 destinationBytesPerRow:pitch destinationBytesPerImage:pitch * height];
+            [blit endEncoding]; [command commit]; [command waitUntilCompleted];
+            require(command.status == MTLCommandBufferStatusCompleted, "Metal NV12 readback failed");
+            for (size_t row = 0; row < height; ++row) {
+                std::memcpy(bytes.data() + destination,
+                            static_cast<const uint8_t*>(staging.contents) + row * pitch, size_t(image.width));
+                destination += size_t(image.width);
+            }
+        }
+    }
+#else
+    cuda_check(cuCtxPushCurrent(ceres::detail::cuda_surface(image).context), "Activate leased frame context");
     try {
         CUDA_MEMCPY2D copy{};
         copy.srcMemoryType = CU_MEMORYTYPE_DEVICE;
-        copy.srcDevice = image.data;
-        copy.srcPitch = image.pitch;
+        copy.srcDevice = ceres::detail::cuda_surface(image).data;
+        copy.srcPitch = ceres::detail::cuda_surface(image).pitch;
         copy.dstMemoryType = CU_MEMORYTYPE_HOST;
         copy.dstHost = bytes.data();
         copy.dstPitch = size_t(image.width);
@@ -100,6 +154,7 @@ std::vector<uint8_t> copy_nv12(const VideoFrameLease& lease) {
     }
     CUcontext previous = nullptr;
     cuda_check(cuCtxPopCurrent(&previous), "Restore caller context");
+#endif
     const auto luma_end = bytes.begin() + size_t(image.width) * size_t(image.height);
     const auto range = std::minmax_element(bytes.begin(), luma_end);
     require(int(*range.second) - int(*range.first) > 32,
@@ -151,7 +206,7 @@ SessionEvent event_for(const AccessUnit& unit, uint32_t sequence, uint64_t gener
     event.attributes = {{"codec", "h264"}, {"replay_generation", generation}};
     return event;
 }
-VideoFrameLease wait_frame(NvDecoder& decoder, uint32_t sequence, int width, int height,
+VideoFrameLease wait_frame(VideoDecoder& decoder, uint32_t sequence, int width, int height,
                            uint64_t expected_count, int64_t global_deadline) {
     const auto deadline = std::min(global_deadline, monotonic_us() + 3000000);
     while (monotonic_us() < deadline) {
@@ -196,14 +251,8 @@ int main(int argc, char** argv) {
         const auto small_a = read_units(inputs / "nvdec-resolution-640x480-a.h264");
         const auto large = read_units(inputs / "nvdec-resolution-1280x960-b.h264");
         const auto small_c = read_units(inputs / "nvdec-resolution-640x480-c.h264");
-        auto decoder = std::make_unique<NvDecoder>(0);
-        report["cuda_initialised"] = true;
+        auto decoder = std::make_unique<VideoDecoder>(test_device());
         const int64_t deadline = monotonic_us() + 30000000;
-        report["gpu"] = decoder->status().gpu;
-        report["backend"] = decoder->status().backend;
-        int driver_version = 0;
-        cuda_check(cuDriverGetVersion(&driver_version), "Read CUDA driver version");
-        report["cuda_driver_version"] = driver_version;
         uint32_t sequence = 0;
         uint64_t decoded = 0;
         VideoFrameLease retained;
@@ -218,8 +267,19 @@ int main(int argc, char** argv) {
                 decoder->submit(event_for(unit, ++sequence, 1));
                 auto lease = wait_frame(*decoder, sequence, width, height, ++decoded, deadline);
                 const auto bytes = copy_nv12(lease);
+                report["gpu"] = decoder->status().gpu;
+                report["backend"] = decoder->status().backend;
+#ifdef CERES_METAL
+                report["metal_texture_readback"] = true;
+                report["hardware_decoding"] = true;
+#else
+                report["cuda_initialised"] = true;
+                int driver_version = 0;
+                cuda_check(cuDriverGetVersion(&driver_version), "Read CUDA driver version");
+                report["cuda_driver_version"] = driver_version;
+#endif
                 if (retained)
-                    require(lease.image->data != retained.image->data,
+                    require(lease.image->surface != retained.image->surface,
                             "Decoder reused a leased old surface");
                 const auto actual_hash = content_hash(bytes);
                 const auto expected_hash =
@@ -306,7 +366,7 @@ int main(int argc, char** argv) {
         retained = {};
         // Both cameras may share timestamps. Serial identifiers must stay local
         // to each decoder and presentation must retain the complete source event.
-        NvDecoder right(0), left(0);
+        VideoDecoder right(test_device()), left(test_device());
         for (uint32_t i = 0; i < 3; ++i) {
             auto first = event_for(small_a[i], i + 1, 10);
             first.time_us = 123456;
@@ -348,7 +408,7 @@ int main(int argc, char** argv) {
         report["cancel_and_source_restart"] = true;
         report["passed"] = true;
         write_report(report_path, report);
-        std::cout << "NVDEC resolution and lease checks passed\n";
+        std::cout << "Hardware decoder resolution and lease checks passed\n";
         return 0;
     } catch (const std::exception& error) {
         report["error"] = error.what();

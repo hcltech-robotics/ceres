@@ -65,7 +65,7 @@ class Renderer {
   public:
     explicit Renderer(GLFWwindow* window, const std::filesystem::path& assets = {});
     ~Renderer();
-    int cuda_device() const;
+    VideoDevice video_device() const;
     void set_scene_width_fraction(float fraction);
     void set_scene_top_fraction(float fraction);
     void set_scene_bottom_fraction(float fraction);

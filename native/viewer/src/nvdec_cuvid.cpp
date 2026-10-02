@@ -1,4 +1,4 @@
-#include "ceres/detail/video_backend.hpp"
+#include "ceres/detail/cuda_video_backend.hpp"
 #include <algorithm>
 #include <dynlink_nvcuvid.h>
 #include <utility>

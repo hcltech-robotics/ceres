@@ -1,4 +1,5 @@
 #include "ceres/export_job.hpp"
+#include "ceres/platform.hpp"
 #include "ceres/lerobot_import.hpp"
 #include <algorithm>
 #include <array>
@@ -37,22 +38,28 @@ std::string utf8(const fs::path& path) {
     const auto value = path.u8string();
     return {value.begin(), value.end()};
 }
-fs::path executable_directory() {
-#ifdef _WIN32
-    std::vector<wchar_t> buffer(32768);
-    const auto count =
-        GetModuleFileNameW(nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
-    if (!count || count == buffer.size())
-        throw std::runtime_error("Cannot locate application executable");
-    return fs::path(std::wstring(buffer.data(), count)).parent_path();
+using platform::executable_directory;
+#ifndef _WIN32
+int close_on_exec_pipe(int descriptors[2]) {
+#ifdef __APPLE__
+    if (pipe(descriptors) != 0)
+        return -1;
+    for (const int fd : {descriptors[0], descriptors[1]}) {
+        if (fcntl(fd, F_SETFD, FD_CLOEXEC) < 0) {
+            const int error = errno;
+            close(descriptors[0]);
+            close(descriptors[1]);
+            descriptors[0] = descriptors[1] = -1;
+            errno = error;
+            return -1;
+        }
+    }
+    return 0;
 #else
-    std::array<char, 4096> buffer{};
-    const auto count = readlink("/proc/self/exe", buffer.data(), buffer.size() - 1);
-    if (count <= 0)
-        throw std::runtime_error("Cannot locate application executable");
-    return fs::path(std::string(buffer.data(), static_cast<size_t>(count))).parent_path();
+    return pipe2(descriptors, O_CLOEXEC);
 #endif
 }
+#endif
 bool executable_file(const fs::path& path) {
     std::error_code error;
     if (!fs::is_regular_file(path, error))
@@ -170,7 +177,7 @@ class Process {
         }
 #else
         int output[2]{-1, -1}, errors[2]{-1, -1};
-        if (pipe2(output, O_CLOEXEC) != 0 || pipe2(errors, O_CLOEXEC) != 0) {
+        if (close_on_exec_pipe(output) != 0 || close_on_exec_pipe(errors) != 0) {
             for (const int fd : {output[0], output[1], errors[0], errors[1]})
                 if (fd >= 0)
                     close(fd);
@@ -185,7 +192,12 @@ class Process {
         posix_spawn_file_actions_adddup2(&actions, errors[1], STDERR_FILENO);
         posix_spawn_file_actions_addclose(&actions, output[0]);
         posix_spawn_file_actions_addclose(&actions, errors[0]);
+        #ifdef __APPLE__
+        // Avoid inheriting unrelated descriptors during concurrent worker/browser launches.
+        posix_spawnattr_setflags(&attributes, POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_CLOEXEC_DEFAULT);
+#else
         posix_spawnattr_setflags(&attributes, POSIX_SPAWN_SETPGROUP);
+#endif
         posix_spawnattr_setpgroup(&attributes, 0);
         std::vector<std::string> strings{executable.string()};
         strings.insert(strings.end(), arguments.begin(), arguments.end());

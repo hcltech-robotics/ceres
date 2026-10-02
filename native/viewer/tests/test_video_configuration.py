@@ -44,10 +44,29 @@ message(STATUS "Selected=${{CERES_SELECTED_VIDEO_BACKEND}}")
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("requires Linux ARM64", result.stderr)
 
+    def test_macos_selects_videotoolbox(self):
+        result = self.configure("AUTO", "arm64", "Darwin")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Selected=VIDEOTOOLBOX", result.stdout)
+
+    def test_macos_rejects_nvidia_decoder(self):
+        result = self.configure("CUVID", "arm64", "Darwin")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("METAL graphics requires VIDEOTOOLBOX", result.stderr)
+
+    def test_videotoolbox_rejects_linux(self):
+        result = self.configure("VIDEOTOOLBOX")
+        self.assertNotEqual(result.returncode, 0)
+
+    def test_intel_mac_is_rejected(self):
+        result = self.configure("AUTO", "x86_64", "Darwin")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("requires Apple Silicon", result.stderr)
+
     def test_unknown_backend_is_rejected(self):
         result = self.configure("UNKNOWN")
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("must be AUTO, CUVID or JETSON", result.stderr)
+        self.assertIn("must be AUTO, CUVID, JETSON or VIDEOTOOLBOX", result.stderr)
 
 
 if __name__ == "__main__":

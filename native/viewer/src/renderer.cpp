@@ -1,3 +1,4 @@
+#include "ceres/detail/cuda_video_surface.hpp"
 #include "ceres/renderer.hpp"
 #include "ceres/hand_display.hpp"
 #include "ceres/hand_trails.hpp"
@@ -1450,8 +1451,8 @@ struct Renderer::Impl {
 Renderer::Renderer(GLFWwindow* w, const std::filesystem::path& assets)
     : impl_(std::make_unique<Impl>(w, assets)) {}
 Renderer::~Renderer() = default;
-int Renderer::cuda_device() const {
-    return impl_->device;
+VideoDevice Renderer::video_device() const {
+    return {GraphicsApi::opengl_cuda, impl_->device};
 }
 void Renderer::set_scene_width_fraction(float fraction) {
     auto& p = *impl_;
@@ -1825,7 +1826,7 @@ void Renderer::update_video(VideoFrameLease lease, const Calibration& c, bool un
     args.cy = float(c.cy * f.height / c.height);
     for (int i = 0; i < 5; ++i)
         args.distortion[i] = float(c.distortion[i]);
-    cuda_check(convert_nv12(reinterpret_cast<const unsigned char*>(f.data), f.pitch, t.surface,
+    cuda_check(convert_nv12(reinterpret_cast<const unsigned char*>(ceres::detail::cuda_surface(f).data), ceres::detail::cuda_surface(f).pitch, t.surface,
                             args, p.stream),
                "Convert camera image");
     cuda_check(cudaGraphicsUnmapResources(1, &t.resource, p.stream), "Release image texture");
@@ -1859,7 +1860,7 @@ bool Renderer::update_stereo(VideoFrameLease left, VideoFrameLease right,
         return false;
     const auto& a = *left.image;
     const auto& b = *right.image;
-    if (a.context != b.context || a.event.epoch != b.event.epoch ||
+    if (ceres::detail::cuda_surface(a).context != ceres::detail::cuda_surface(b).context || a.event.epoch != b.event.epoch ||
         a.event.space_epoch != b.event.space_epoch ||
         a.event.attributes.value("replay_generation", uint64_t(0)) !=
             b.event.attributes.value("replay_generation", uint64_t(0)))
@@ -1944,8 +1945,8 @@ bool Renderer::update_stereo(VideoFrameLease left, VideoFrameLease right,
         if (bytes < stereo.volume->capacity() * (sizeof(SpatialMapPoint) + sizeof(float)))
             throw std::runtime_error("Stereo point buffer is too small");
         const auto input = [](const GpuImage& image) {
-            return StereoNv12{reinterpret_cast<const unsigned char*>(image.data),
-                              image.pitch,
+            return StereoNv12{reinterpret_cast<const unsigned char*>(ceres::detail::cuda_surface(image).data),
+                              ceres::detail::cuda_surface(image).pitch,
                               image.width,
                               image.height,
                               image.full_range,

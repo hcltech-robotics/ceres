@@ -1,4 +1,5 @@
 #include "ceres/app.hpp"
+#include "ceres/platform.hpp"
 #include "ceres/depth_display.hpp"
 #include "ceres/depth.hpp"
 #include "ceres/hand_mask.hpp"
@@ -69,46 +70,8 @@ bool recording_marker(const SessionEvent& event) {
     return reason != event.attributes.end() && reason->is_string() &&
            (*reason == "record-start" || *reason == "record-pause" || *reason == "record-resume");
 }
-std::filesystem::path config_directory() {
-#ifdef _WIN32
-    const char* base = std::getenv("LOCALAPPDATA");
-    auto p = (base ? std::filesystem::path(base) : std::filesystem::temp_directory_path()) /
-             "Ceres viewer";
-#else
-    const char *xdg = std::getenv("XDG_CONFIG_HOME"), *home = std::getenv("HOME");
-    auto p =
-        (xdg ? std::filesystem::path(xdg) : std::filesystem::path(home ? home : ".") / ".config") /
-        "ceres-viewer";
-#endif
-    std::filesystem::create_directories(p);
-    return p;
-}
-std::filesystem::path data_directory() {
-#ifdef _WIN32
-    return "D:/data/ceres-viewer";
-#else
-    const char* home = std::getenv("HOME");
-    return std::filesystem::path(home ? home : ".") / "ceres-viewer";
-#endif
-}
-std::filesystem::path application_directory() {
-#ifdef _WIN32
-    std::wstring path(32768, L'\0');
-    auto size = GetModuleFileNameW(nullptr, path.data(), static_cast<DWORD>(path.size()));
-    if (size && size < path.size()) {
-        path.resize(size);
-        return std::filesystem::path(path).parent_path();
-    }
-#else
-    std::string path(4096, '\0');
-    auto size = readlink("/proc/self/exe", path.data(), path.size());
-    if (size > 0 && static_cast<size_t>(size) < path.size()) {
-        path.resize(static_cast<size_t>(size));
-        return std::filesystem::path(path).parent_path();
-    }
-#endif
-    return std::filesystem::current_path();
-}
+using platform::config_directory;
+using platform::data_directory;
 enum class PaneSection { none = -1, connection, hands, depth, task, recording, replay, publish, telemetry, calibration, scene };
 enum class ReplayLocation { hugging_face, local_file };
 struct Preferences {
@@ -1073,7 +1036,7 @@ int run_app(const AppOptions& options) {
     glfwGetWindowContentScale(window, &dpi, nullptr);
     dpi = std::clamp(dpi, .75f, 4.f);
     ui::apply_style(dpi);
-    auto font = application_directory() / "assets" / "fonts" / "Roboto-Medium.ttf";
+    auto font = platform::resource_directory() / "assets" / "fonts" / "Roboto-Medium.ttf";
     if (!std::filesystem::exists(font))
         font = std::filesystem::path(__FILE__).parent_path().parent_path() / "assets" / "fonts" /
                "Roboto-Medium.ttf";
@@ -1110,7 +1073,7 @@ int run_app(const AppOptions& options) {
         ui::set_fonts(io.FontDefault, mono_font, instrument_label_font);
     };
     load_fonts();
-    auto asset_directory = application_directory() / "assets";
+    auto asset_directory = platform::resource_directory() / "assets";
     if (!std::filesystem::exists(asset_directory / "redistributable.json"))
         asset_directory = std::filesystem::path(__FILE__).parent_path().parent_path() / "assets";
     auto renderer = std::make_unique<Renderer>(window, asset_directory);
@@ -1124,8 +1087,8 @@ int run_app(const AppOptions& options) {
     });
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init("#version 450 core");
-    auto decoder = std::make_unique<NvDecoder>(renderer->cuda_device());
-    auto secondary_decoder = std::make_unique<NvDecoder>(renderer->cuda_device());
+    auto decoder = std::make_unique<VideoDecoder>(renderer->video_device());
+    auto secondary_decoder = std::make_unique<VideoDecoder>(renderer->video_device());
     detail::StereoPairQueue<VideoFrameLease> stereo_pairs;
     detail::StereoCadence stereo_cadence;
     using StereoFrameIdentity = std::tuple<uint32_t, uint32_t, uint64_t, uint32_t>;
@@ -1152,7 +1115,7 @@ int run_app(const AppOptions& options) {
     bool exporter_present = exporter.exporter_available();
     std::future<bool> exporter_presence_check;
     double exporter_presence_due = glfwGetTime() + 1.;
-    HuggingFaceClient hugging_face(config_directory() / "private");
+    HuggingFaceClient hugging_face(config / "private");
     Calibration calibration = Calibration::quest(640, 480, "right");
     ViewOptions view;
     bool custom_calibration = false;
@@ -3649,7 +3612,7 @@ int run_app(const AppOptions& options) {
                         if (ui::primary_button("Load into player")) {
                             for (const auto& entry : *hf_status.recordings)
                                 if (entry.path == hf_selected) {
-                                    hugging_face.download(entry, std::filesystem::path(data_path) / "downloads" / "hugging-face");
+                                    hugging_face.download(entry, platform::cache_directory(config) / "hugging-face");
                                     break;
                                 }
                         }

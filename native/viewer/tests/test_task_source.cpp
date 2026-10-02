@@ -91,9 +91,13 @@ bool readable(Socket socket) {
 }
 
 void send_all(Socket socket, std::string_view bytes) {
+#ifdef __APPLE__
+    const int no_sigpipe = 1;
+    setsockopt(socket, SOL_SOCKET, SO_NOSIGPIPE, &no_sigpipe, sizeof(no_sigpipe));
+#endif
     while (!bytes.empty()) {
         const auto size = static_cast<int>(std::min<size_t>(bytes.size(), 16384));
-#ifdef _WIN32
+#if defined(_WIN32) || defined(__APPLE__)
         const int sent = send(socket, bytes.data(), size, 0);
 #else
         const auto sent = send(socket, bytes.data(), size, MSG_NOSIGNAL);
