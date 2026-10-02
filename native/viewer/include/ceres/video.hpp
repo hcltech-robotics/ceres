@@ -4,9 +4,13 @@
 #include <string>
 namespace ceres {
 enum class GraphicsApi { opengl_cuda, metal };
+struct VideoDeviceOwner {
+    virtual ~VideoDeviceOwner() = default;
+};
 struct VideoDevice {
     GraphicsApi api = GraphicsApi::opengl_cuda;
     int ordinal = 0;
+    std::shared_ptr<VideoDeviceOwner> owner;
 };
 struct VideoSurface {
     virtual ~VideoSurface() = default;

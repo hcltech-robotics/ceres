@@ -99,30 +99,21 @@ std::vector<uint8_t> copy_nv12(const VideoFrameLease& lease) {
     std::vector<uint8_t> bytes(size_t(image.width) * size_t(image.height) * 3 / 2);
 #ifdef CERES_METAL
     @autoreleasepool {
-        id<MTLDevice> device = MTLCreateSystemDefaultDevice();
-        require(device != nil, "Metal device is unavailable");
-        CVMetalTextureCacheRef cache = nullptr;
-        require(CVMetalTextureCacheCreate(kCFAllocatorDefault, nullptr, device, nullptr, &cache) == kCVReturnSuccess,
-                "Cannot create the Metal video texture cache");
-        struct ReleaseCache { CVMetalTextureCacheRef value; ~ReleaseCache() { CFRelease(value); } } release_cache{cache};
+        const auto& surface = detail::metal_surface(image);
+        id<MTLDevice> device = surface.owner->device;
         id<MTLCommandQueue> queue = [device newCommandQueue];
-        const auto pixels = detail::metal_pixels(image);
         size_t destination = 0;
         for (size_t plane = 0; plane < 2; ++plane) {
-            CVMetalTextureRef reference = nullptr;
+            id<MTLTexture> texture = surface.texture(plane);
+            require(texture != nil, "Frame has no Metal plane texture");
             const size_t width = size_t(image.width) / (plane ? 2 : 1);
             const size_t height = size_t(image.height) / (plane ? 2 : 1);
-            const auto format = plane ? MTLPixelFormatRG8Unorm : MTLPixelFormatR8Unorm;
-            require(CVMetalTextureCacheCreateTextureFromImage(kCFAllocatorDefault, cache, pixels, nullptr,
-                        format, width, height, plane, &reference) == kCVReturnSuccess,
-                    "Cannot expose decoded NV12 to Metal");
-            struct ReleaseTexture { CVMetalTextureRef value; ~ReleaseTexture() { CFRelease(value); } } release{reference};
             const size_t pitch = (size_t(image.width) + 255) & ~size_t(255);
             id<MTLBuffer> staging = [device newBufferWithLength:pitch * height options:MTLResourceStorageModeShared];
             require(staging != nil, "Cannot allocate Metal readback buffer");
             id<MTLCommandBuffer> command = [queue commandBuffer];
             id<MTLBlitCommandEncoder> blit = [command blitCommandEncoder];
-            [blit copyFromTexture:CVMetalTextureGetTexture(reference) sourceSlice:0 sourceLevel:0
+            [blit copyFromTexture:texture sourceSlice:0 sourceLevel:0
                 sourceOrigin:MTLOriginMake(0,0,0) sourceSize:MTLSizeMake(width,height,1)
                 toBuffer:staging destinationOffset:0 destinationBytesPerRow:pitch destinationBytesPerImage:pitch * height];
             [blit endEncoding]; [command commit]; [command waitUntilCompleted];
@@ -242,9 +233,15 @@ int main(int argc, char** argv) {
     const std::filesystem::path inputs = argv[2], report_path = argv[3];
     Json report{{"passed", false},
                 {"gpu_execution_requested", true},
-                {"cuda_initialised", false},
                 {"frames", Json::array()},
                 {"transitions", Json::array()}};
+#ifdef CERES_METAL
+    report["graphics_backend"] = "METAL";
+    report["video_backend"] = "VIDEOTOOLBOX";
+#else
+    report["graphics_backend"] = "OPENGL_CUDA";
+    report["cuda_initialised"] = false;
+#endif
     try {
         const auto reference = read_reference(inputs);
         report["cpu_reference"] = reference;

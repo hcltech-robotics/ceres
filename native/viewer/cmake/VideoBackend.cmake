@@ -34,8 +34,7 @@ message(STATUS "Video decoder: ${CERES_SELECTED_VIDEO_BACKEND}")
 
 function(ceres_add_video_library)
   if(CERES_SELECTED_VIDEO_BACKEND STREQUAL "VIDEOTOOLBOX")
-    enable_language(OBJCXX)
-    add_library(ceres_video STATIC src/video.cpp src/videotoolbox.mm)
+    add_library(ceres_video STATIC src/video.cpp src/videotoolbox.mm src/metal_video_surface.mm)
     target_link_libraries(ceres_video PUBLIC ceres_core
       "-framework VideoToolbox" "-framework CoreMedia" "-framework CoreVideo"
       "-framework Metal" "-framework Foundation")

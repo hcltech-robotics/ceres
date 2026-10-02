@@ -15,6 +15,17 @@ option(CERES_BUILD_APP_SERVICES "Build networking, task, and UI service tests wi
 option(CERES_BUILD_BACKEND_PROBES "Build hardware backend qualification probes without the application" OFF)
 option(CERES_BUILD_TESTS "Build deterministic acceptance tests" ON)
 include(cmake/VideoBackend.cmake)
+# Language rules must be established in directory scope, not inside the video
+# target helper: CMake keeps the compiler cached but loses function-local rules.
+if(APPLE AND (CERES_BUILD_APP OR CERES_BUILD_APP_SERVICES OR CERES_BUILD_BACKEND_PROBES))
+  enable_language(OBJCXX)
+  if(CMAKE_OSX_DEPLOYMENT_TARGET VERSION_LESS "14.0")
+    message(FATAL_ERROR "The macOS backend requires deployment target 14.0 or newer")
+  endif()
+  if(NOT CMAKE_OSX_ARCHITECTURES STREQUAL "arm64")
+    message(FATAL_ERROR "The macOS backend requires a single arm64 architecture")
+  endif()
+endif()
 if(CERES_SELECTED_GRAPHICS_BACKEND STREQUAL "OPENGL_CUDA" AND NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
   if(CERES_SELECTED_VIDEO_BACKEND STREQUAL "JETSON")
     set(CMAKE_CUDA_ARCHITECTURES "87" CACHE STRING "CUDA device architectures")

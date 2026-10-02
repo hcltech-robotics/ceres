@@ -4578,6 +4578,9 @@ int run_app(const AppOptions& options) {
     auto final_decoder = decoder->status();
     auto final_secondary = secondary_decoder->status();
     Json metrics = {
+        {"graphics_backend", "OPENGL_CUDA"},
+        {"compute_backend", "CUDA"},
+        {"video_backend", final_decoder.backend},
         {"opengl_vendor", reinterpret_cast<const char*>(glGetString(GL_VENDOR))},
         {"opengl_renderer", reinterpret_cast<const char*>(glGetString(GL_RENDERER))},
         {"opengl_version", reinterpret_cast<const char*>(glGetString(GL_VERSION))},

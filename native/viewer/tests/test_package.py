@@ -132,7 +132,9 @@ class PackageTests(unittest.TestCase):
 
     def test_content_tampering_is_rejected(self):
         package = self.fixture_package()
-        verify.verify_contents(package, "linux-x64", "1.2.3")
+        manifest, _, _ = verify.verify_contents(package, "linux-x64", "1.2.3")
+        self.assertEqual(manifest["graphics_backend"], "OPENGL_CUDA")
+        self.assertEqual(manifest["compute_backend"], "CUDA")
         (package / "ffmpeg").write_bytes(b"changed")
         with self.assertRaisesRegex(ValueError, "Checksum mismatch"):
             verify.verify_contents(package, "linux-x64", "1.2.3")

@@ -253,7 +253,7 @@ def verify_contents(root, platform, version):
     source = json.loads((root / "provenance/source.json").read_text(encoding="utf-8"))
     for key in ("platform", "release_version", "source_revision"):
         require(source[key] == manifest[key], "Source provenance differs: " + key)
-    for key in ("video_backend", "jetson_linux_release"):
+    for key in ("graphics_backend", "compute_backend", "video_backend", "jetson_linux_release"):
         require(source.get(key) == manifest.get(key), "Decoder provenance differs: " + key)
     if jetson:
         require((root / "provenance/nv_tegra_release").read_text(encoding="utf-8").strip() ==

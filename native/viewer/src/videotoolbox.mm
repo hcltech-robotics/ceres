@@ -42,6 +42,7 @@ class VideoToolboxDecoder final : public DecoderBackend {
     size_t inflight = 0;
     OSStatus callback_error = noErr;
     std::array<std::weak_ptr<GpuImage>, 4> leases;
+    std::shared_ptr<MetalVideoDevice> metal;
     std::string gpu;
 
     static void output(void* opaque, void* frame, OSStatus status, VTDecodeInfoFlags,
@@ -53,7 +54,7 @@ class VideoToolboxDecoder final : public DecoderBackend {
             if (image)
                 CVPixelBufferRetain(image);
         } catch (...) {
-            self.callback_error = memFullErr;
+            self.callback_error = kCVReturnAllocationFailed;
         }
     }
     void destroy_session() {
@@ -112,10 +113,11 @@ class VideoToolboxDecoder final : public DecoderBackend {
         if (device.api != GraphicsApi::metal)
             throw std::invalid_argument("VideoToolbox requires the Metal graphics backend");
         @autoreleasepool {
-            id<MTLDevice> metal = MTLCreateSystemDefaultDevice();
+            metal = device.owner ? std::dynamic_pointer_cast<MetalVideoDevice>(device.owner)
+                                 : std::make_shared<MetalVideoDevice>();
             if (!metal)
-                throw std::runtime_error("No Metal device is available");
-            gpu = metal.name.UTF8String;
+                throw std::invalid_argument("Video device owner is not a Metal device");
+            gpu = metal->device.name.UTF8String;
         }
     }
     ~VideoToolboxDecoder() override {
@@ -215,7 +217,7 @@ class VideoToolboxDecoder final : public DecoderBackend {
                 continue;
             }
             auto image = std::make_shared<GpuImage>();
-            image->surface = std::make_shared<MetalVideoSurface>(output.pixels);
+            image->surface = std::make_shared<MetalVideoSurface>(metal, output.pixels);
             image->width = int(CVPixelBufferGetWidth(output.pixels));
             image->height = int(CVPixelBufferGetHeight(output.pixels));
             const auto pixel_format = CVPixelBufferGetPixelFormatType(output.pixels);
