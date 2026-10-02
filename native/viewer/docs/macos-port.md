@@ -50,7 +50,7 @@ python3 probe-macos.py --build . --fixtures fixtures \
 
 This runs the same shaders and decoder fixtures built by CI, without rebuilding
 on the Mac. Keep the full evidence directory, including the input hashes, logs
-and probe reports. It is not a signed application or a distribution test.
+and decoder, image-conversion and reduction reports. It is not a signed application or a distribution test.
 
 For a CPU-only build, leave both `CERES_BUILD_APP_SERVICES` and
 `CERES_BUILD_BACKEND_PROBES` off. No CUDA, Objective-C++, windowing or Apple GPU
@@ -75,6 +75,11 @@ trust-root helpers use CoreFoundation and Security on macOS.
 - The decoder probe uses the existing independent FFmpeg NV12 references across
   resolution changes. It also covers dual-camera metadata, retained frames,
   preroll and rapid seek/cancel generations. Metal readback is test-only.
+- Metal NV12 conversion ports limited/full range, BT.601/BT.709 matrices, image
+  flips and calibrated radial/tangential undistortion. Encoding stays on the GPU
+  and does not wait or read pixels back. CUDA and Metal adapters share the same
+  image assertions and tolerances; hardware parity is pending the physical gate.
+  The Metal application renderer does not consume this kernel yet.
 - The reduction probe sorts 262,144 records with 64-bit spatial keys and stable
   observation identifiers, then performs segmented compensated FP32 summation.
   It checks exact evidence counts and compares sums against an FP64 CPU reference.
@@ -95,7 +100,7 @@ trust-root helpers use CoreFoundation and Security on macOS.
    preparation. Port scene materials, skinning, trails, frusta, video planes, map
    shading, screenshots, GPU timing, Retina/display changes and completion-based
    resource reuse. The UI texture identifier now accommodates Metal object handles.
-3. Port NV12 processing, undistortion, stereo, environment-depth unprojection,
+3. Validate/integrate Metal NV12 processing and undistortion; port stereo, environment-depth unprojection,
    TSDF fusion, coarsening, hand masking, LOD, snapshots and resumed saved-map
    fusion. Reuse backend-specific adapters for existing numerical/identity tests.
 4. Assemble the self-contained app/exporter/FFmpeg bundle; relocate dylibs, sign

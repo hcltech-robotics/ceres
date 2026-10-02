@@ -45,16 +45,19 @@ def main():
             raise RuntimeError("This Mac is not the Apple M1/16 GiB qualification baseline")
         if int(report["macos"].split(".")[0]) < 14:
             raise RuntimeError("The macOS deployment baseline is 14.0")
-        files = [build / name for name in ("test_videotoolbox", "test_metal_reduction", "ceres-probes.metallib")]
+        files = [build / name for name in ("test_videotoolbox", "test_image_metal", "test_metal_reduction", "ceres-probes.metallib")]
         files += sorted(args.fixtures.resolve().glob("*"))
         report["inputs"] = {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in files if p.is_file()}
         run_probe([build / "test_videotoolbox", "--run-gpu", args.fixtures.resolve(), output / "videotoolbox.json"],
                   output / "videotoolbox.log")
+        run_probe([build / "test_image_metal", build / "ceres-probes.metallib", output / "image.json"],
+                  output / "image.log")
         run_probe([build / "test_metal_reduction", build / "ceres-probes.metallib", output / "reduction.json"],
                   output / "reduction.log")
         report["decoder"] = json.loads((output / "videotoolbox.json").read_text())
+        report["image"] = json.loads((output / "image.json").read_text())
         report["reduction"] = json.loads((output / "reduction.json").read_text())
-        if not report["decoder"].get("passed") or not report["reduction"].get("passed"):
+        if not all(report[name].get("passed") for name in ("decoder", "image", "reduction")):
             raise RuntimeError("A backend probe did not pass")
         report["passed"] = True
     except (RuntimeError, OSError, ValueError, subprocess.SubprocessError) as error:

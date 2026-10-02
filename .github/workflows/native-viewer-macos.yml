@@ -58,7 +58,7 @@ jobs:
           app = Path(os.environ["RUNNER_TEMP"]) / "Probe.app"
           binary = app / "Contents/MacOS"
           binary.mkdir(parents=True)
-          for name in ("test_videotoolbox", "test_metal_reduction"):
+          for name in ("test_videotoolbox", "test_image_metal", "test_metal_reduction"):
               shutil.copy2(Path("build-native") / name, binary / name)
           Path("build-native/macos-probes-closure.json").write_text(json.dumps(verifier.verify_macos_binaries(app), indent=2))
           PYCODE
@@ -70,7 +70,7 @@ jobs:
           from pathlib import Path
           bundle = Path("ceres-macos-backend-probes")
           bundle.mkdir()
-          for name in ("test_videotoolbox", "test_metal_reduction", "ceres-probes.metallib", "macos-probes-closure.json"):
+          for name in ("test_videotoolbox", "test_image_metal", "test_metal_reduction", "ceres-probes.metallib", "macos-probes-closure.json"):
               shutil.copy2(Path("build-native") / name, bundle / name)
           shutil.copy2("native/viewer/scripts/probe-macos.py", bundle)
           shutil.copytree("native/viewer/tests/fixtures/nvdec", bundle / "fixtures")
